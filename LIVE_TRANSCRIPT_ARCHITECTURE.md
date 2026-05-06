@@ -49,9 +49,12 @@ If `is_final` is `True`, the backend appends the formatted line to the `transcri
 
 ### Step 6: Frontend Rendering (`MeetingDetailPage.tsx`)
 The React app maintains a persistent WebSocket connection to `/ws/{meeting_id}`.
-- **`liveTranscript` State**: Stores an array of finalized sentences.
-- **`activePartial` State**: Stores the current "typing" sentence for the active speaker.
-- **UI Logic**: Renders finalized lines normally and the partial line with a pulsing "typing..." indicator.
+- **WS URL Construction**: Uses `VITE_API_URL` directly when it's an absolute `http(s)://` URL; otherwise (e.g. `VITE_API_URL=/` in production builds) falls back to `${proto}//${window.location.host}/ws/{id}`. The relative-URL branch fixes the bug where `new WebSocket("//ws/49")` resolved to `ws://ws/49` and failed.
+- **`liveLines` State**: Array of `{ speaker, text, timestamp }`. Seeded from `meeting.transcript` on initial fetch; appended on each WS final.
+- **`activePartial` State**: Current "typing" sentence; cleared when a final lands.
+- **Slack-style Grouping**: `useMemo`s collapse consecutive same-speaker lines into a single group with one avatar/name header.
+- **Tab Routing**: When initial fetch returns `status: "processing"`, auto-switches to the Transcript tab.
+- **Completion Hydration**: On `status_update: completed | failed`, refetches `/allmeetings/{id}` after a 600 ms delay (with one retry if the response still looks incomplete) and replaces the meeting state — populates summary, transcript_raw, and tasks without a manual reload.
 
 ---
 
@@ -74,6 +77,8 @@ Recall.ai often changes its payload structure between versions or across differe
 | Issue | Cause | Fix |
 | :--- | :--- | :--- |
 | No live text | `APP_PUBLIC_URL` is localhost | Set a public ngrok/Cloudflare URL in `.env`. |
+| `subscribers=0` in `[WS BROADCAST]` log | Frontend WS not connected | Browser console: look for `WebSocket connection to 'ws://ws/...' failed` — that means `VITE_API_URL` is relative and the page is missing the URL fallback. Rebuild frontend. |
+| Page shows "completed" with empty content | Frontend refetch failed/raced pipeline | Check browser console for `[refetch] meeting completion data`. If `hasTranscriptRaw: false`, the pipeline broadcast fired before DB writes settled — confirm `save_tasks` runs before broadcast in `meeting_pipeline.py`. |
 | "Empty text" logs | Schema mismatch | Verify `extract_transcript_fields` against raw bot logs. |
 | Text appears late | Mode set to `accuracy` | Use `prioritize_accuracy` with `language_code: 'en'` for faster results. |
 | Bot not joining | Invalid Meeting URL | Ensure the URL is a direct Google Meet/Zoom link. |

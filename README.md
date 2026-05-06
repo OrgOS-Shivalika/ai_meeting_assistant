@@ -4,15 +4,16 @@ The **Agentic Meeting Assistant** is a powerful backend service designed to auto
 
 ## 🚀 Features
 
-- **Automated Bot Attendance**: Joins meetings automatically via a URL.
-- **Transcript Processing**: Fetches and cleans raw transcripts into a readable format.
-- **AI-Powered Analysis**: Uses GPT-4o-mini to generate:
-  - Concise Summaries
-  - Key Decisions
-  - Action Items (with owners and due dates)
-  - Risks and Blockers
-- **Asynchronous Workflow**: Processes meetings in the background to ensure API responsiveness.
-- **Robust Logging**: Comprehensive tracking of every step in the meeting lifecycle.
+- **Automated Bot Attendance**: Joins meetings automatically via URL (Google Meet, Zoom, Teams, Webex).
+- **Live Transcription**: Sub-second streaming transcript pushed to the browser over WebSockets while the meeting is in progress (see `LIVE_TRANSCRIPT_DOCS.md`).
+- **Slack-style Transcript UI**: Color-coded speaker avatars, grouped consecutive turns, in-progress "typing…" indicator.
+- **AI-Powered Analysis**: Uses GPT-4o-mini to generate concise summaries, key decisions, action items (with owners/due dates), and risks.
+- **Auto-Hydration on Completion**: When the pipeline finishes, the frontend refetches automatically — no manual page refresh needed to see the final summary, transcript, and tasks.
+- **Source Detection**: Meeting list/cards display the actual platform icon (Meet / Zoom / Teams / Webex) by parsing the URL.
+- **Participants & Tasks**: Per-meeting attendee list and AI-extracted action items, both surfaced on the dashboard.
+- **Google Calendar Integration**: Optional OAuth flow links a user's calendar for cross-referencing attendees and meetings.
+- **Asynchronous Workflow**: Processes meetings in a `BackgroundTasks` thread so the API stays responsive.
+- **Robust Logging**: `[LIVE TRANSCRIPT]` and `[WS BROADCAST]` log lines make the live pipeline easy to debug end-to-end.
 
 ---
 
@@ -31,12 +32,18 @@ The project follows a **Layered Architecture** with a clear separation of concer
 
 ## 🛠️ Tech Stack
 
+**Backend**
 - **Language**: Python 3.10+
-- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Web API)
-- **Server**: [Uvicorn](https://www.uvicorn.org/) (ASGI Server)
+- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) + [Uvicorn](https://www.uvicorn.org/) (ASGI)
+- **DB / Migrations**: SQLAlchemy ORM + Alembic
 - **AI**: [OpenAI API](https://openai.com/) (GPT-4o-mini)
-- **Meeting Infrastructure**: [Recall.ai](https://www.recall.ai/) (Recording & Transcription)
+- **Meeting Infrastructure**: [Recall.ai](https://www.recall.ai/) (recording, diarized transcripts, real-time WebSocket stream)
 - **Data Validation**: [Pydantic](https://docs.pydantic.dev/)
+
+**Frontend** (`meeting_ai_frontend/`)
+- React + TypeScript + Vite
+- Tailwind CSS + lucide-react icons
+- WebSocket client for live transcript + status updates
 
 ---
 
@@ -89,29 +96,36 @@ The API will be available at `http://localhost:8000`.
 
 ## 📖 API Documentation
 
-### Process Meeting
-Triggers the background process for a meeting.
+The complete reference lives in [`API_REFERENCE.md`](API_REFERENCE.md) (and the live OpenAPI docs at `http://localhost:8000/docs`). The most-used endpoints:
 
-- **URL**: `/meetings/process`
-- **Method**: `POST`
-- **Payload**:
-  ```json
-  {
-    "meeting_url": "https://zoom.us/j/..."
-  }
-  ```
-- **Response**:
-  ```json
-  {
-    "status": "processing",
-    "message": "Meeting processing started"
-  }
-  ```
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/inject-bot` | Spawn a Recall.ai bot and start the pipeline |
+| `GET`  | `/allmeetings` | List meetings owned by the current user (with participants) |
+| `GET`  | `/allmeetings/{id}` | Full detail: transcript, summary, tasks, participants |
+| `DELETE` | `/meetings/{id}` | Delete a meeting (cascades to tasks + participants) |
+| `GET`  | `/tasks` | All tasks for the current user (filterable by `owner`, `priority`) |
+| `WS`   | `/ws/{id}` | Live transcript + status updates pushed to the frontend |
+| `POST` | `/webhook/recall/{id}` | Recall.ai → backend transcript ingest |
+| `GET`  | `/health` | Liveness probe |
 
-### Health Check
-Check the status of the service.
-- **URL**: `/health`
-- **Method**: `GET`
+### Quick example
+
+```bash
+# Authenticate to get a JWT (replace with your credentials)
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"..."}' | jq -r .access_token)
+
+# Spawn a bot
+curl -X POST http://localhost:8000/inject-bot \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"meeting_url":"https://meet.google.com/abc-defg-hij"}'
+
+# Open ws://localhost:8000/ws/<meeting_id> in the frontend
+# to watch transcript_update + status_update events stream in.
+```
 
 ---
 

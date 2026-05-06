@@ -55,17 +55,22 @@ This router manages persistent, two-way connections with the clients.
 
 ### D. The React Frontend (`MeetingDetailPage.tsx`)
 
-The frontend handles the display logic and connection resilience.
+The frontend handles display, tab routing, and post-completion data hydration.
 
-*   **Connection Setup:** The component dynamically determines the WebSocket URL using `window.location.hostname` (ensuring it works on `localhost` or local network IPs) and connects to `ws://...:8000/ws/{id}`.
+*   **Connection Setup:** The WS URL is derived from `VITE_API_URL`. If it's an absolute `http(s)://` URL, the protocol is swapped to `ws(s)://`. If it's a relative value (the default in production builds, e.g. `VITE_API_URL=/`), the URL falls back to `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/{id}` — this avoids the `new WebSocket()` constructor failing on relative URLs.
 *   **State Management:**
-    *   `liveTranscript`: An array of finalized sentences.
-    *   `activePartial`: A temporary state holding the currently spoken, unfinished sentence.
-*   **Rendering Logic:**
-    1.  **Ongoing Meeting:** If the meeting is live, it maps over `liveTranscript`. If someone is currently speaking, it renders the `activePartial` state with a pulsing "typing..." indicator.
-    2.  **Completed Meeting (Historical):** If the meeting is marked as `completed`, the UI abandons the live state and maps over the high-quality, fully diarized `meeting.transcript_raw` fetched from the database.
-    3.  **Empty States:** It gracefully handles scenarios where no one spoke by displaying a "No transcript available" message instead of being stuck in a "Listening..." loop.
-*   **Auto-Scroll:** A `useEffect` hook ensures that every time the `liveTranscript` array grows, the `div` automatically scrolls to the bottom so the user always sees the latest text.
+    *   `liveLines`: An array of `{ speaker, text, timestamp }` objects (was a plain `string[]` historically). On mount, it's seeded from `meeting.transcript`; new finals from the WS are appended.
+    *   `activePartial`: The in-progress sentence shown with a "typing…" indicator. Cleared when a final arrives.
+    *   `liveGroups` / `completedGroups` (memoized): Consecutive lines from the same speaker are merged into a single group so the UI does not repeat the avatar/name on every chunk.
+*   **Tab Routing:**
+    *   Initial fetch: if `meeting.status === "processing"`, the page jumps to the **Transcript** tab automatically so users land on the live view.
+    *   `status_update` from WS: when `completed` or `failed` arrives, the page refetches `/allmeetings/{id}` (with a small 600 ms delay to let post-status DB writes settle, plus one retry if the response still looks incomplete) and replaces the meeting state — so summary, transcript_raw, and tasks all populate without a manual page refresh.
+*   **Rendering (Slack-style):**
+    1.  **Live mode:** Renders `liveGroups` with color-coded square avatars (deterministic per speaker via name hash), bold username + small timestamp inline, then the message body. Hover row highlights.
+    2.  **Completed mode:** Same Slack styling, but groups are derived from `meeting.transcript_raw` (`participant.name`, joined `words[]`, `start_timestamp.absolute`). If `transcript_raw` is empty (e.g. the refetch is still in flight) it falls back to `liveGroups` so the user never sees a blank pane.
+    3.  **Active partial:** If the partial belongs to the same speaker as the previous group, it slots in under that group with no avatar repeat (Slack-style continuation). Otherwise a fresh row with "typing…" header.
+    4.  **Empty states:** "Connecting to audio stream…" while `processing` and no lines yet; "No dialogue recorded" when completed with nothing.
+*   **Auto-Scroll:** A `useEffect` keeps the bottom of the transcript pane in view as new lines arrive.
 
 ---
 
@@ -91,6 +96,9 @@ If `APP_PUBLIC_URL` is not set or is set to localhost, the backend will intentio
     *   Check if ngrok is running and `APP_PUBLIC_URL` matches the current tunnel.
     *   Did the bot join a new meeting *after* ngrok was started? (Bot configs are set at creation time; old bots won't magically find the new ngrok URL).
     *   Are participants speaking loud enough? Recall AI might discard quiet audio.
+    *   Look at the backend log for `[WS BROADCAST] meeting=N subscribers=K`. If `subscribers=0`, the frontend WS isn't connected — open the browser console and check for a `WebSocket connected to:` log. If you see a malformed URL like `ws://ws/49`, it usually means `VITE_API_URL` was set to a relative value like `/` at build time and the page is older than the WS-URL-fallback fix.
+*   **Page Stays Empty After Meeting Ends (no manual refresh needed)?**
+    *   The frontend refetches on `status_update`. Confirm in the browser console you see `[refetch] meeting completion data { hasTranscriptRaw, hasSummary, taskCount }`. If `hasTranscriptRaw: false` and `hasSummary: false` even after the retry, the pipeline isn't finishing its DB writes before the WS broadcast — verify `save_tasks` is running before the broadcast in `app/pipelines/meeting_pipeline.py`.
 *   **Live Text is Delayed?**
     *   This is expected when `language_code` is set to `"auto"` and `mode` is `"prioritize_accuracy"`. Recall AI holds the data briefly to ensure perfect spelling and translation across multiple languages.
 *   **Connection Drops?**
