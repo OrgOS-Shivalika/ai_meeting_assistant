@@ -26,14 +26,26 @@ class MeetingPipeline:
             logger.warning(f"Failed to parse date string: {date_str}")
             return None
 
-    def save_participants(self, db, meeting, transcript_json):
+    def save_participants(self, db, meeting, transcript_json, bot_data=None):
         # Unique participants from transcript using their Recall ID
         unique_participants = {} # recall_id -> name
+        
+        # 1. First, populate from Recall bot's meeting_participants list (if available)
+        # This list includes everyone who joined the meeting, even if they didn't speak.
+        if bot_data and "meeting_participants" in bot_data:
+            logger.info(f"Using bot metadata for {len(bot_data['meeting_participants'])} participants")
+            for p in bot_data["meeting_participants"]:
+                p_id = p.get("id")
+                name = p.get("name")
+                if p_id and name:
+                    unique_participants[p_id] = name
+        
+        # 2. Fallback/Supplement from transcript (just in case)
         for block in transcript_json:
             p_info = block.get("participant", {})
             p_id = p_info.get("id")
             name = p_info.get("name")
-            if p_id and name:
+            if p_id and name and p_id not in unique_participants:
                 unique_participants[p_id] = name
         
         # Get attendee map from Google Calendar data if available
@@ -179,7 +191,11 @@ class MeetingPipeline:
 
             # ✅ Save Participants
             logger.info("👥 Saving participants...")
-            self.save_participants(db, meeting, transcript_json)
+            try:
+                bot_data = self.recall.get_bot(bot_id)
+            except Exception:
+                bot_data = None
+            self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
             logger.info("🧠 Running AI analysis...")
             result = OpenAITranscriptAnalyzer.analyze(formatted)
@@ -198,6 +214,11 @@ class MeetingPipeline:
             meeting.status = "completed"
             db.commit()
 
+            # Save tasks BEFORE broadcasting so the frontend refetch sees the
+            # complete picture (transcript_raw, summary, tasks) on the first
+            # round-trip instead of needing a manual page refresh.
+            self.save_tasks(db, meeting.id, result_json.get("action_items", []))
+
             # Broadcast status update via WebSocket
             try:
                 from app.api.ws_router import manager
@@ -206,9 +227,6 @@ class MeetingPipeline:
                 asyncio.run(manager.broadcast(meeting.id, {"type": "status_update", "status": "completed"}))
             except Exception as ws_err:
                 logger.error(f"Failed to broadcast status update: {ws_err}")
-
-            # Save tasks
-            self.save_tasks(db, meeting.id, result_json.get("action_items", []))
 
             return result_json
 

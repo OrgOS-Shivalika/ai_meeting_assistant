@@ -1,13 +1,17 @@
 # API Reference Guide - Agentic Meeting Assistant
 
-Quick reference for all API endpoints and specifications.
+Quick reference for all HTTP and WebSocket endpoints exposed by the FastAPI backend.
 
 ## Table of Contents
 - [Base URL](#base-url)
 - [Authentication](#authentication)
-- [Endpoints](#endpoints)
+- [Meetings](#meetings)
+- [Tasks](#tasks)
+- [Webhooks](#webhooks)
+- [WebSockets](#websockets)
+- [Auth & Google Calendar](#auth--google-calendar)
 - [Response Codes](#response-codes)
-- [Examples](#examples)
+- [Status Values](#status-values)
 
 ---
 
@@ -17,210 +21,240 @@ Quick reference for all API endpoints and specifications.
 http://localhost:8000
 ```
 
-Production: Configure in environment variables
+For production / live transcripts, the backend must be reachable from the public internet (Recall.ai posts back to it). Set `APP_PUBLIC_URL` in `.env` to the public tunnel URL (e.g. ngrok, Cloudflare Tunnel) — see `LIVE_TRANSCRIPT_DOCS.md`.
 
 ---
 
 ## Authentication
 
-Currently, the API uses environment variable-based authentication for external services:
-- **Recall.ai**: Bearer token in `Authorization` header
-- **OpenAI**: API key in request headers
+Most endpoints require a Bearer token in the `Authorization` header:
 
-Future versions will implement API key-based client authentication.
-
----
-
-## Endpoints
-
-### 1. Health Check
-
-**GET** `/health`
-
-Check if the application is running and healthy.
-
-**Response**: 
-```json
-{
-  "status": "healthy"
-}
+```
+Authorization: Bearer <jwt-token>
 ```
 
-**Status Code**: `200 OK`
+The token is obtained from `/auth/login` (email + password) or via the Google OAuth flow (`/auth/google/login`). Frontend stores it in `localStorage` under `token` and the `apiClient` helper attaches it automatically.
+
+Endpoints under `/webhook/...` and `/ws/recall/...` are **unauthenticated** — they are called by Recall.ai's servers and are scoped by `meeting_id` in the path.
 
 ---
 
-### 2. Create Meeting Job
+## Meetings
 
-**POST** `/meetings`
+### 1. Create Meeting Job
 
-Submit a Google Meet URL for processing.
+**POST** `/inject-bot`
+
+Spawns a Recall.ai bot for the given meeting URL and starts the background pipeline (transcription → AI analysis → tasks).
+
+**Auth**: required.
 
 **Request Body**:
 ```json
-{
-  "meeting_url": "https://meet.google.com/kkx-yhbd-dnc"
-}
+{ "meeting_url": "https://meet.google.com/abc-defg-hij" }
 ```
 
-**Response Success** (200 OK):
+**Response 200 OK**:
 ```json
 {
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "processing"
+  "meeting_id": 49
 }
 ```
 
-**Response Validation Error** (422 Unprocessable Entity):
+The meeting starts in `status: "processing"`. Subscribe to `/ws/{meeting_id}` for live transcript and status updates, or poll `/allmeetings/{meeting_id}`.
+
+---
+
+### 2. List Meetings
+
+**GET** `/allmeetings`
+
+Returns all meetings owned by the authenticated user, ordered by `created_at` descending. Each meeting includes its participants list.
+
+**Auth**: required.
+
+**Response 200 OK**:
+```json
+[
+  {
+    "id": 49,
+    "meeting_url": "https://meet.google.com/abc-defg-hij",
+    "title": "Product Sync — May 2026",
+    "status": "completed",
+    "summary": "Discussed Q2 timeline and resource allocation.",
+    "created_at": "2026-05-06T14:42:00Z",
+    "updated_at": "2026-05-06T15:18:00Z",
+    "participants": [
+      { "id": 1, "name": "Alice Johnson", "email": "alice@example.com", "is_organizer": "True", "avatar_url": null },
+      { "id": 2, "name": "Bob Singh",     "email": "bob@example.com",   "is_organizer": "False", "avatar_url": null }
+    ]
+  }
+]
+```
+
+---
+
+### 3. Get Meeting Detail
+
+**GET** `/allmeetings/{meeting_id}`
+
+Full detail for a single meeting including transcript, AI summary, tasks, and participants.
+
+**Auth**: not enforced on this endpoint today (open by `meeting_id`).
+
+**Response 200 OK**:
 ```json
 {
-  "detail": [
+  "id": 49,
+  "meeting_url": "https://meet.google.com/abc-defg-hij",
+  "title": "Product Sync — May 2026",
+  "status": "completed",
+  "summary": "Discussed Q2 timeline...",
+  "transcript_raw": [ /* full Recall.ai transcript JSON, structured by speaker turn */ ],
+  "transcript_text": "Alice: Let's discuss the Q2 timeline.\nBob: I agree...",
+  "transcript": "Alice: Let's discuss...\nBob: I agree...",
+  "created_at": "2026-05-06T14:42:00Z",
+  "updated_at": "2026-05-06T15:18:00Z",
+  "tasks": [
     {
-      "loc": ["body", "meeting_url"],
-      "msg": "field required",
-      "type": "value_error.missing"
+      "id": 12, "task": "Create detailed project timeline",
+      "owner": "Alice", "priority": "high",
+      "due_date": "2026-05-13T00:00:00Z",
+      "is_completed": false,
+      "created_at": "...", "updated_at": "..."
     }
+  ],
+  "participants": [
+    { "id": 1, "name": "Alice Johnson", "email": "alice@example.com", "is_organizer": "True", "avatar_url": null }
   ]
 }
 ```
 
-**Query Parameters**: None
-
-**Headers**: 
-- `Content-Type: application/json`
-
----
-
-### 3. Check Job Status
-
-**GET** `/meetings/{job_id}`
-
-Check the current status of a meeting processing job.
-
-**Path Parameters**:
-- `job_id` (string, required) - Unique job identifier from job creation
-
-**Response - Processing**:
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "processing"
-}
-```
-
-**Response - Completed**:
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "completed"
-}
-```
-
-**Response - Failed**:
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "failed"
-}
-```
-
-**Response - Job Not Found** (200 OK):
-```json
-{
-  "error": "Job not found"
-}
-```
-
-**Status Code**: `200 OK`
+**Field notes**:
+- `transcript_raw`: Recall.ai's structured JSON, available after the meeting completes.
+- `transcript_text`: Pretty-printed version of `transcript_raw`, set by `TranscriptProcessor.format()`.
+- `transcript`: Live text appended during the meeting from `transcript.data` webhook events. Used as a fallback transcript source while `transcript_raw` is being filled in.
 
 ---
 
-### 4. Get Job Results
+### 4. Delete Meeting
 
-**GET** `/meetings/{job_id}/result`
+**DELETE** `/meetings/{meeting_id}`
 
-Retrieve the analysis results of a completed job.
+Deletes the meeting and (via SQLAlchemy `cascade="all, delete-orphan"`) its tasks and participants.
 
-**Path Parameters**:
-- `job_id` (string, required) - Unique job identifier
+**Auth**: required. The endpoint enforces `meeting.user_id == current_user.id`.
 
-**Response - Completed** (200 OK):
+**Response 200 OK**:
 ```json
-{
-  "status": "completed",
-  "result": {
-    "cleaned_transcript": [
-      {
-        "speaker": "Alice",
-        "text": "Let's discuss the Q2 timeline."
-      },
-      {
-        "speaker": "Bob",
-        "text": "I agree. We need to plan resource allocation."
-      }
-    ],
-    "summary": "The meeting discussed Q2 planning, timeline establishment, and resource requirements for the upcoming quarter.",
-    "key_decisions": [
-      "Use Python for backend development",
-      "Schedule weekly sync meetings",
-      "Allocate budget for new tools"
-    ],
-    "action_items": [
-      {
-        "task": "Create detailed project timeline",
-        "owner": "Alice",
-        "due_date": "2026-05-05",
-        "priority": "High",
-        "status": "Open"
-      },
-      {
-        "task": "Review resource requirements",
-        "owner": "Bob",
-        "due_date": "2026-05-08",
-        "priority": "Medium",
-        "status": "Open"
-      }
-    ],
-    "risks_blockers": [
-      {
-        "item": "Potential budget constraints",
-        "severity": "High",
-        "mitigation": "Resubmit budget request with detailed breakdown"
-      },
-      {
-        "item": "Team member availability",
-        "severity": "Medium",
-        "mitigation": "Finalize staffing plan by end of week"
-      }
-    ]
+{ "status": "ok", "deleted_id": 49 }
+```
+
+**Errors**:
+- `404 Not Found` — meeting doesn't exist
+- `403 Forbidden` — meeting belongs to another user
+
+---
+
+## Tasks
+
+### 5. List All Tasks (current user)
+
+**GET** `/tasks?owner=<name>&priority=<low|medium|high>`
+
+Returns all tasks across all meetings, optionally filtered.
+
+**Auth**: required.
+
+**Response 200 OK**:
+```json
+[
+  {
+    "id": 12,
+    "task": "Create detailed project timeline",
+    "owner": "Alice",
+    "priority": "high",
+    "due_date": "2026-05-13T00:00:00Z",
+    "is_completed": false,
+    "meeting_id": 49,
+    "created_at": "..."
   }
-}
+]
 ```
 
-**Response - Still Processing** (200 OK):
+### 6. List Tasks for a Meeting
+
+**GET** `/meetings/{meeting_id}/tasks`
+
+Returns the tasks belonging to one meeting.
+
+---
+
+## Webhooks
+
+### 7. Recall.ai Transcript Webhook
+
+**POST** `/webhook/recall/{meeting_id}`
+
+Called by Recall.ai for each `transcript.data` (finalized sentence) and `transcript.partial_data` (in-progress) event. The backend:
+
+1. Extracts `speaker`, `text`, `is_final` (handles nested `data.data.transcript`, `data.transcript`, and raw `words[]` shapes).
+2. Broadcasts a `{ type: "transcript_update", speaker, text, is_final }` JSON message to every frontend client connected on `/ws/{meeting_id}`.
+3. If `is_final`, appends `"<speaker>: <text>"` to the meeting's `transcript` column.
+
+**Auth**: none (scoped by `meeting_id` in path).
+
+### 8. Recall Bot Debug
+
+**GET** `/webhook/debug/{meeting_id}`
+
+Inspect the Recall.ai bot configuration for a meeting — useful when debugging missing transcripts.
+
+### 9. Test Webhook (dev)
+
+**POST** `/webhook/test/{meeting_id}`
+
+Simulates a Recall.ai transcript payload to verify the WebSocket pipeline. Returns the active subscriber count for the meeting.
+
+---
+
+## WebSockets
+
+### 10. Frontend Live Updates
+
+`ws://<host>/ws/{meeting_id}` (or `wss://...` in production)
+
+Pushes JSON messages to the frontend during a live meeting:
+
 ```json
-{
-  "status": "processing",
-  "message": "Result not ready yet"
-}
+{ "type": "transcript_update", "speaker": "Alice", "text": "Hello", "is_final": false }
+{ "type": "transcript_update", "speaker": "Alice", "text": "Hello world.", "is_final": true }
+{ "type": "status_update", "status": "completed" }
 ```
 
-**Response - Job Failed** (200 OK):
-```json
-{
-  "status": "failed",
-  "message": "Error message describing the failure"
-}
-```
+On `status_update: completed | failed` the frontend automatically refetches `/allmeetings/{meeting_id}` to load the final `transcript_raw`, `summary`, and `tasks` (a manual page refresh is no longer needed).
 
-**Response - Job Not Found** (200 OK):
-```json
-{
-  "error": "Job not found"
-}
-```
+**URL construction (frontend)**: if `VITE_API_URL` is an absolute `http(s)://` URL, the WS URL is derived from it; otherwise (e.g. `VITE_API_URL=/` in production builds served from FastAPI) it falls back to `window.location.host` so the WS still resolves correctly.
 
-**Status Code**: `200 OK`
+### 11. Recall.ai Realtime Receiver
+
+`ws://<host>/ws/recall/{meeting_id}`
+
+Used internally — Recall.ai's bot opens a persistent WebSocket here when the bot is created with `realtime_endpoints` set. Same parsing logic as the HTTP webhook, used as the primary path because ngrok's free tier doesn't intercept WS traffic the way it intercepts HTTP webhooks.
+
+---
+
+## Auth & Google Calendar
+
+These endpoints are defined in `app/api/auth_router.py` and `app/api/google_auth_router.py`. Highlights:
+
+- `POST /auth/register` — email + password registration.
+- `POST /auth/login` — returns a JWT.
+- `GET /auth/google/login` — starts Google OAuth.
+- `GET /auth/google/callback` — completes OAuth, persists `google_access_token` / `google_refresh_token`.
+
+Refer to those files for full request/response shapes.
 
 ---
 
@@ -228,257 +262,40 @@ Retrieve the analysis results of a completed job.
 
 | Code | Meaning | Use Case |
 |------|---------|----------|
-| 200 | OK | Successful request |
-| 201 | Created | Resource created successfully |
-| 400 | Bad Request | Invalid request format |
-| 404 | Not Found | Resource not found |
-| 422 | Unprocessable Entity | Validation error in request body |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Server-side error |
-| 503 | Service Unavailable | Service temporarily unavailable |
+| 200  | OK                 | Successful request |
+| 401  | Unauthorized       | Missing/invalid bearer token (apiClient redirects to `/login`) |
+| 403  | Forbidden          | Authenticated but not authorized for the resource (e.g. delete another user's meeting) |
+| 404  | Not Found          | Resource not found |
+| 422  | Unprocessable      | Validation error in request body |
+| 500  | Internal Error     | Server-side error |
 
 ---
 
 ## Status Values
 
-| Status | Meaning |
-|--------|---------|
-| `processing` | Job is currently being processed |
-| `completed` | Job finished successfully with results |
-| `failed` | Job encountered an error during processing |
+| Status        | Meaning |
+|---------------|---------|
+| `pending`     | Meeting record created, bot not yet attached |
+| `processing`  | Bot has joined; live transcript flowing |
+| `completed`   | Transcript persisted, AI analysis done, tasks saved |
+| `failed`      | Pipeline error — see backend logs |
 
 ---
 
-## Examples
+## Interactive Documentation
 
-### Complete Workflow Using cURL
+FastAPI auto-generates OpenAPI docs at:
 
-```bash
-# 1. Create a job
-JOB_RESPONSE=$(curl -X POST http://localhost:8000/meetings \
-  -H "Content-Type: application/json" \
-  -d '{"meeting_url": "https://meet.google.com/kkx-yhbd-dnc"}')
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc:      `http://localhost:8000/redoc`
 
-# Extract job_id
-JOB_ID=$(echo $JOB_RESPONSE | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
-echo "Job ID: $JOB_ID"
-
-# 2. Poll for completion
-while true; do
-  STATUS_RESPONSE=$(curl http://localhost:8000/meetings/$JOB_ID)
-  STATUS=$(echo $STATUS_RESPONSE | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-  echo "Current status: $STATUS"
-  
-  if [ "$STATUS" == "completed" ] || [ "$STATUS" == "failed" ]; then
-    break
-  fi
-  
-  sleep 10
-done
-
-# 3. Get results
-curl http://localhost:8000/meetings/$JOB_ID/result
-```
-
-### Complete Workflow Using Python
-
-```python
-import requests
-import json
-import time
-
-BASE_URL = "http://localhost:8000"
-
-# 1. Create job
-print("Creating meeting job...")
-create_response = requests.post(
-    f"{BASE_URL}/meetings",
-    json={"meeting_url": "https://meet.google.com/kkx-yhbd-dnc"},
-    headers={"Content-Type": "application/json"}
-)
-
-job_data = create_response.json()
-job_id = job_data["job_id"]
-print(f"✓ Job created: {job_id}")
-
-# 2. Poll for completion
-print("\nWaiting for processing...")
-max_wait = 1800  # 30 minutes
-start_time = time.time()
-poll_interval = 10
-
-while time.time() - start_time < max_wait:
-    status_response = requests.get(f"{BASE_URL}/meetings/{job_id}")
-    status_data = status_response.json()
-    status = status_data.get("status", "unknown")
-    
-    print(f"  Status: {status}")
-    
-    if status == "completed":
-        print("✓ Processing completed!")
-        break
-    elif status == "failed":
-        print("✗ Processing failed!")
-        break
-    
-    time.sleep(poll_interval)
-
-# 3. Get results
-if status == "completed":
-    print("\nFetching results...")
-    result_response = requests.get(f"{BASE_URL}/meetings/{job_id}/result")
-    result_data = result_response.json()
-    
-    print("\n=== ANALYSIS RESULTS ===\n")
-    
-    result = result_data["result"]
-    
-    print("SUMMARY:")
-    print(result["summary"])
-    
-    print("\nKEY DECISIONS:")
-    for decision in result["key_decisions"]:
-        print(f"  • {decision}")
-    
-    print("\nACTION ITEMS:")
-    for item in result["action_items"]:
-        print(f"  • {item['task']} (Owner: {item['owner']}, Due: {item['due_date']})")
-    
-    print("\nRISKS & BLOCKERS:")
-    for risk in result["risks_blockers"]:
-        print(f"  • {risk['item']} (Severity: {risk['severity']})")
-```
-
-### Using JavaScript/Node.js
-
-```javascript
-const axios = require('axios');
-
-const BASE_URL = 'http://localhost:8000';
-
-async function processMeeting(meetingUrl) {
-  try {
-    // 1. Create job
-    console.log('Creating meeting job...');
-    const createResponse = await axios.post(`${BASE_URL}/meetings`, {
-      meeting_url: meetingUrl
-    });
-    
-    const jobId = createResponse.data.job_id;
-    console.log(`✓ Job created: ${jobId}`);
-    
-    // 2. Poll for completion
-    console.log('\nWaiting for processing...');
-    let status = 'processing';
-    let maxWait = 1800000; // 30 minutes in ms
-    let startTime = Date.now();
-    
-    while (Date.now() - startTime < maxWait && status === 'processing') {
-      const statusResponse = await axios.get(`${BASE_URL}/meetings/${jobId}`);
-      status = statusResponse.data.status;
-      console.log(`  Status: ${status}`);
-      
-      if (status === 'processing') {
-        await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s
-      }
-    }
-    
-    if (status === 'completed') {
-      // 3. Get results
-      console.log('\nFetching results...');
-      const resultResponse = await axios.get(`${BASE_URL}/meetings/${jobId}/result`);
-      const result = resultResponse.data.result;
-      
-      console.log('\n=== ANALYSIS RESULTS ===\n');
-      console.log('SUMMARY:', result.summary);
-      console.log('KEY DECISIONS:', result.key_decisions);
-      console.log('ACTION ITEMS:', result.action_items);
-      console.log('RISKS:', result.risks_blockers);
-      
-      return result;
-    }
-  } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
-  }
-}
-
-// Usage
-processMeeting('https://meet.google.com/kkx-yhbd-dnc');
-```
-
----
-
-## Rate Limiting
-
-Currently not implemented. For production deployment, consider:
-
-```python
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-
-@app.post("/meetings")
-@limiter.limit("10/minute")
-async def create_meeting(request: MeetingRequest):
-    # endpoint logic
-```
-
----
-
-## Common Response Patterns
-
-### Success Response Pattern
-```json
-{
-  "job_id": "uuid-string",
-  "status": "processing|completed|failed",
-  "result": {}  // Only in /result endpoint when completed
-}
-```
-
-### Error Response Pattern
-```json
-{
-  "error": "Human-readable error message",
-  "detail": {} // Additional error details if available
-}
-```
-
----
-
-## Testing API Endpoints
-
-### Using Postman
-
-1. Create new Collection: "Agentic Meeting Assistant"
-2. Add requests for each endpoint
-3. Use environment variables for dynamic job_id
-
-### Using Swagger UI
-
-Visit: `http://localhost:8000/docs`
-
-Interactive API documentation with "Try it out" feature.
-
-### Using ReDoc
-
-Visit: `http://localhost:8000/redoc`
-
-Alternative API documentation view.
+These are always in sync with the live route handlers and are the source of truth if this file ever drifts.
 
 ---
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2026-04-28 | Initial API release |
-| TBD | TBD | API key authentication |
-| TBD | TBD | Rate limiting |
-| TBD | TBD | WebSocket real-time updates |
-
----
-
-For more details, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)
+| Version | Date       | Changes |
+|---------|------------|---------|
+| 1.0.0   | 2026-04-28 | Initial release |
+| 1.1.0   | 2026-05-06 | DELETE `/meetings/{id}`, participants in `/allmeetings`, `status_update` → auto-refetch on frontend |

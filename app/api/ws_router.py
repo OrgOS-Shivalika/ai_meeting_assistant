@@ -30,6 +30,8 @@ class ConnectionManager:
         logger.info(f"Frontend WebSocket disconnected for meeting {meeting_id}")
 
     async def broadcast(self, meeting_id: int, message: dict):
+        n = len(self.active_connections.get(meeting_id, []))
+        logger.info(f"[WS BROADCAST] meeting={meeting_id} subscribers={n} type={message.get('type')} active_keys={list(self.active_connections.keys())}")
         if meeting_id not in self.active_connections:
             return
         dead: List[WebSocket] = []

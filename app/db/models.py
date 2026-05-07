@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text
+from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -26,6 +26,11 @@ class Meeting(Base):
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user = relationship("User", back_populates="meetings")
+
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True)
+    category = relationship("Category", back_populates="meetings")
+    team = relationship("Team", back_populates="meetings")
 
     tasks = relationship("Task", back_populates="meeting", cascade="all, delete-orphan")
     participants = relationship("Participant", back_populates="meeting", cascade="all, delete-orphan")
@@ -85,3 +90,36 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     meetings = relationship("Meeting", back_populates="user")
+    categories = relationship("Category", back_populates="user", cascade="all, delete-orphan")
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_category_user_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="categories")
+    teams = relationship("Team", back_populates="category", cascade="all, delete-orphan")
+    meetings = relationship("Meeting", back_populates="category")
+
+
+class Team(Base):
+    __tablename__ = "teams"
+    __table_args__ = (UniqueConstraint("category_id", "name", name="uq_team_category_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    category = relationship("Category", back_populates="teams")
+    meetings = relationship("Meeting", back_populates="team")

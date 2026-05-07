@@ -1,18 +1,72 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from requests import Session
+from typing import Optional
 from app.api.db_dependency import get_db
 from app.dependencies.auth import get_current_user
 from app.pipelines.meeting_pipeline import MeetingPipeline
-from app.schemas.meeting_schema import MeetingRequest
+from app.schemas.meeting_schema import MeetingRequest, MeetingAssignRequest
 from app.utils.logger import setup_logger
 import uuid
 from app.db.database import SessionLocal
-from app.db.models import Meeting, Task
+from app.db.models import Meeting, Task, Category, Team
 from app.store.job_store import jobs
 
 logger = setup_logger(__name__)
 router = APIRouter()
 pipeline = MeetingPipeline()
+
+
+def _validate_category_team(
+    db: Session,
+    user,
+    category_id: Optional[int],
+    team_id: Optional[int],
+) -> None:
+    """Ensure the (category, team) pair belongs to user and team is in category."""
+    if team_id is not None and category_id is None:
+        raise HTTPException(status_code=400, detail="team_id requires category_id")
+    if category_id is not None:
+        category = db.query(Category).filter(
+            Category.id == category_id, Category.user_id == user.id
+        ).first()
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+    if team_id is not None:
+        team = db.query(Team).filter(
+            Team.id == team_id, Team.category_id == category_id
+        ).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found in this category")
+
+
+def _meeting_dict(m: Meeting) -> dict:
+    return {
+        "id": m.id,
+        "meeting_url": m.meeting_url,
+        "title": m.title,
+        "status": m.status,
+        "summary": m.summary,
+        "created_at": m.created_at,
+        "updated_at": m.updated_at,
+        "category": (
+            {"id": m.category.id, "name": m.category.name, "color": m.category.color}
+            if m.category else None
+        ),
+        "team": (
+            {"id": m.team.id, "name": m.team.name, "category_id": m.team.category_id}
+            if m.team else None
+        ),
+        "participants": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "email": p.email,
+                "is_organizer": p.is_organizer,
+                "avatar_url": p.avatar_url,
+            }
+            for p in m.participants
+        ],
+    }
 
 
 @router.post("/inject-bot")
@@ -22,6 +76,7 @@ def create_meeting(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
+    _validate_category_team(db, user, request.category_id, request.team_id)
     job_id = str(uuid.uuid4())
 
     meeting = Meeting(
@@ -29,7 +84,9 @@ def create_meeting(
         status="processing",
         summary=None,
         bot_id=None,
-        user_id=user.id
+        user_id=user.id,
+        category_id=request.category_id,
+        team_id=request.team_id,
     )
     db.add(meeting)
     db.commit()
@@ -105,11 +162,54 @@ def create_meeting(
 
 @router.get("/allmeetings")
 def get_meetings(
+    category_id: Optional[int] = Query(None),
+    team_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    meetings = db.query(Meeting).filter(Meeting.user_id == user.id).order_by(Meeting.created_at.desc()).all()
-    return meetings
+    query = db.query(Meeting).filter(Meeting.user_id == user.id)
+    if category_id is not None:
+        query = query.filter(Meeting.category_id == category_id)
+    if team_id is not None:
+        query = query.filter(Meeting.team_id == team_id)
+    meetings = query.order_by(Meeting.created_at.desc()).all()
+    return [_meeting_dict(m) for m in meetings]
+
+
+@router.delete("/meetings/{meeting_id}")
+def delete_meeting(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user),
+):
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if meeting.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this meeting")
+    db.delete(meeting)
+    db.commit()
+    return {"status": "ok", "deleted_id": meeting_id}
+
+
+@router.patch("/meetings/{meeting_id}/category")
+def assign_meeting_category(
+    meeting_id: int,
+    payload: MeetingAssignRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if meeting.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    _validate_category_team(db, user, payload.category_id, payload.team_id)
+    meeting.category_id = payload.category_id
+    meeting.team_id = payload.team_id
+    db.commit()
+    db.refresh(meeting)
+    return _meeting_dict(meeting)
 
 
 @router.get("/allmeetings/{meeting_id}")
@@ -130,6 +230,14 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
         "transcript": meeting.transcript, # Include real-time transcript column
         "created_at": meeting.created_at,
         "updated_at": meeting.updated_at,
+        "category": (
+            {"id": meeting.category.id, "name": meeting.category.name, "color": meeting.category.color}
+            if meeting.category else None
+        ),
+        "team": (
+            {"id": meeting.team.id, "name": meeting.team.name, "category_id": meeting.team.category_id}
+            if meeting.team else None
+        ),
         "tasks": [
             {
                 "id": t.id,

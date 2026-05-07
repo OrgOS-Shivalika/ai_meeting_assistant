@@ -7,6 +7,13 @@ class MeetingRequest(BaseModel):
     meeting_url: str
     summary: Optional[str] = None
     status: str = "created"
+    category_id: Optional[int] = None
+    team_id: Optional[int] = None
+
+
+class MeetingAssignRequest(BaseModel):
+    category_id: Optional[int] = None
+    team_id: Optional[int] = None
 
 class TaskSchema(BaseModel):
     id: int

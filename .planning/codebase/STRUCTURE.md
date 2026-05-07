@@ -1,92 +1,81 @@
 # Codebase Structure
 
-**Analysis Date:** 2024-04-28
+**Updated Date:** 2026-05-06
 
-## Directory Layout
+## Comprehensive Directory Layout
 
 ```
 [project-root]/
-├── app/                    # Application source code
-│   ├── ai_agents/          # AI logic and prompt templates
-│   ├── api/                # API routes and schemas
-│   ├── config/             # Configuration and settings
-│   ├── pipelines/          # Business logic orchestrators
-│   ├── processors/         # Data transformation logic
-│   ├── schemas/            # Pydantic data models
-│   ├── services/           # External service integrations
-│   ├── store/              # Data persistence (in-memory)
-│   └── utils/              # Shared utilities (logging)
-├── main.py                 # Application entry point
-├── requirements.txt        # Dependency list
-└── .env                    # Environment variables (local only)
+├── app/                        # FastAPI Backend Source Code
+│   ├── ai_agents/              # LLM logic (Analysis, Transcripts)
+│   │   └── prompts/            # System & User prompt templates
+│   ├── api/                    # REST Interface (FastAPI Routers)
+│   │   └── webhooks/           # External service webhook receivers (Recall.ai)
+│   ├── config/                 # Pydantic Settings & Env Validation
+│   ├── db/                     # Database Models, Init, & Persistence
+│   ├── dependencies/           # FastAPI Dependencies (Auth, DB)
+│   ├── pipelines/              # Domain-specific orchestrators (Meeting flow)
+│   ├── processors/             # Data transformation (Transcript formatting)
+│   ├── schemas/                # Pydantic Pydantic data models (Request/Response)
+│   ├── services/               # External service clients (Recall, Google, Auth)
+│   ├── store/                  # In-memory persistence (Job tracking)
+│   └── utils/                  # Shared utilities (Logging)
+├── alembic/                    # Database Migration Scripts (SQLAlchemy)
+├── meeting_ai_frontend/        # React + Vite Frontend Application
+│   ├── src/
+│   │   ├── app/                # Global configurations (Router)
+│   │   ├── features/           # Feature-based modules (Auth, Meetings, Calendar)
+│   │   │   └── meetings/       # Meeting dashboard, detail, & live views
+│   │   ├── services/           # Global API clients & services
+│   │   └── shared/             # Common components & layout
+├── .planning/                  # Project roadmap & codebase documentation
+├── main.py                     # Backend entry point
+├── requirements.txt            # Python dependencies
+├── package.json                # Frontend root (if workspace)
+└── .env                        # Root environment variables
 ```
 
-## Directory Purposes
+## Backend Breakdown (`app/`)
 
-**app/ai_agents/:**
-- Purpose: Houses the logic for interacting with LLMs.
-- Contains: `openAI_transcript_analyzer.py` (analysis logic), `prompts/` (system/user prompt templates).
-- Key files: `app/ai_agents/openAI_transcript_analyzer.py`
+**ai_agents/**
+- Orchestrates interactions with OpenAI for transcript summarization and task extraction.
+- Key Files: `openAI_transcript_analyzer.py`.
 
-**app/api/:**
-- Purpose: Defines the REST interface.
-- Contains: `routes.py` (endpoint definitions).
-- Key files: `app/api/routes.py`
+**api/webhooks/**
+- Handles incoming POST requests from Recall.ai for live transcript streaming.
+- Key Files: `recall_webhook.py`.
 
-**app/pipelines/:**
-- Purpose: Orchestrates multi-step processes.
-- Contains: `meeting_pipeline.py` (coordinates bot creation, transcript fetching, and AI analysis).
+**db/**
+- Defines the relational schema using SQLAlchemy.
+- Key Files: `models.py`, `database.py`.
 
-**app/services/:**
-- Purpose: Client wrappers for external APIs.
-- Contains: `recall_ai_service.py` (Recall.ai API integration).
+**pipelines/**
+- The "Brain" of the backend. Coordinates the end-to-end flow from bot injection to final AI report.
+- Key Files: `meeting_pipeline.py`.
 
-**app/store/:**
-- Purpose: Temporary or permanent data storage.
-- Contains: `job_store.py` (in-memory dictionary for background job tracking).
+**services/**
+- Encapsulates logic for Recall.ai API, Google Calendar API, and Authentication.
+- Key Files: `recall_ai_service.py`, `google_calendar_service.py`.
 
-## Key File Locations
+## Frontend Breakdown (`meeting_ai_frontend/`)
 
-**Entry Points:**
-- `main.py`: Starts the FastAPI server using Uvicorn.
+**features/meetings/**
+- Contains the core value proposition: meeting lists, detail views, and real-time live transcription.
+- Key Files: `pages/MeetingDetailPage.tsx`, `api.ts`, `hooks/useMeetings.ts`.
 
-**Configuration:**
-- `app/config/settings.py`: Loads and validates environment variables.
+**services/**
+- Houses the `apiClient.ts` which handles JWT injection and base URL management.
 
-**Core Logic:**
-- `app/pipelines/meeting_pipeline.py`: The main workflow for meeting processing.
+## Infrastructure & Configuration
 
-**Testing:**
-- `app/ai_agents/test_transcript.py`: Contains a large sample transcript for development/testing.
+**alembic/**
+- Tracks schema changes over time. Always check `alembic/versions` for the current state of the PostgreSQL/SQLite database.
 
-## Naming Conventions
-
-**Files:**
-- snake_case: `meeting_pipeline.py`, `recall_ai_service.py`.
-
-**Directories:**
-- snake_case: `ai_agents`, `api`.
-
-## Where to Add New Code
-
-**New Feature (e.g., Slack Integration):**
-- Primary code: `app/services/slack_service.py`
-- Integration in pipeline: `app/pipelines/meeting_pipeline.py`
-
-**New AI Agent (e.g., Sentiment Analysis):**
-- Implementation: `app/ai_agents/sentiment_analyzer.py`
-- Prompt: `app/ai_agents/prompts/sentiment_prompt.py`
-
-**Utilities:**
-- Shared helpers: `app/utils/`
-
-## Special Directories
-
-**__pycache__/:**
-- Purpose: Python bytecode cache.
-- Generated: Yes
-- Committed: No
+**Root Files:**
+- `main.py`: Bootstraps the FastAPI application, mounts static files, and initializes WebSockets.
+- `requirements.txt`: Python package manifest.
+- `package.json` (inside frontend): Node.js package manifest.
 
 ---
 
-*Structure analysis: 2024-04-28*
+*Structure analysis: 2026-05-06*

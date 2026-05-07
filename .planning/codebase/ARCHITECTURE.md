@@ -1,95 +1,62 @@
 # Architecture
 
-**Analysis Date:** 2024-04-28
+**Updated Date:** 2026-05-06
 
 ## Pattern Overview
 
-**Overall:** Layered Architecture with Background Task Processing.
+**Overall:** Decoupled Full-Stack Architecture with Event-Driven Real-Time Updates.
 
 **Key Characteristics:**
-- **Separation of Concerns:** Clear layers for API routing, business logic (pipelines), external services, and AI logic.
-- **Asynchronous Processing:** Long-running meeting processing is handled in the background using FastAPI's `BackgroundTasks`.
-- **Stateless Services:** Most components are stateless, relying on passed data or configuration.
+- **Layered Backend:** Clear separation between API, Business Logic (Pipelines), and Infrastructure (DB/Services).
+- **Event-Driven Real-Time:** Uses WebSockets to stream live meeting transcripts and status updates.
+- **Relational Persistence:** Moves beyond in-memory storage to a robust SQLAlchemy-managed database.
+- **Modern SPA Frontend:** React-based single-page application with feature-based modularity.
 
 ## Layers
 
-**API Layer:**
-- Purpose: Handles HTTP requests, input validation, and job status tracking.
-- Location: `app/api/`
-- Contains: `routes.py`, `schemas/`
-- Depends on: `pipelines/`, `schemas/`, `store/`
-- Used by: External clients
+**Frontend Layer (`meeting_ai_frontend/`):**
+- **Framework:** React + Vite + TypeScript.
+- **State Management:** React Hooks and local state for live streaming.
+- **Communication:** REST for CRUD, WebSockets for live data.
 
-**Pipeline Layer:**
-- Purpose: Orchestrates the meeting processing workflow.
-- Location: `app/pipelines/`
-- Contains: `meeting_pipeline.py`
-- Depends on: `services/`, `processors/`, `ai_agents/`
-- Used by: `api/routes.py`
+**API & Communication Layer:**
+- **Framework:** FastAPI.
+- **Real-Time:** Bi-directional WebSockets (`/ws/{id}`) for live broadcasting.
+- **Webhooks:** Specialized endpoints to receive Recall.ai streaming data.
 
-**Service Layer:**
-- Purpose: Wraps external API interactions (Recall.ai).
-- Location: `app/services/`
-- Contains: `recall_ai_service.py`
-- Depends on: `config/`, `utils/`
-- Used by: `pipelines/`
+**Business Logic (Pipeline) Layer:**
+- **MeetingPipeline:** Orchestrates the lifecycle from bot injection to AI analysis.
+- **AI Agents:** Isolated logic for GPT-4 based summarization and task extraction.
 
-**Processor/AI Layer:**
-- Purpose: Handles data transformation and AI-driven analysis.
-- Location: `app/processors/`, `app/ai_agents/`
-- Contains: `transcript_processor.py`, `openAI_transcript_analyzer.py`
-- Depends on: `utils/`, `config/`
-- Used by: `pipelines/`
+**Data & Infrastructure Layer:**
+- **Persistence:** SQLAlchemy ORM with PostgreSQL (Production) or SQLite (Development).
+- **Migrations:** Alembic for versioned schema management.
+- **Service Wrappers:** Clean abstractions for Recall.ai and Google Calendar.
 
-## Data Flow
+## Data Flow (Meeting Lifecycle)
 
-**Meeting Processing Flow:**
-
-1. **Request:** Client sends `POST /meetings` with a `meeting_url`.
-2. **Job Creation:** `api/routes.py` creates a UUID and stores it in `job_store.py` with "processing" status.
-3. **Background Task:** `MeetingPipeline.run()` is invoked as a background task.
-4. **Bot Creation:** `RecallService` creates a recording bot for the URL.
-5. **Polling:** `RecallService` polls for the recording status until it is "done".
-6. **Fetch & Process:** The transcript is fetched, cleaned/formatted by `TranscriptProcessor`.
-7. **AI Analysis:** `OpenAITranscriptAnalyzer` sends the transcript to OpenAI and receives a JSON summary.
-8. **Completion:** The job status in `job_store.py` is updated to "completed" and the result is stored.
-
-**State Management:**
-- Job state is managed in-memory via a simple dictionary in `app/store/job_store.py`. This state is lost on server restart.
+1. **Injection:** User requests bot injection via frontend -> `POST /inject-bot`.
+2. **Persistence:** Backend creates a `Meeting` record in "processing" status.
+3. **Background Job:** `MeetingPipeline.run()` starts as a non-blocking background task.
+4. **Real-Time Hook:** Recall.ai streams live audio/text via Webhooks/WebSockets to the backend.
+5. **Broadcasting:** Backend receives live text, saves to DB, and broadcasts via WebSockets to all connected frontend clients.
+6. **AI Analysis:** After the meeting ends, the final transcript is sent to OpenAI for summarization.
+7. **Finalization:** Status changes to "completed", and results are broadcast via WebSocket to trigger a UI refresh.
 
 ## Key Abstractions
 
-**MeetingPipeline:**
-- Purpose: High-level workflow orchestration.
-- Examples: `app/pipelines/meeting_pipeline.py`
-- Pattern: Command/Orchestrator pattern.
+**ConnectionManager (`app/api/ws_router.py`):**
+- Tracks active WebSocket connections per meeting and handles broadcasting.
 
-**RecallService:**
-- Purpose: Abstracting Recall.ai API complexities.
-- Examples: `app/services/recall_ai_service.py`
-- Pattern: Wrapper/Adapter pattern.
+**TranscriptProcessor (`app/processors/`):**
+- Sanitizes and formats raw diarized JSON into a clean, human-readable dialogue.
 
-## Entry Points
+## Error Handling & Reliability
 
-**Main API Application:**
-- Location: `main.py`
-- Triggers: Uvicorn execution (`python main.py`)
-- Responsibilities: Initializing FastAPI, including routers, and starting the server.
-
-## Error Handling
-
-**Strategy:** Exception raising and logging.
-
-**Patterns:**
-- `try...except` blocks in routes and services to capture and log errors.
-- HTTP exceptions raised for client errors (e.g., `response.raise_for_status()`).
-
-## Cross-Cutting Concerns
-
-**Logging:** Centralized logger setup in `app/utils/logger.py` used across all modules.
-**Validation:** Pydantic models in `app/schemas/` for request validation.
-**Authentication:** Environment-based API keys for external services.
+- **Exponential Backoff:** Frontend attempts reconnection on WebSocket drops.
+- **Transaction Safety:** Uses SQLAlchemy sessions with proper commit/rollback cycles.
+- **Logging:** Structured logging for tracking pipeline failures and API errors.
 
 ---
 
-*Architecture analysis: 2024-04-28*
+*Architecture analysis: 2026-05-06*

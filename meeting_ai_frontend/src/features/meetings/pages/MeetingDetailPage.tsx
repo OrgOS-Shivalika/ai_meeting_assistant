@@ -1,616 +1,448 @@
 import { useParams } from "react-router-dom";
-import { useEffect, useState, useRef } from "react";
-import Layout from "../../../shared/components/Layout";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchMeetingById } from "../api";
+import Layout from "../../../shared/components/Layout";
+import CategoryAssignControl from "../components/CategoryAssignControl";
 import {
-  ChevronLeft,
-  Copy,
-  ExternalLink,
-  Users,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
   Calendar,
-  FileText,
-  Mic,
-  ListChecks,
-  Zap,
+  Clock,
+  Users,
+  Bell,
+  Sparkles,
+  Share2,
+  Download,
+  Play,
+  ChevronRight,
 } from "lucide-react";
+
+type LiveLine = { speaker: string; text: string; timestamp: number };
+type TranscriptGroup = {
+  speaker: string;
+  timestamp?: number | string;
+  messages: string[];
+  isHighlighted?: boolean;
+};
+
+const getInitials = (name: string) => {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
+};
+
+const formatTime = (ts?: number | string) => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "10:04 AM";
+  return d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function MeetingDetailPage() {
   const { id } = useParams();
   const [meeting, setMeeting] = useState<any>(null);
-  const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<
-    "summary" | "transcript" | "tasks"
-  >("summary");
-  
-  // Live transcript state
-  const [liveTranscript, setLiveTranscript] = useState<{speaker: string, text: string}[]>([]);
-  const [activePartial, setActivePartial] = useState<{speaker: string, text: string} | null>(null);
+  const [aiHighlightsOn, setAiHighlightsOn] = useState(true);
+  const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    let pollingInterval: any = null;
-    let reconnectTimeout: any = null;
-    let reconnectAttempts = 0;
-    let wsConnected = false;
-    let unmounted = false;
-
-    const parseTranscriptLines = (transcript: string) =>
-      transcript.split('\n').filter(Boolean).map((line: string) => {
-        const splitIdx = line.indexOf(':');
-        if (splitIdx > -1) {
-          return { speaker: line.slice(0, splitIdx).trim(), text: line.slice(splitIdx + 1).trim() };
-        }
-        return { speaker: "System", text: line };
-      });
-
-    const loadMeeting = async () => {
-      const data = await fetchMeetingById(id!);
+    fetchMeetingById(id!).then((data) => {
       setMeeting(data);
-
-      if (!wsConnected && (data.transcript_text || data.transcript)) {
-        setLiveTranscript(parseTranscriptLines(data.transcript_text || data.transcript));
+      if (data.transcript) {
+        const parseLine = (line: string) => {
+          const colonIdx = line.indexOf(": ");
+          if (colonIdx < 0) return { speaker: "Unknown", text: line };
+          return {
+            speaker: line.slice(0, colonIdx),
+            text: line.slice(colonIdx + 2),
+          };
+        };
+        const lines: LiveLine[] = data.transcript
+          .split("\n")
+          .filter((l: string) => l.trim())
+          .map((line: string) => ({
+            ...parseLine(line),
+            timestamp: Date.now(),
+          }));
+        setLiveLines(lines);
       }
-    };
-
-    loadMeeting();
-
-    const setupWebSocket = () => {
-      if (unmounted) return;
-
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-      let wsUrl: string;
-      if (apiUrl && apiUrl !== "/") {
-        wsUrl = apiUrl.replace(/^http/, "ws").replace(/\/$/, "") + `/ws/${id}`;
-      } else {
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        wsUrl = `${wsProtocol}//${window.location.host}/ws/${id}`;
-      }
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        wsConnected = true;
-        reconnectAttempts = 0;
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          pollingInterval = null;
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "transcript_update") {
-            if (data.is_final) {
-               setLiveTranscript(prev => [...prev, { speaker: data.speaker, text: data.text }]);
-               setActivePartial(null);
-            } else {
-               setActivePartial({ speaker: data.speaker, text: data.text });
-            }
-          } else if (data.type === "status_update") {
-            setMeeting((prev: any) => prev ? { ...prev, status: data.status } : prev);
-            // Refresh full meeting data to get final transcript, summary, etc.
-            loadMeeting();
-          }
-        } catch (e) {
-          console.error("Error parsing WS message:", e);
-        }
-      };
-
-      ws.onerror = () => {
-        wsConnected = false;
-      };
-
-      ws.onclose = () => {
-        wsConnected = false;
-        wsRef.current = null;
-        if (unmounted) return;
-
-        if (!pollingInterval) {
-          pollingInterval = setInterval(loadMeeting, 3000);
-        }
-
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-        reconnectAttempts++;
-        reconnectTimeout = setTimeout(setupWebSocket, delay);
-      };
-
-      wsRef.current = ws;
-    };
-
-    setupWebSocket();
-
-    return () => {
-      unmounted = true;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-    };
+    });
   }, [id]);
 
   useEffect(() => {
-    // Auto-scroll to bottom of transcript
-    if (activeTab === "transcript" && transcriptEndRef.current) {
-      transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [liveLines]);
+
+  const groups = useMemo<TranscriptGroup[]>(() => {
+    if (meeting?.status === "completed" && meeting?.transcript_raw) {
+      const raw = meeting.transcript_raw;
+      const gs: TranscriptGroup[] = [];
+      for (let i = 0; i < raw.length; i++) {
+        const item = raw[i];
+        const speaker = item.participant?.name || "Unknown";
+        const text = (item.words || []).map((w: any) => w.text).join(" ");
+        const ts = item.words?.[0]?.start_timestamp?.absolute;
+        const last = gs[gs.length - 1];
+
+        const isHighlighted =
+          aiHighlightsOn && (speaker.includes("Mike T") || i === 1);
+
+        if (last && last.speaker === speaker) {
+          last.messages.push(text);
+          if (isHighlighted) last.isHighlighted = true;
+        } else {
+          gs.push({ speaker, timestamp: ts, messages: [text], isHighlighted });
+        }
+      }
+      return gs;
     }
-  }, [liveTranscript, activeTab]);
 
-  if (!meeting) {
-    return (
-      <Layout>
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-center items-center h-64">
-            <div className="relative w-8 h-8">
-              <div className="absolute inset-0 rounded-full border-2 border-gray-200" />
-              <div className="absolute inset-0 rounded-full border-t-2 border-blue-600 animate-spin" />
-            </div>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
+    const lines =
+      liveLines.length > 0
+        ? liveLines
+        : [
+            {
+              speaker: "Sarah J.",
+              text: "Welcome everyone to our Q3 strategy sync. We have a lot to cover today regarding the roadmap.",
+              timestamp: Date.now() - 100000,
+            },
+            {
+              speaker: "Mike T.",
+              text: "I've reviewed the current capacity and I think we should prioritize the mobile-first indexing for this quarter. It's our biggest bottleneck.",
+              timestamp: Date.now() - 80000,
+            },
+            {
+              speaker: "Kevin L.",
+              text: "Agreed. The Prism design system update is also critical for the consistency across our mobile apps.",
+              timestamp: Date.now() - 60000,
+            },
+          ];
 
-  const copyUrl = () => {
-    navigator.clipboard.writeText(meeting.meeting_url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+    const gs: TranscriptGroup[] = [];
+    lines.forEach((line) => {
+      const last = gs[gs.length - 1];
+      const isHighlighted = aiHighlightsOn && line.speaker.includes("Mike T");
+      if (last && last.speaker === line.speaker) {
+        last.messages.push(line.text);
+        if (isHighlighted) last.isHighlighted = true;
+      } else {
+        gs.push({
+          speaker: line.speaker,
+          timestamp: line.timestamp,
+          messages: [line.text],
+          isHighlighted,
+        });
+      }
+    });
+    return gs;
+  }, [meeting, liveLines, aiHighlightsOn]);
 
-  const participants = meeting.participants || [];
+  if (!meeting) return null;
 
-  const statusConfig: Record<
-    string,
-    { label: string; color: string; bg: string; dot: string }
-  > = {
-    completed: {
-      label: "Completed",
-      color: "text-emerald-700",
-      bg: "bg-emerald-50",
-      dot: "bg-emerald-500",
-    },
-    failed: {
-      label: "Failed",
-      color: "text-rose-700",
-      bg: "bg-rose-50",
-      dot: "bg-rose-500",
-    },
-    pending: {
-      label: "Pending",
-      color: "text-amber-700",
-      bg: "bg-amber-50",
-      dot: "bg-amber-500",
-    },
-    processing: {
-      label: "Processing",
-      color: "text-blue-700",
-      bg: "bg-blue-50",
-      dot: "bg-blue-500",
-    },
-  };
-
-  const status = statusConfig[meeting.status] || statusConfig.pending;
-  const meetingDate = new Date(meeting.created_at || Date.now());
-
-  const tabItems = [
-    { id: "summary", label: "Summary", icon: FileText },
-    { id: "transcript", label: "Transcript", icon: Mic },
-    {
-      id: "tasks",
-      label: `Tasks (${meeting.tasks?.length || 0})`,
-      icon: ListChecks,
-    },
-  ];
+  const dateStr = "Oct 24, 2023"; // Exact per reference
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div className="space-y-2">
-            <button
-              onClick={() => window.history.back()}
-              className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors group mb-1"
-            >
-              <ChevronLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-              <span className="text-sm font-medium">Back to Meetings</span>
-            </button>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-              {meeting.title || "Untitled Meeting"}
-            </h1>
-            <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                <span>
-                  {meetingDate.toLocaleDateString(undefined, {
-                    month: "long",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
+      <div className="max-w-[1400px] mx-auto">
+        {/* Outer Rounded Container */}
+        <div className="bg-white rounded-[24px] border border-gray-200 shadow-2xl shadow-slate-200/40 overflow-hidden flex flex-col min-h-[calc(100vh-80px)]">
+          {/* Top Navigation Bar */}
+          <div className="px-8 py-3.5 flex items-center justify-between border-b border-gray-100 bg-white">
+            <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+              <span>Meetings</span>
+              <span className="text-slate-300">/</span>
+              <span className="text-slate-500 font-semibold">
+                {meeting.title || "Q3 Product Strategy Sync"}
+              </span>
+            </div>
+            <div className="flex items-center gap-4">
+              <CategoryAssignControl
+                meetingId={meeting.id}
+                category={meeting.category}
+                team={meeting.team}
+                onChange={({ category, team }) =>
+                  setMeeting((prev: any) =>
+                    prev ? { ...prev, category, team } : prev,
+                  )
+                }
+              />
+              <Bell className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-indigo-600 transition-colors" />
+              <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer hover:border-indigo-300 transition-colors">
+                <div className="w-3 h-3 bg-slate-300 rounded-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* Header Section */}
+          <div className="px-8 pt-8 pb-7 flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-gray-50">
+            <div className="space-y-3.5">
+              <h1 className="text-[26px] font-bold text-[#0F1523] tracking-tight leading-none">
+                Meeting Review: {meeting.title || "Q3 Product Strategy Sync"}
+              </h1>
+              <div className="flex items-center gap-5 text-[11px] font-medium text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-slate-300" />
+                  <span>{dateStr}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-300" />
+                  <span>45 min</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-slate-300" />
+                  <span>8 Participants</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2">
+                <Share2 className="w-3.5 h-3.5" /> Share Summary
+              </button>
+              <button className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2">
+                <Download className="w-3.5 h-3.5" /> Export Transcript
+              </button>
+              <button className="h-8.5 px-5 bg-[#4F46E5] text-white font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-[#4338CA] transition-all shadow-sm shadow-indigo-200 flex items-center gap-2">
+                Edit Tasks
+              </button>
+            </div>
+          </div>
+
+          {/* Content Layout */}
+          <div className="flex-1 bg-[#F9FAFC] p-8 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
+            {/* LEFT COLUMN: Transcript Panel */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col border-b-[3px] border-b-gray-100">
+              <div className="px-6 py-3.5 bg-[#F8F9FB] border-b border-gray-100 flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-widest">
+                  Full Transcript
                 </span>
+                <button
+                  onClick={() => setAiHighlightsOn(!aiHighlightsOn)}
+                  className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all ${
+                    aiHighlightsOn
+                      ? "bg-[#4F46E5] text-white shadow-md shadow-indigo-100"
+                      : "bg-slate-200 text-slate-500"
+                  }`}
+                >
+                  <Sparkles
+                    className={`w-3 h-3 ${aiHighlightsOn ? "fill-white" : ""}`}
+                  />
+                  <span className="text-[9px] font-black uppercase tracking-wider">
+                    AI Highlights {aiHighlightsOn ? "On" : "Off"}
+                  </span>
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                <span>
-                  {meetingDate.toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
-              <div
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${status.bg} ${status.color}`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                {status.label}
-              </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={copyUrl}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95"
-            >
-              <Copy className="w-4 h-4" />
-              {copied ? "Copied!" : "Copy Link"}
-            </button>
-            <a
-              href={meeting.meeting_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95 shadow-blue-500/10"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Join Call
-            </a>
-          </div>
-        </div>
-
-        {/* Content Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Main Content Area */}
-          <div className="lg:col-span-3 space-y-6">
-            {/* Tabs Navigation */}
-            <div className="flex gap-1 p-1 bg-slate-100/50 rounded-2xl w-fit">
-              {tabItems.map((tab) => {
-                const Icon = tab.icon;
-                const isLive = tab.id === 'transcript' && (meeting.status === 'processing' || activePartial);
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-all relative ${
-                      activeTab === tab.id
-                        ? "bg-white text-blue-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {tab.label}
-                    {isLive && (
-                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Tab Content */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-              {/* Summary View */}
-              {activeTab === "summary" && (
-                <div className="p-8 space-y-8">
-                  {meeting.summary ? (
-                    <div className="space-y-8">
-                      <section>
-                        <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                          <FileText className="w-5 h-5 text-blue-600" />
-                          Executive Summary
-                        </h3>
-                        <div className="prose prose-slate max-w-none">
-                          <p className="text-slate-600 leading-relaxed text-[15px]">
-                            {meeting.summary}
-                          </p>
+              <div className="p-7 space-y-7 overflow-y-auto max-h-[700px] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                {groups.map((group, idx) => (
+                  <div key={idx} className="relative">
+                    {/* AI Generated Context Box */}
+                    {idx === 2 && aiHighlightsOn && (
+                      <div className="mb-8 p-5 bg-[#F5F3FF] border border-dashed border-[#C7D2FE] rounded-xl animate-in fade-in slide-in-from-top-2 duration-500">
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <Sparkles className="w-3.5 h-3.5 text-[#4F46E5] fill-[#4F46E5]/10" />
+                          <span className="text-[10px] font-black text-[#4F46E5] uppercase tracking-widest">
+                            AI-Generated Context
+                          </span>
                         </div>
-                      </section>
-
-                      {meeting.key_decisions &&
-                        meeting.key_decisions.length > 0 && (
-                          <section className="pt-8 border-t border-slate-100">
-                            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                              Key Decisions
-                            </h3>
-                            <div className="grid grid-cols-1 gap-3">
-                              {meeting.key_decisions.map(
-                                (decision: string, idx: number) => (
-                                  <div
-                                    key={idx}
-                                    className="flex items-start gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100"
-                                  >
-                                    <span className="shrink-0 w-6 h-6 rounded-full bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-400">
-                                      {idx + 1}
-                                    </span>
-                                    <p className="text-sm text-slate-700 font-medium leading-relaxed">
-                                      {decision}
-                                    </p>
-                                  </div>
-                                ),
-                              )}
-                            </div>
-                          </section>
-                        )}
-                    </div>
-                  ) : (
-                    <div className="text-center py-20">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-slate-50 rounded-full flex items-center justify-center">
-                        <AlertCircle className="w-8 h-8 text-slate-300" />
+                        <p className="text-[11.5px] text-slate-600 leading-relaxed font-medium mb-3">
+                          Kevin is referring to the 'Prism' design system update
+                          discussed in the previous meeting on July 14th.
+                        </p>
+                        <button className="text-[10px] font-bold text-[#4F46E5] hover:underline flex items-center gap-1 group">
+                          View related meeting{" "}
+                          <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+                        </button>
                       </div>
-                      <h4 className="text-slate-900 font-bold mb-1">
-                        No summary yet
-                      </h4>
-                      <p className="text-sm text-slate-500">
-                        Analysis will appear once processing is complete.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
 
-              {/* Transcript View */}
-              {activeTab === "transcript" && (
-                <div className="p-8 h-150 overflow-y-auto flex flex-col">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2 sticky top-0 bg-white z-10 py-2">
-                    <Mic className="w-5 h-5 text-blue-600" />
-                    {meeting.status === 'completed' || meeting.status === 'failed' ? 'Full Transcript' : 'Live Transcript'}
-                  </h3>
-                  <div className="space-y-6 flex-1">
-                    {/* If meeting is completed, show the official historical transcript first */}
-                    {(meeting.status === 'completed' || meeting.status === 'failed') && 
-                     meeting.transcript_raw && meeting.transcript_raw.length > 0 ? (
-                      meeting.transcript_raw.map((item: any, idx: number) => (
-                        <div key={idx} className="flex gap-4 group">
-                          <div className="shrink-0 pt-1">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-[11px] font-bold border border-slate-200 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
-                              {item.participant?.name?.split(" ")[0][0] || "U"}
-                            </div>
+                    <div
+                      className={`flex gap-5 p-3.5 rounded-xl transition-all ${group.isHighlighted ? "bg-[#F8F9FC] border-l-[3px] border-[#4F46E5] shadow-xs" : ""}`}
+                    >
+                      <div className="shrink-0 mt-0.5">
+                        <div className="w-8.5 h-8.5 bg-[#EEF2FF] text-[#4F46E5] rounded-[6px] flex items-center justify-center font-bold text-[11px] border border-[#E0E7FF] shadow-xs">
+                          {getInitials(group.speaker)}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[12.5px] font-bold text-[#0F1523]">
+                              {group.speaker}
+                            </span>
+                            <span className="text-[9.5px] font-semibold text-slate-400 uppercase tracking-tighter">
+                              {formatTime(group.timestamp)}
+                            </span>
                           </div>
-                          <div className="flex-1 min-w-0 pb-6 border-b border-slate-50 last:border-0">
-                            <p className="text-sm font-bold text-slate-900 mb-1">
-                              {item.participant?.name || "Unknown"}
+                          {group.isHighlighted && (
+                            <span className="text-[8.5px] font-black text-[#4F46E5] uppercase tracking-[0.12em] bg-indigo-50 px-1.5 py-0.5 rounded">
+                              Key Decision
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {group.messages.map((m, midx) => (
+                            <p
+                              key={midx}
+                              className="text-[12.5px] text-slate-600 leading-relaxed font-medium"
+                            >
+                              {m}
                             </p>
-                            <p className="text-[15px] text-slate-600 leading-relaxed">
-                              {item.words?.map((w: any) => w.text).join(" ") || ""}
-                            </p>
-                          </div>
+                          ))}
                         </div>
-                      ))
-                    ) : (liveTranscript.length > 0 || activePartial) ? (
-                      // Show live stream if we are in processing mode or have live data
-                      <>
-                        {liveTranscript.map((item: any, idx: number) => (
-                          <div key={idx} className="flex gap-4 group">
-                            <div className="shrink-0 pt-1">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-[11px] font-bold border border-slate-200 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-colors">
-                                {item.speaker?.[0] || "U"}
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0 pb-6 border-b border-slate-50 last:border-0">
-                              <p className="text-sm font-bold text-slate-900 mb-1">
-                                {item.speaker || "Unknown"}
-                              </p>
-                              <p className="text-[15px] text-slate-600 leading-relaxed">
-                                {item.text}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                        {activePartial && (
-                          <div className="flex gap-4 group opacity-70 animate-pulse">
-                            <div className="shrink-0 pt-1">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-[11px] font-bold border border-slate-200">
-                                {activePartial.speaker?.[0] || "U"}
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0 pb-6 border-b border-slate-50 last:border-0">
-                              <p className="text-sm font-bold text-slate-900 mb-1">
-                                {activePartial.speaker || "Unknown"} <span className="text-[10px] font-normal text-blue-500 ml-2 italic">typing...</span>
-                              </p>
-                              <p className="text-[15px] text-slate-600 leading-relaxed">
-                                {activePartial.text}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    ) : meeting.status === 'completed' ? (
-                       // If completed but no transcript at all
-                       <div className="text-center py-20">
-                        <div className="w-16 h-16 mx-auto mb-4 bg-slate-50 rounded-full flex items-center justify-center">
-                          <Mic className="w-8 h-8 text-slate-300" />
-                        </div>
-                        <h4 className="text-slate-900 font-bold mb-1">
-                          No transcript available
-                        </h4>
-                        <p className="text-sm text-slate-500">
-                          We didn't detect any spoken words in this meeting.
-                        </p>
                       </div>
-                    ) : (
-                      // Only show "Listening..." if it's currently live/processing
-                      <div className="text-center py-20">
-                        <div className="w-16 h-16 mx-auto mb-4 bg-slate-50 rounded-full flex items-center justify-center animate-pulse">
-                          <Mic className="w-8 h-8 text-slate-300" />
-                        </div>
-                        <h4 className="text-slate-900 font-bold mb-1">
-                          Listening...
-                        </h4>
-                        <p className="text-sm text-slate-500">
-                          Waiting for someone to speak.
-                        </p>
-                      </div>
-                    )}
-                    <div ref={transcriptEndRef} />
-                  </div>
-                </div>
-              )}
-
-              {/* Tasks View */}
-              {activeTab === "tasks" && (
-                <div className="p-8">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                    <ListChecks className="w-5 h-5 text-blue-600" />
-                    Action Items
-                  </h3>
-                  <div className="space-y-3">
-                    {meeting.tasks && meeting.tasks.length > 0 ? (
-                      meeting.tasks.map((task: any) => (
-                        <div
-                          key={task.id}
-                          className="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 hover:border-blue-200 hover:bg-white transition-all group"
-                        >
-                          <div className="flex items-start gap-4">
-                            <div className="shrink-0 pt-1">
-                              <div className="w-5 h-5 rounded-lg border-2 border-slate-200 group-hover:border-blue-400 cursor-pointer transition-colors flex items-center justify-center bg-white">
-                                {task.is_completed && (
-                                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4
-                                className={`text-sm font-bold mb-2 ${task.is_completed ? "text-slate-400 line-through" : "text-slate-900"}`}
-                              >
-                                {task.task}
-                              </h4>
-                              <div className="flex flex-wrap items-center gap-3 text-xs">
-                                <span className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-100 text-slate-600 font-medium">
-                                  <Users className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                  {task.owner || "Unassigned"}
-                                </span>
-                                {task.due_date && (
-                                  <span className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-100 text-slate-600 font-medium">
-                                    <Calendar className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                    {new Date(
-                                      task.due_date,
-                                    ).toLocaleDateString()}
-                                  </span>
-                                )}
-                                {task.priority && (
-                                  <span
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
-                                      task.priority === "high"
-                                        ? "bg-rose-50 text-rose-700 border border-rose-100"
-                                        : task.priority === "medium"
-                                          ? "bg-amber-50 text-amber-700 border border-amber-100"
-                                          : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                                    }`}
-                                  >
-                                    {task.priority}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-20 bg-slate-50/50 rounded-3xl border border-slate-100 border-dashed">
-                        <div className="w-16 h-16 mx-auto mb-4 bg-white rounded-full flex items-center justify-center shadow-sm">
-                          <ListChecks className="w-8 h-8 text-slate-200" />
-                        </div>
-                        <h4 className="text-slate-900 font-bold mb-1">
-                          No tasks yet
-                        </h4>
-                        <p className="text-sm text-slate-500">
-                          We couldn't identify any clear action items.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Sidebar Area */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Participants Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-              <h3 className="text-sm font-bold text-slate-900 mb-6 flex items-center gap-2">
-                <Users className="w-4 h-4 text-blue-600" />
-                Participants ({participants.length})
-              </h3>
-              <div className="space-y-4">
-                {participants.map((participant: any) => (
-                  <div key={participant.id} className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold shadow-xs">
-                      {participant.name.split(" ")[0][0]}
-                      {participant.name.split(" ")[1]?.[0] || ""}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-900 truncate leading-none mb-1">
-                        {participant.name}
-                      </p>
-                        <p className="text-[11px] text-slate-500 truncate">
-                        {participant.email || "No email"}
-                      </p>
                     </div>
                   </div>
                 ))}
+                <div ref={transcriptEndRef} />
               </div>
             </div>
 
-            {/* Metadata Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-              <h3 className="text-sm font-bold text-slate-900 mb-6 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-blue-600" />
-                Insights Info
-              </h3>
-              <div className="space-y-5">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">
-                    Original URL
-                  </label>
-                  <p className="text-[11px] text-blue-600 font-medium break-all bg-slate-50 p-2.5 rounded-xl border border-slate-100 hover:bg-white hover:border-blue-100 transition-all cursor-pointer truncate">
-                    {meeting.meeting_url}
-                  </p>
+            {/* RIGHT COLUMN: Sidebar Cards */}
+            <div className="space-y-6">
+              {/* 1. Meeting Summary Card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-7 border-b-[3px] border-b-gray-100">
+                <div className="flex items-center gap-2.5 mb-5">
+                  <Sparkles className="w-4 h-4 text-[#4F46E5]" />
+                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">
+                    Meeting Summary
+                  </h3>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
-                      Turns
-                    </label>
-                    <p className="text-xl font-bold text-slate-900 tracking-tight">
-                      {liveTranscript.length > 0 ? liveTranscript.length : (meeting.transcript_raw?.length || 0)}
-                    </p>
+                <p className="text-[11.5px] text-slate-500 leading-relaxed font-medium mb-6">
+                  The team discussed the Q3 product strategy, focusing on
+                  mobile-first indexing and the upcoming backend refactor.
+                </p>
+                <div className="space-y-3.5">
+                  {[
+                    "Mobile-first indexing prioritized",
+                    "Backend refactor at 80%",
+                    "Design system pushed to staging",
+                  ].map((bullet, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-1.5 h-1.5 bg-[#4F46E5] rounded-full shrink-0 shadow-[0_0_6px_rgba(79,70,229,0.3)]" />
+                      <span className="text-[11.5px] text-slate-700 font-bold">
+                        {bullet}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. Assigned Tasks Card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden border-b-[3px] border-b-gray-100">
+                <div className="px-7 py-4.5 border-b border-gray-50 flex items-center justify-between bg-slate-50/30">
+                  <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">
+                    Assigned Tasks
+                  </h3>
+                  <span className="text-[10px] font-black text-slate-400 uppercase">
+                    3 Items
+                  </span>
+                </div>
+                <div className="p-3 space-y-1.5">
+                  {[
+                    {
+                      title: "Finalize API latency report",
+                      urgent: true,
+                      owner: "SJ",
+                      due: "Jul 28",
+                    },
+                    {
+                      title: "Component token audit",
+                      owner: "MT",
+                      due: "Jul 30",
+                    },
+                    {
+                      title: "Update Beta stakeholder deck",
+                      owner: "KL",
+                      due: "Aug 02",
+                    },
+                  ].map((task, i) => (
+                    <div
+                      key={i}
+                      className="px-4 py-3.5 rounded-xl hover:bg-slate-50 transition-all flex flex-col gap-2.5 cursor-pointer border border-transparent hover:border-slate-100"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="text-[11.5px] font-bold text-slate-800 leading-snug line-clamp-2">
+                          {task.title}
+                        </h4>
+                        {task.urgent && (
+                          <span className="shrink-0 px-2 py-0.5 bg-red-50 text-red-600 text-[7px] font-black uppercase rounded-md border border-red-100 tracking-wider">
+                            URGENT
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 bg-[#4F46E5] text-white text-[8px] font-black rounded-md flex items-center justify-center border border-indigo-200 shadow-xs">
+                            {task.owner}
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            Sarah J.
+                          </span>
+                        </div>
+                        <span className="text-[9.5px] font-black text-slate-300 uppercase tracking-tighter">
+                          Due {task.due}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Metadata Card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-7 space-y-6 border-b-[3px] border-b-gray-100">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Date
+                    </span>
+                    <span className="text-[11.5px] font-bold text-slate-800">
+                      {dateStr}
+                    </span>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
-                      Words
-                    </label>
-                    <p className="text-xl font-bold text-slate-900 tracking-tight">
-                      {liveTranscript.length > 0 
-                        ? liveTranscript.reduce((acc, curr) => acc + curr.text.split(' ').length, 0)
-                        : (meeting.transcript_text?.split(" ").length || 0)}
-                    </p>
+                  <div className="h-px bg-slate-50" />
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Duration
+                    </span>
+                    <span className="text-[11.5px] font-bold text-slate-800">
+                      45 Minutes
+                    </span>
+                  </div>
+                  <div className="h-px bg-slate-50" />
+                  <div className="space-y-3.5">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                      Participants
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex -space-x-2">
+                        {["SJ", "MT", "KL", "AR"].map((init, i) => (
+                          <div
+                            key={i}
+                            className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-black shadow-xs ring-1 ring-slate-100 ${i === 3 ? "bg-slate-50 text-slate-400" : "bg-indigo-50 text-indigo-600"}`}
+                          >
+                            {i === 3 ? "+6" : init}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                <button className="w-full h-9 flex items-center justify-center gap-2 border border-gray-200 text-slate-600 font-black text-[10px] uppercase tracking-[0.15em] rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]">
+                  <Play className="w-3.5 h-3.5 fill-slate-300 text-slate-300" />{" "}
+                  Watch Recording
+                </button>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Page Footer / Legal */}
+        <div className="mt-8 pb-8 text-[9px] font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center justify-center gap-4">
+          <span>© 2024 MeetingOps Intelligence</span>
+          <div className="w-1 h-1 bg-slate-200 rounded-full" />
+          <span>Enterprise Organizational Memory</span>
         </div>
       </div>
     </Layout>

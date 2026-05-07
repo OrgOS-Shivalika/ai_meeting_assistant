@@ -27,7 +27,7 @@ class RecallService:
                     "provider": {
                         "recallai_streaming": {
                             "mode": "prioritize_low_latency",
-                            "language_code": "en"
+                            # "language_code": "en"
                         }
                     }
                 },

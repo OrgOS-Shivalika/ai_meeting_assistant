@@ -18,6 +18,33 @@ export interface Participant {
   created_at: string;
 }
 
+export interface Team {
+  id: number;
+  category_id: number;
+  name: string;
+  created_at?: string;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  color?: string | null;
+  created_at?: string;
+  teams?: Team[];
+}
+
+export interface MeetingCategoryRef {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
+export interface MeetingTeamRef {
+  id: number;
+  name: string;
+  category_id: number;
+}
+
 export interface Meeting {
   id: number;
   meeting_url: string;
@@ -30,4 +57,6 @@ export interface Meeting {
   transcript_raw?: any;
   tasks?: Task[];
   participants?: Participant[];
+  category?: MeetingCategoryRef | null;
+  team?: MeetingTeamRef | null;
 }

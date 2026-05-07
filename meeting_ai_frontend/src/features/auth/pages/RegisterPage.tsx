@@ -84,21 +84,27 @@ export default function RegisterPage() {
   const passwordStrong = formData.password.length >= 8;
 
   return (
-    <div className="min-h-screen w-full bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 overflow-hidden relative">
-      {/* Animated background elements */}
+    <div className="min-h-screen w-full bg-[#f0f2f5] flex items-center justify-center p-4 overflow-hidden relative">
+      {/* Soft decorative blobs using primary color */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -right-1/2 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
         <div
-          className="absolute -bottom-1/2 -left-1/2 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse"
-          style={{ animationDelay: "1s" }}
+          className="absolute -top-1/2 -right-1/2 w-96 h-96 rounded-full blur-3xl animate-pulse"
+          style={{ backgroundColor: "rgba(79,70,229,0.15)" }}
+        />
+        <div
+          className="absolute -bottom-1/2 -left-1/2 w-96 h-96 rounded-full blur-3xl animate-pulse"
+          style={{ backgroundColor: "rgba(79,70,229,0.1)", animationDelay: "1s" }}
         />
       </div>
 
       {/* Main container */}
       <div className="relative z-10 w-full max-w-md">
         {/* Logo/Header */}
-        <div className="text-center mb-12 animate-fadeIn">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-linear-to-br from-purple-500 to-blue-600 rounded-2xl mb-4 shadow-lg shadow-purple-500/50">
+        <div className="text-center mb-8">
+          <div
+            className="inline-flex items-center justify-center w-14 h-14 bg-[#4F46E5] rounded-2xl mb-4 shadow-lg"
+            style={{ boxShadow: "0 10px 25px -5px rgba(79,70,229,0.4)" }}
+          >
             <svg
               className="w-8 h-8 text-white"
               fill="currentColor"
@@ -107,51 +113,49 @@ export default function RegisterPage() {
               <path d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold bg-linear-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent mb-2">
-            MeetingAI
-          </h1>
-          <p className="text-purple-200/60 text-sm">
+          <h1 className="text-3xl font-bold text-[#0F1523] mb-1">MeetingAI</h1>
+          <p className="text-[#777681] text-sm">
             Join thousands of teams using intelligent meeting insights
           </p>
         </div>
 
         {/* Success State */}
         {success && (
-          <div className="bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 shadow-2xl shadow-purple-500/20 text-center animate-fadeIn">
-            <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-slate-100 mb-2">Welcome!</h2>
-            <p className="text-slate-400 mb-6">
+          <div className="bg-white rounded-2xl p-8 shadow-md border border-gray-200 text-center animate-fadeIn">
+            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-[#0F1523] mb-2">Welcome!</h2>
+            <p className="text-[#777681] mb-6">
               Your account has been created successfully. Redirecting to
               login...
             </p>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-linear-to-r from-purple-500 to-blue-500 animate-pulse" />
+            <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-[#4F46E5] animate-pulse" />
             </div>
           </div>
         )}
 
         {/* Form Card */}
         {!success && (
-          <div className="bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 shadow-2xl shadow-purple-500/20">
+          <div className="bg-white rounded-2xl p-8 shadow-md border border-gray-200">
             <form onSubmit={handleRegister} className="space-y-5">
               {/* Error Alert */}
               {error && (
-                <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg animate-shake">
-                  <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-300">{error}</p>
+                <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg animate-shake">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-600">{error}</p>
                 </div>
               )}
 
               {/* Name Input */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label
                   htmlFor="name"
-                  className="block text-sm font-medium text-slate-300"
+                  className="block text-sm font-medium text-[#0F1523]"
                 >
                   Full Name
                 </label>
                 <div className="relative group">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-purple-400 transition-colors" />
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#777681] group-focus-within:text-[#4F46E5] transition-colors" />
                   <input
                     id="name"
                     name="name"
@@ -161,21 +165,21 @@ export default function RegisterPage() {
                     onChange={handleChange}
                     required
                     disabled={isLoading}
-                    className="w-full pl-12 pr-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder:text-[#777681] focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent focus:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
 
               {/* Email Input */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label
                   htmlFor="email"
-                  className="block text-sm font-medium text-slate-300"
+                  className="block text-sm font-medium text-[#0F1523]"
                 >
                   Email Address
                 </label>
                 <div className="relative group">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-purple-400 transition-colors" />
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#777681] group-focus-within:text-[#4F46E5] transition-colors" />
                   <input
                     id="email"
                     name="email"
@@ -185,21 +189,21 @@ export default function RegisterPage() {
                     onChange={handleChange}
                     required
                     disabled={isLoading}
-                    className="w-full pl-12 pr-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder:text-[#777681] focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent focus:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
 
               {/* Password Input */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label
                   htmlFor="password"
-                  className="block text-sm font-medium text-slate-300"
+                  className="block text-sm font-medium text-[#0F1523]"
                 >
                   Password
                 </label>
                 <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-purple-400 transition-colors" />
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#777681] group-focus-within:text-[#4F46E5] transition-colors" />
                   <input
                     id="password"
                     name="password"
@@ -209,13 +213,13 @@ export default function RegisterPage() {
                     onChange={handleChange}
                     required
                     disabled={isLoading}
-                    className="w-full pl-12 pr-12 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full pl-12 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder:text-[#777681] focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent focus:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     disabled={isLoading}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-400 transition-colors disabled:opacity-50"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#777681] hover:text-[#0F1523] transition-colors disabled:opacity-50"
                   >
                     {showPassword ? (
                       <EyeOff className="w-5 h-5" />
@@ -227,10 +231,10 @@ export default function RegisterPage() {
                 <div className="flex items-center gap-2 mt-1">
                   <div
                     className={`h-1 flex-1 rounded-full transition-colors ${
-                      passwordStrong ? "bg-emerald-500" : "bg-slate-700"
+                      passwordStrong ? "bg-green-500" : "bg-gray-200"
                     }`}
                   />
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-[#777681]">
                     {formData.password.length === 0
                       ? "0"
                       : formData.password.length}
@@ -240,15 +244,15 @@ export default function RegisterPage() {
               </div>
 
               {/* Confirm Password Input */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label
                   htmlFor="confirmPassword"
-                  className="block text-sm font-medium text-slate-300"
+                  className="block text-sm font-medium text-[#0F1523]"
                 >
                   Confirm Password
                 </label>
                 <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-purple-400 transition-colors" />
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#777681] group-focus-within:text-[#4F46E5] transition-colors" />
                   <input
                     id="confirmPassword"
                     name="confirmPassword"
@@ -258,13 +262,13 @@ export default function RegisterPage() {
                     onChange={handleChange}
                     required
                     disabled={isLoading}
-                    className="w-full pl-12 pr-12 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full pl-12 pr-12 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder:text-[#777681] focus:outline-none focus:ring-2 focus:ring-[#4F46E5] focus:border-transparent focus:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     disabled={isLoading}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-400 transition-colors disabled:opacity-50"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#777681] hover:text-[#0F1523] transition-colors disabled:opacity-50"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="w-5 h-5" />
@@ -275,7 +279,9 @@ export default function RegisterPage() {
                 </div>
                 {formData.confirmPassword && (
                   <p
-                    className={`text-xs ${passwordMatch ? "text-emerald-400" : "text-red-400"}`}
+                    className={`text-xs ${
+                      passwordMatch ? "text-green-600" : "text-red-500"
+                    }`}
                   >
                     {passwordMatch
                       ? "✓ Passwords match"
@@ -291,20 +297,20 @@ export default function RegisterPage() {
                   checked={agreeToTerms}
                   onChange={(e) => setAgreeToTerms(e.target.checked)}
                   disabled={isLoading}
-                  className="w-4 h-4 bg-slate-700 border border-slate-600 rounded focus:ring-2 focus:ring-purple-500 cursor-pointer disabled:opacity-50 mt-1"
+                  className="w-4 h-4 bg-white border border-gray-300 rounded focus:ring-2 focus:ring-[#4F46E5] text-[#4F46E5] cursor-pointer disabled:opacity-50 mt-1"
                 />
-                <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">
+                <span className="text-sm text-[#777681] group-hover:text-[#0F1523] transition-colors">
                   I agree to the{" "}
                   <Link
                     to="/terms"
-                    className="text-purple-400 hover:text-purple-300"
+                    className="text-[#4F46E5] hover:text-[#4338CA] font-medium"
                   >
                     Terms of Service
                   </Link>{" "}
                   and{" "}
                   <Link
                     to="/privacy"
-                    className="text-purple-400 hover:text-purple-300"
+                    className="text-[#4F46E5] hover:text-[#4338CA] font-medium"
                   >
                     Privacy Policy
                   </Link>
@@ -315,7 +321,12 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={!isFormValid}
-                className="w-full mt-6 px-6 py-3 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:from-slate-700 disabled:to-slate-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 disabled:shadow-none active:scale-95"
+                className="w-full mt-6 px-6 py-3 bg-[#4F46E5] hover:bg-[#4338CA] disabled:bg-[#777681] disabled:text-white/70 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:shadow-none active:scale-95"
+                style={{
+                  boxShadow: isFormValid
+                    ? "0 10px 25px -5px rgba(79,70,229,0.4)"
+                    : "none",
+                }}
               >
                 {isLoading ? (
                   <>
@@ -331,11 +342,11 @@ export default function RegisterPage() {
               </button>
 
               {/* Sign In Link */}
-              <p className="text-center text-sm text-slate-400">
+              <p className="text-center text-sm text-[#777681]">
                 Already have an account?{" "}
                 <Link
                   to="/login"
-                  className="text-purple-400 hover:text-purple-300 font-semibold transition-colors"
+                  className="text-[#4F46E5] hover:text-[#4338CA] font-semibold transition-colors"
                 >
                   Sign in
                 </Link>

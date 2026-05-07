@@ -12,36 +12,35 @@ recall_webhook_router = APIRouter()
 
 def extract_transcript_fields(payload: dict, event: str) -> tuple:
     """Extract speaker, text, is_final from Recall.ai payload.
-    Handles various nested formats from Recall.ai webhooks.
+    Handles various nested formats from Recall.ai webhooks and WebSockets.
     """
     data_block = payload.get("data", {})
     
-    # 1. Real webhook format: chunk is in payload['data']['data']
+    # 1. Handle the deep format: payload['data']['data']['transcript' or 'words']
     inner_data = data_block.get("data", {})
-    if isinstance(inner_data, dict) and ("words" in inner_data or "text" in inner_data):
-        source = inner_data
-    # 2. Test webhook format or fallback: chunk is payload['data'] directly
-    elif "words" in data_block or "text" in data_block:
-        source = data_block
-    # 3. Fallback: maybe it's in payload['data']['transcript'] after all
-    elif isinstance(data_block.get("transcript"), dict) and ("words" in data_block["transcript"] or "text" in data_block["transcript"]):
-        source = data_block["transcript"]
-    # 4. Fallback: maybe it's in payload['transcript']
-    elif isinstance(payload.get("transcript"), dict) and ("words" in payload["transcript"] or "text" in payload["transcript"]):
-        source = payload["transcript"]
+    if isinstance(inner_data, dict):
+        source = inner_data.get("transcript") or inner_data
     else:
-        source = {}
+        source = data_block.get("transcript") or data_block
 
-    speaker = source.get("speaker", "Unknown Speaker")
-    
+    # 2. Extract Speaker
+    participant = source.get("participant", {})
+    if isinstance(participant, dict):
+        speaker = participant.get("name", "Unknown Speaker")
+    else:
+        speaker = source.get("speaker", "Unknown Speaker")
+
+    # 3. Determine if Final
     is_final = source.get("is_final", event == "transcript.data")
 
+    # 4. Extract Text
     text = source.get("text", "")
     if not text:
+        # Check for 'words' list and join them
         words = source.get("words", [])
         if words:
             text = " ".join([w.get("text", "") for w in words]).strip()
-
+    
     return speaker, text, is_final
 
 

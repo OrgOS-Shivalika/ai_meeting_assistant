@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(Get-ChildItem -Path \"D:\\\\Divyansh\\\\Projects\\\\Shivalika_AI\\\\agentic-meeting-assistant\" -Force)",
-      "Bash(Select-Object -Property Name, PSIsContainer)"
+      "Bash(Select-Object -Property Name, PSIsContainer)",
+      "Bash(npm run *)",
+      "Bash(alembic heads *)",
+      "Bash(alembic upgrade *)"
     ]
   }
 }
