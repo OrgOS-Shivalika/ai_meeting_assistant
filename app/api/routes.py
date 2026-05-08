@@ -1,15 +1,43 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from requests import Session
 from typing import Optional
+from urllib.parse import urlparse
 from app.api.db_dependency import get_db
 from app.dependencies.auth import get_current_user
 from app.pipelines.meeting_pipeline import MeetingPipeline
-from app.schemas.meeting_schema import MeetingRequest, MeetingAssignRequest
+from app.schemas.meeting_schema import (
+    MeetingRequest,
+    MeetingAssignRequest,
+    MeetingUpdateRequest,
+    MeetingScheduleRequest,
+)
 from app.utils.logger import setup_logger
 import uuid
 from app.db.database import SessionLocal
 from app.db.models import Meeting, Task, Category, Team
+from app.services.google_calendar_service import create_calendar_event
 from app.store.job_store import jobs
+
+
+def _detect_platform(url: Optional[str]) -> Optional[str]:
+    """Map a meeting URL to one of: google_meet | zoom | teams | webex."""
+    if not url:
+        return None
+    try:
+        host = (urlparse(url).hostname or "").lower().lstrip("www.")
+    except Exception:
+        return None
+    if not host:
+        return None
+    if host == "meet.google.com" or host.endswith(".meet.google.com"):
+        return "google_meet"
+    if "zoom." in host:
+        return "zoom"
+    if "teams.microsoft.com" in host or "teams.live.com" in host:
+        return "teams"
+    if "webex.com" in host:
+        return "webex"
+    return None
 
 logger = setup_logger(__name__)
 router = APIRouter()
@@ -48,6 +76,11 @@ def _meeting_dict(m: Meeting) -> dict:
         "summary": m.summary,
         "created_at": m.created_at,
         "updated_at": m.updated_at,
+        "scheduled_at": m.scheduled_at,
+        "started_at": m.started_at,
+        "ended_at": m.ended_at,
+        "duration_minutes": m.duration_minutes,
+        "meeting_platform": m.meeting_platform,
         "category": (
             {"id": m.category.id, "name": m.category.name, "color": m.category.color}
             if m.category else None
@@ -87,6 +120,9 @@ def create_meeting(
         user_id=user.id,
         category_id=request.category_id,
         team_id=request.team_id,
+        title=request.title,
+        scheduled_at=request.scheduled_at,
+        meeting_platform=request.meeting_platform or _detect_platform(request.meeting_url),
     )
     db.add(meeting)
     db.commit()
@@ -176,6 +212,107 @@ def get_meetings(
     return [_meeting_dict(m) for m in meetings]
 
 
+# Spec: GET /meetings/uncategorized — meetings without a team assignment.
+@router.get("/meetings/uncategorized")
+def list_uncategorized_meetings(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    meetings = (
+        db.query(Meeting)
+        .filter(Meeting.user_id == user.id, Meeting.team_id.is_(None))
+        .order_by(Meeting.created_at.desc())
+        .all()
+    )
+    return [_meeting_dict(m) for m in meetings]
+
+
+# Spec: GET /teams/{team_id}/meetings — meetings inside a specific team.
+@router.get("/teams/{team_id}/meetings")
+def list_team_meetings(
+    team_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # Ownership check via the team's category.
+    team = (
+        db.query(Team)
+        .join(Category, Team.category_id == Category.id)
+        .filter(Team.id == team_id, Category.user_id == user.id)
+        .first()
+    )
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    meetings = (
+        db.query(Meeting)
+        .filter(Meeting.user_id == user.id, Meeting.team_id == team_id)
+        .order_by(Meeting.created_at.desc())
+        .all()
+    )
+    return [_meeting_dict(m) for m in meetings]
+
+
+# Spec: POST /teams/{team_id}/meetings/schedule — create a scheduled meeting
+# (no bot dispatch yet — that happens at start time).
+@router.post("/teams/{team_id}/meetings/schedule")
+def schedule_team_meeting(
+    team_id: int,
+    payload: MeetingScheduleRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    team = (
+        db.query(Team)
+        .join(Category, Team.category_id == Category.id)
+        .filter(Team.id == team_id, Category.user_id == user.id)
+        .first()
+    )
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    meeting_url = payload.meeting_url
+    platform = payload.meeting_platform or _detect_platform(meeting_url)
+
+    google_event = None
+    if payload.add_to_calendar:
+        # `request_meet_link=True` only kicks in when no meeting_url was
+        # supplied — Google then creates a Meet conference and we adopt its
+        # hangoutLink as the meeting URL.
+        google_event = create_calendar_event(
+            user,
+            title=payload.title,
+            scheduled_at=payload.scheduled_at,
+            duration_minutes=payload.duration_minutes,
+            description=payload.description,
+            meeting_url=meeting_url,
+            attendees=payload.attendees,
+            request_meet_link=not meeting_url,
+        )
+        if google_event and not meeting_url:
+            hangout = google_event.get("hangoutLink")
+            if hangout:
+                meeting_url = hangout
+                platform = platform or "google_meet"
+
+    meeting = Meeting(
+        meeting_url=meeting_url or "",
+        status="pending",
+        user_id=user.id,
+        category_id=team.category_id,
+        team_id=team.id,
+        title=payload.title,
+        scheduled_at=payload.scheduled_at,
+        duration_minutes=payload.duration_minutes,
+        meeting_platform=platform,
+        google_event_id=google_event.get("id") if google_event else None,
+        google_event_data=google_event,
+    )
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+    return _meeting_dict(meeting)
+
+
 @router.delete("/meetings/{meeting_id}")
 def delete_meeting(
     meeting_id: int,
@@ -212,6 +349,36 @@ def assign_meeting_category(
     return _meeting_dict(meeting)
 
 
+# Spec: PATCH /meetings/{id} — generic partial update.
+@router.patch("/meetings/{meeting_id}")
+def update_meeting(
+    meeting_id: int,
+    payload: MeetingUpdateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if meeting.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    data = payload.model_dump(exclude_unset=True)
+
+    # If category/team changed, validate ownership + parent relation.
+    if "category_id" in data or "team_id" in data:
+        new_category_id = data.get("category_id", meeting.category_id)
+        new_team_id = data.get("team_id", meeting.team_id)
+        _validate_category_team(db, user, new_category_id, new_team_id)
+
+    for field, value in data.items():
+        setattr(meeting, field, value)
+
+    db.commit()
+    db.refresh(meeting)
+    return _meeting_dict(meeting)
+
+
 @router.get("/allmeetings/{meeting_id}")
 def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
@@ -230,6 +397,11 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
         "transcript": meeting.transcript, # Include real-time transcript column
         "created_at": meeting.created_at,
         "updated_at": meeting.updated_at,
+        "scheduled_at": meeting.scheduled_at,
+        "started_at": meeting.started_at,
+        "ended_at": meeting.ended_at,
+        "duration_minutes": meeting.duration_minutes,
+        "meeting_platform": meeting.meeting_platform,
         "category": (
             {"id": meeting.category.id, "name": meeting.category.name, "color": meeting.category.color}
             if meeting.category else None

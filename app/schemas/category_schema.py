@@ -5,16 +5,19 @@ from datetime import datetime
 
 class TeamCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
+    description: Optional[str] = None
 
 
 class TeamUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=80)
+    description: Optional[str] = None
 
 
 class TeamSchema(BaseModel):
     id: int
     category_id: int
     name: str
+    description: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -22,18 +25,24 @@ class TeamSchema(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
+    description: Optional[str] = None
     color: Optional[str] = Field(None, max_length=20)
+    icon: Optional[str] = Field(None, max_length=100)
 
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=80)
+    description: Optional[str] = None
     color: Optional[str] = Field(None, max_length=20)
+    icon: Optional[str] = Field(None, max_length=100)
 
 
 class CategorySchema(BaseModel):
     id: int
     name: str
+    description: Optional[str] = None
     color: Optional[str] = None
+    icon: Optional[str] = None
     created_at: datetime
     teams: List[TeamSchema] = []
 

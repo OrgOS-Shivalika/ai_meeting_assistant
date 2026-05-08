@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
-import uuid
+
 
 class MeetingRequest(BaseModel):
     meeting_url: str
@@ -9,11 +9,41 @@ class MeetingRequest(BaseModel):
     status: str = "created"
     category_id: Optional[int] = None
     team_id: Optional[int] = None
+    title: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    meeting_platform: Optional[str] = None
 
 
 class MeetingAssignRequest(BaseModel):
     category_id: Optional[int] = None
     team_id: Optional[int] = None
+
+
+class MeetingUpdateRequest(BaseModel):
+    """Generic PATCH /meetings/{id}. Any subset of these may be provided."""
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    status: Optional[str] = None
+    category_id: Optional[int] = None
+    team_id: Optional[int] = None
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    meeting_platform: Optional[str] = None
+
+
+class MeetingScheduleRequest(BaseModel):
+    """POST /teams/{team_id}/meetings/schedule"""
+    title: str
+    scheduled_at: datetime
+    meeting_url: Optional[str] = None
+    meeting_platform: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    description: Optional[str] = None
+    attendees: List[str] = []
+    add_to_calendar: bool = True
+
 
 class TaskSchema(BaseModel):
     id: int
@@ -27,6 +57,7 @@ class TaskSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ParticipantSchema(BaseModel):
     id: int
     name: str
@@ -36,6 +67,7 @@ class ParticipantSchema(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class MeetingSchema(BaseModel):
     id: int

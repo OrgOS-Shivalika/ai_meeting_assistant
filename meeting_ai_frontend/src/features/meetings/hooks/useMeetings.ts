@@ -9,6 +9,14 @@ export const useMeetings = (filter: MeetingFilter = {}) => {
   const categoryKey = filter.category_id ?? "all";
   const teamKey = filter.team_id ?? "all";
 
+  const refetch = useCallback(() => {
+    setLoading(true);
+    return fetchMeetings(filter)
+      .then((rows) => setData(rows))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryKey, teamKey]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -29,5 +37,9 @@ export const useMeetings = (filter: MeetingFilter = {}) => {
     setData((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
-  return { data, loading, removeMeeting };
+  const addMeeting = useCallback((meeting: Meeting) => {
+    setData((prev) => [meeting, ...prev.filter((m) => m.id !== meeting.id)]);
+  }, []);
+
+  return { data, loading, removeMeeting, addMeeting, refetch };
 };

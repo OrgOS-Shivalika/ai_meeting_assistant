@@ -6,9 +6,10 @@ import {
   deleteCategory,
   deleteTeam,
   updateCategory,
+  updateTeam,
 } from "../api";
 import { invalidateCategories } from "../hooks/useCategories";
-import type { Category } from "../types";
+import type { Category, Team } from "../types";
 
 const COLOR_PALETTE = [
   "#4F46E5",
@@ -21,6 +22,19 @@ const COLOR_PALETTE = [
   "#64748B",
 ];
 
+// A small whitelist of commonly-useful icon tokens. The backend stores the
+// raw string; downstream UI is free to map these to lucide icons or emoji.
+const ICON_OPTIONS = [
+  { value: "tag", label: "🏷️ Tag" },
+  { value: "code", label: "💻 Code" },
+  { value: "users", label: "👥 Users" },
+  { value: "briefcase", label: "💼 Briefcase" },
+  { value: "rocket", label: "🚀 Rocket" },
+  { value: "lightbulb", label: "💡 Idea" },
+  { value: "calendar", label: "📅 Calendar" },
+  { value: "chart", label: "📊 Chart" },
+];
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -30,18 +44,28 @@ interface Props {
 export default function CategoryModal({ isOpen, onClose, category }: Props) {
   const isEditing = !!category;
   const [name, setName] = useState(category?.name ?? "");
+  const [description, setDescription] = useState(category?.description ?? "");
   const [color, setColor] = useState<string>(category?.color ?? COLOR_PALETTE[0]);
-  const [teams, setTeams] = useState(category?.teams ?? []);
+  const [icon, setIcon] = useState<string>(category?.icon ?? "");
+  const [teams, setTeams] = useState<Team[]>(category?.teams ?? []);
   const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamDescription, setNewTeamDescription] = useState("");
+  const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
+  const [editingTeamName, setEditingTeamName] = useState("");
+  const [editingTeamDescription, setEditingTeamDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (isOpen) {
       setName(category?.name ?? "");
+      setDescription(category?.description ?? "");
       setColor(category?.color ?? COLOR_PALETTE[0]);
+      setIcon(category?.icon ?? "");
       setTeams(category?.teams ?? []);
       setNewTeamName("");
+      setNewTeamDescription("");
+      setEditingTeamId(null);
       setError("");
     }
   }, [isOpen, category]);
@@ -57,14 +81,19 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
     setError("");
     try {
       if (category) {
-        await updateCategory(category.id, { name: name.trim(), color });
+        await updateCategory(category.id, {
+          name: name.trim(),
+          color,
+          description: description.trim() || null,
+          icon: icon || null,
+        });
       } else {
-        await createCategory(name.trim(), color);
+        await createCategory(name.trim(), color, description.trim() || null, icon || null);
       }
       invalidateCategories();
       onClose();
-    } catch (err) {
-      setError("Failed to save category. Name may already be taken.");
+    } catch {
+      setError("Failed to save meeting type. Name may already be taken.");
     } finally {
       setSaving(false);
     }
@@ -74,7 +103,7 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
     if (!category) return;
     if (
       !window.confirm(
-        `Delete "${category.name}"? Teams in this category will also be removed. Meetings will keep their data but lose the category assignment.`,
+        `Delete "${category.name}"? Teams in this meeting type will also be removed. Meetings will keep their data but lose the meeting type assignment.`,
       )
     )
       return;
@@ -84,7 +113,7 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
       invalidateCategories();
       onClose();
     } catch {
-      setError("Failed to delete category");
+      setError("Failed to delete meeting type");
       setSaving(false);
     }
   };
@@ -92,9 +121,14 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
   const handleAddTeam = async () => {
     if (!category || !newTeamName.trim()) return;
     try {
-      const team = await createTeam(category.id, newTeamName.trim());
+      const team = await createTeam(
+        category.id,
+        newTeamName.trim(),
+        newTeamDescription.trim() || null,
+      );
       setTeams((prev) => [...prev, team]);
       setNewTeamName("");
+      setNewTeamDescription("");
       invalidateCategories();
     } catch {
       setError("Failed to add team. Name may already be taken.");
@@ -112,6 +146,27 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
     }
   };
 
+  const startEditTeam = (team: Team) => {
+    setEditingTeamId(team.id);
+    setEditingTeamName(team.name);
+    setEditingTeamDescription(team.description ?? "");
+  };
+
+  const saveEditTeam = async () => {
+    if (editingTeamId == null || !editingTeamName.trim()) return;
+    try {
+      const updated = await updateTeam(editingTeamId, {
+        name: editingTeamName.trim(),
+        description: editingTeamDescription.trim() || null,
+      });
+      setTeams((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      setEditingTeamId(null);
+      invalidateCategories();
+    } catch {
+      setError("Failed to update team");
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
@@ -119,12 +174,15 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 rounded-xl shadow-md shadow-indigo-600/20">
+            <div
+              className="p-2.5 rounded-xl shadow-md flex items-center justify-center"
+              style={{ backgroundColor: color, boxShadow: `0 4px 12px ${color}30` }}
+            >
               <Tag className="w-4 h-4 text-white" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                {isEditing ? "Edit Category" : "New Category"}
+                {isEditing ? "Edit Meeting Type" : "New Meeting Type"}
               </h2>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
                 {isEditing ? "Manage teams & details" : "Group your meetings"}
@@ -145,9 +203,22 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Sales, Marketing, Engineering"
+              placeholder="e.g. Engineering, Customer Development"
               className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900 placeholder:text-slate-400"
               autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What kind of meetings live here?"
+              rows={2}
+              className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm text-slate-700 placeholder:text-slate-400 resize-none"
             />
           </div>
 
@@ -171,31 +242,111 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
             </div>
           </div>
 
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+              Icon (optional)
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => setIcon("")}
+                className={`px-2 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                  icon === "" ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                }`}
+              >
+                None
+              </button>
+              {ICON_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setIcon(opt.value)}
+                  className={`px-2 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                    icon === opt.value ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {isEditing && (
             <div>
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
                 Teams ({teams.length})
               </label>
               <div className="space-y-2">
-                {teams.map((team) => (
-                  <div
-                    key={team.id}
-                    className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-100"
-                  >
-                    <span className="text-sm font-semibold text-slate-700">{team.name}</span>
-                    <button
-                      onClick={() => handleDeleteTeam(team.id)}
-                      className="p-1 hover:bg-red-50 hover:text-red-600 rounded transition-colors text-slate-400"
+                {teams.map((team) =>
+                  editingTeamId === team.id ? (
+                    <div
+                      key={team.id}
+                      className="space-y-2 p-3 bg-indigo-50/40 rounded-lg border border-indigo-100"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      <input
+                        type="text"
+                        value={editingTeamName}
+                        onChange={(e) => setEditingTeamName(e.target.value)}
+                        className="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-sm font-semibold focus:border-indigo-500 outline-none"
+                      />
+                      <textarea
+                        value={editingTeamDescription}
+                        onChange={(e) => setEditingTeamDescription(e.target.value)}
+                        placeholder="Team description (optional)"
+                        rows={2}
+                        className="w-full px-2 py-1.5 rounded border border-slate-200 bg-white text-xs focus:border-indigo-500 outline-none resize-none"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setEditingTeamId(null)}
+                          className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 rounded"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={saveEditTeam}
+                          disabled={!editingTeamName.trim()}
+                          className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-indigo-600 text-white rounded disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={team.id}
+                      className="flex items-start justify-between gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-700 truncate">{team.name}</p>
+                        {team.description && (
+                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                            {team.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => startEditTeam(team)}
+                          className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 rounded"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTeam(team.id)}
+                          className="p-1 hover:bg-red-50 hover:text-red-600 rounded transition-colors text-slate-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ),
+                )}
                 {teams.length === 0 && (
                   <p className="text-xs text-slate-400 italic">No teams yet. Teams are optional.</p>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-3">
+              <div className="mt-3 space-y-2">
                 <input
                   type="text"
                   value={newTeamName}
@@ -207,15 +358,24 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
                     }
                   }}
                   placeholder="Add a team..."
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-medium"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-medium"
                 />
-                <button
-                  onClick={handleAddTeam}
-                  disabled={!newTeamName.trim()}
-                  className="p-2 bg-indigo-600 disabled:bg-slate-200 text-white rounded-lg hover:bg-indigo-500 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newTeamDescription}
+                    onChange={(e) => setNewTeamDescription(e.target.value)}
+                    placeholder="Description (optional)"
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-xs"
+                  />
+                  <button
+                    onClick={handleAddTeam}
+                    disabled={!newTeamName.trim()}
+                    className="p-2 bg-indigo-600 disabled:bg-slate-200 text-white rounded-lg hover:bg-indigo-500 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}

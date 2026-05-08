@@ -22,16 +22,28 @@ export interface Team {
   id: number;
   category_id: number;
   name: string;
+  description?: string | null;
   created_at?: string;
 }
 
+/**
+ * "Category" is the existing table name. The Meeting Types feature spec
+ * (meeting-types-architecture.md) calls this concept "meeting type" — the
+ * fields on this object now match that contract (name + description + color +
+ * icon + teams).
+ */
 export interface Category {
   id: number;
   name: string;
+  description?: string | null;
   color?: string | null;
+  icon?: string | null;
   created_at?: string;
   teams?: Team[];
 }
+
+// Spec-friendly alias used when the UI talks about "Meeting Types".
+export type MeetingType = Category;
 
 export interface MeetingCategoryRef {
   id: number;
@@ -53,8 +65,17 @@ export interface Meeting {
   status: string;
   created_at: string;
   updated_at: string;
+
+  // Lifecycle / scheduling (Meeting Types feature)
+  scheduled_at?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_minutes?: number | null;
+  meeting_platform?: string | null;
+
   transcript_text?: string;
   transcript_raw?: any;
+  transcript?: string | null;
   tasks?: Task[];
   participants?: Participant[];
   category?: MeetingCategoryRef | null;

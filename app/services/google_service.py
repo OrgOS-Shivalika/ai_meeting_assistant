@@ -4,6 +4,9 @@ from app.config.settings import settings
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events",
+    # Allows us to flip Meet spaces we create to accessType=OPEN so the bot
+    # (and any link-holder) can join without host approval.
+    "https://www.googleapis.com/auth/meetings.space.created",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid"

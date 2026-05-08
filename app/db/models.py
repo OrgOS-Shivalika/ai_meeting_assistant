@@ -24,6 +24,13 @@ class Meeting(Base):
     transcript_text = Column(Text)     # formatted version
     transcript = Column(Text, nullable=True) # live transcript lines
 
+    # Lifecycle / scheduling metadata (Meeting Types feature)
+    scheduled_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    duration_minutes = Column(Integer, nullable=True)
+    meeting_platform = Column(String, nullable=True)  # google_meet | zoom | teams | webex
+
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user = relationship("User", back_populates="meetings")
 
@@ -94,13 +101,16 @@ class User(Base):
 
 
 class Category(Base):
+    """Meeting type / category (per meeting-types-architecture.md, this is `meeting_types`)."""
     __tablename__ = "categories"
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_category_user_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
     color = Column(String, nullable=True)
+    icon = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -117,6 +127,7 @@ class Team(Base):
     id = Column(Integer, primary_key=True, index=True)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

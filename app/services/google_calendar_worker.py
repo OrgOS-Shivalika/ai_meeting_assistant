@@ -36,53 +36,80 @@ def process_calendar_events():
                     event_id = event.get("id")
                     summary = event.get("summary", "Untitled Meeting")
 
-                    if not meet_link or not event_id:
+                    if not event_id:
                         continue
 
-                    # ✅ prevent duplicate meetings
-                    existing = db.query(Meeting).filter_by(
-                        google_event_id=event_id
-                    ).first()
-
-                    if existing:
-                        continue
-
-                    # ⏰ check meeting start time
+                    # ⏰ check meeting start time (within auto-join window).
                     start_time = event["start"].get("dateTime")
                     if not start_time:
                         continue
 
                     start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                     now = datetime.now(timezone.utc)
-
-                    # only trigger if meeting is about to start or started recently
                     diff = (start_dt - now).total_seconds()
-                    # Join if meeting starts in the next 2 minutes OR started in the last 5 minutes
+                    # Join if meeting starts in the next 2 minutes OR started in
+                    # the last 5 minutes.
                     if not (-300 <= diff <= 120):
+                        continue
+
+                    existing = db.query(Meeting).filter_by(
+                        google_event_id=event_id
+                    ).first()
+
+                    if existing:
+                        # Pre-scheduled (e.g. created via the frontend schedule
+                        # form). The worker still owns auto-join: when its
+                        # start window arrives, transition pending → processing
+                        # and dispatch the pipeline. Anything already further
+                        # along (processing/completed/failed) is left alone.
+                        if existing.status != "pending":
+                            continue
+                        join_url = existing.meeting_url or meet_link
+                        if not join_url:
+                            continue
+                        logger.info(
+                            f"🚀 Auto joining pre-scheduled meeting "
+                            f"'{summary}' (id={existing.id}): {join_url}"
+                        )
+                        existing.meeting_url = join_url
+                        existing.status = "processing"
+                        # Refresh stored event data in case attendees / link
+                        # changed since we created it.
+                        existing.google_event_data = event
+                        db.commit()
+                        thread = threading.Thread(
+                            target=run_pipeline_async, args=(existing.id,)
+                        )
+                        thread.start()
+                        continue
+
+                    # New event discovered on the calendar — create a Meeting
+                    # row and dispatch. This requires a Meet link because we
+                    # have nowhere else to get one from.
+                    if not meet_link:
                         continue
 
                     logger.info(f"🚀 Auto joining meeting '{summary}': {meet_link}")
 
-                    # ✅ CREATE DB ENTRY
                     meeting = Meeting(
                         meeting_url=meet_link,
                         status="processing",
                         user_id=user.id,
                         google_event_id=event_id,
-                        google_event_data=event, # 🔥 Store full event JSON
-                        title=summary
+                        google_event_data=event,
+                        title=summary,
                     )
-
                     db.add(meeting)
                     db.commit()
                     db.refresh(meeting)
 
-                    # ✅ RUN PIPELINE ASYNC
-                    thread = threading.Thread(target=run_pipeline_async, args=(meeting.id,))
+                    thread = threading.Thread(
+                        target=run_pipeline_async, args=(meeting.id,)
+                    )
                     thread.start()
             except Exception as e:
                 logger.error(f"Error processing calendar for user {user.email}: {str(e)}")
-                
+
     except Exception as e:
         logger.error(f"Error in process_calendar_events: {str(e)}")
     finally:

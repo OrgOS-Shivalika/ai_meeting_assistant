@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchMeetingById } from "../api";
 import Layout from "../../../shared/components/Layout";
@@ -7,20 +7,22 @@ import {
   Calendar,
   Clock,
   Users,
-  Bell,
   Sparkles,
   Share2,
   Download,
-  Play,
-  ChevronRight,
+  ExternalLink,
+  ChevronLeft,
+  AlertCircle,
+  CheckCircle2,
+  Inbox,
 } from "lucide-react";
+import type { Meeting, Participant, Task } from "../types";
 
 type LiveLine = { speaker: string; text: string; timestamp: number };
 type TranscriptGroup = {
   speaker: string;
   timestamp?: number | string;
   messages: string[];
-  isHighlighted?: boolean;
 };
 
 const getInitials = (name: string) => {
@@ -28,45 +30,124 @@ const getInitials = (name: string) => {
   return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
 };
 
+const AVATAR_COLORS = [
+  "bg-indigo-500",
+  "bg-emerald-500",
+  "bg-amber-500",
+  "bg-rose-500",
+  "bg-violet-500",
+  "bg-pink-500",
+  "bg-cyan-500",
+  "bg-orange-500",
+  "bg-teal-500",
+  "bg-fuchsia-500",
+];
+const colorFor = (name: string) => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++)
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+};
+
 const formatTime = (ts?: number | string) => {
-  if (!ts) return "";
+  if (!ts && ts !== 0) return "";
   const d = new Date(ts);
-  if (isNaN(d.getTime())) return "10:04 AM";
+  if (isNaN(d.getTime())) return "";
   return d.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
   });
 };
 
+const formatDate = (iso?: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatDateShort = (iso?: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+const computeDuration = (m: Meeting): string | null => {
+  if (m.duration_minutes != null && m.duration_minutes > 0) {
+    return `${m.duration_minutes} min`;
+  }
+  if (m.started_at && m.ended_at) {
+    const diff =
+      (new Date(m.ended_at).getTime() - new Date(m.started_at).getTime()) /
+      60000;
+    if (diff > 0) return `${Math.round(diff)} min`;
+  }
+  return null;
+};
+
+const PRIORITY_STYLE: Record<string, string> = {
+  high: "bg-rose-50 text-rose-700 ring-rose-200",
+  medium: "bg-amber-50 text-amber-700 ring-amber-200",
+  low: "bg-slate-50 text-slate-600 ring-slate-200",
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  failed: "bg-rose-50 text-rose-700 ring-rose-200",
+  pending: "bg-amber-50 text-amber-700 ring-amber-200",
+  processing: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+};
+
 export default function MeetingDetailPage() {
   const { id } = useParams();
-  const [meeting, setMeeting] = useState<any>(null);
-  const [aiHighlightsOn, setAiHighlightsOn] = useState(true);
+  const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
   const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchMeetingById(id!).then((data) => {
-      setMeeting(data);
-      if (data.transcript) {
-        const parseLine = (line: string) => {
-          const colonIdx = line.indexOf(": ");
-          if (colonIdx < 0) return { speaker: "Unknown", text: line };
-          return {
-            speaker: line.slice(0, colonIdx),
-            text: line.slice(colonIdx + 2),
+    if (!id) return;
+    let cancelled = false;
+    fetchMeetingById(id)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.error || !data?.id) {
+          setError(data?.error || "Meeting not found");
+          return;
+        }
+        setMeeting(data);
+        if (data.transcript) {
+          const parseLine = (line: string) => {
+            const colonIdx = line.indexOf(": ");
+            if (colonIdx < 0) return { speaker: "Unknown", text: line };
+            return {
+              speaker: line.slice(0, colonIdx),
+              text: line.slice(colonIdx + 2),
+            };
           };
-        };
-        const lines: LiveLine[] = data.transcript
-          .split("\n")
-          .filter((l: string) => l.trim())
-          .map((line: string) => ({
-            ...parseLine(line),
-            timestamp: Date.now(),
-          }));
-        setLiveLines(lines);
-      }
-    });
+          const lines: LiveLine[] = data.transcript
+            .split("\n")
+            .filter((l: string) => l.trim())
+            .map((line: string) => ({
+              ...parseLine(line),
+              timestamp: Date.now(),
+            }));
+          setLiveLines(lines);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load meeting", err);
+        if (!cancelled) setError("Failed to load meeting.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   useEffect(() => {
@@ -74,136 +155,231 @@ export default function MeetingDetailPage() {
   }, [liveLines]);
 
   const groups = useMemo<TranscriptGroup[]>(() => {
-    if (meeting?.status === "completed" && meeting?.transcript_raw) {
-      const raw = meeting.transcript_raw;
+    if (!meeting) return [];
+    if (meeting.status === "completed" && meeting.transcript_raw) {
+      const raw = meeting.transcript_raw as any[];
       const gs: TranscriptGroup[] = [];
-      for (let i = 0; i < raw.length; i++) {
-        const item = raw[i];
+      for (const item of raw) {
         const speaker = item.participant?.name || "Unknown";
         const text = (item.words || []).map((w: any) => w.text).join(" ");
         const ts = item.words?.[0]?.start_timestamp?.absolute;
         const last = gs[gs.length - 1];
-
-        const isHighlighted =
-          aiHighlightsOn && (speaker.includes("Mike T") || i === 1);
-
         if (last && last.speaker === speaker) {
           last.messages.push(text);
-          if (isHighlighted) last.isHighlighted = true;
         } else {
-          gs.push({ speaker, timestamp: ts, messages: [text], isHighlighted });
+          gs.push({ speaker, timestamp: ts, messages: [text] });
         }
       }
       return gs;
     }
 
-    const lines =
-      liveLines.length > 0
-        ? liveLines
-        : [
-            {
-              speaker: "Sarah J.",
-              text: "Welcome everyone to our Q3 strategy sync. We have a lot to cover today regarding the roadmap.",
-              timestamp: Date.now() - 100000,
-            },
-            {
-              speaker: "Mike T.",
-              text: "I've reviewed the current capacity and I think we should prioritize the mobile-first indexing for this quarter. It's our biggest bottleneck.",
-              timestamp: Date.now() - 80000,
-            },
-            {
-              speaker: "Kevin L.",
-              text: "Agreed. The Prism design system update is also critical for the consistency across our mobile apps.",
-              timestamp: Date.now() - 60000,
-            },
-          ];
+    if (liveLines.length === 0) return [];
 
     const gs: TranscriptGroup[] = [];
-    lines.forEach((line) => {
+    for (const line of liveLines) {
       const last = gs[gs.length - 1];
-      const isHighlighted = aiHighlightsOn && line.speaker.includes("Mike T");
       if (last && last.speaker === line.speaker) {
         last.messages.push(line.text);
-        if (isHighlighted) last.isHighlighted = true;
       } else {
         gs.push({
           speaker: line.speaker,
           timestamp: line.timestamp,
           messages: [line.text],
-          isHighlighted,
         });
       }
-    });
+    }
     return gs;
-  }, [meeting, liveLines, aiHighlightsOn]);
+  }, [meeting, liveLines]);
 
-  if (!meeting) return null;
+  const summaryBullets = useMemo(() => {
+    if (!meeting?.summary) return [];
+    return meeting.summary
+      .split(/\n+/)
+      .map((line) => line.replace(/^[\s\-•*\d.)]+/, "").trim())
+      .filter((line) => line.length > 0)
+      .slice(0, 6);
+  }, [meeting?.summary]);
 
-  const dateStr = "Oct 24, 2023"; // Exact per reference
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+            <AlertCircle className="w-10 h-10 text-rose-500 mx-auto mb-3" />
+            <h2 className="text-lg font-bold text-slate-900 mb-1">
+              Couldn't load meeting
+            </h2>
+            <p className="text-sm text-slate-500 mb-5">{error}</p>
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Back to meetings
+            </Link>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!meeting) {
+    return (
+      <Layout>
+        <div className="flex justify-center items-center h-[60vh]">
+          <div className="relative w-10 h-10">
+            <div className="absolute inset-0 rounded-full border-3 border-gray-200" />
+            <div className="absolute inset-0 rounded-full border-t-3 border-[#4F46E5] animate-spin" />
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const title = meeting.title?.trim() || "Untitled meeting";
+  const dateStr =
+    formatDate(
+      meeting.scheduled_at || meeting.started_at || meeting.created_at,
+    ) || "—";
+  const durationStr = computeDuration(meeting);
+  const participants: Participant[] = meeting.participants ?? [];
+  const tasks: Task[] = meeting.tasks ?? [];
+  const taskCount = tasks.length;
+  const completedTaskCount = tasks.filter((t) => t.is_completed).length;
+  const statusBadge =
+    STATUS_STYLE[meeting.status] || "bg-slate-50 text-slate-700 ring-slate-200";
 
   return (
     <Layout>
       <div className="max-w-[1400px] mx-auto">
-        {/* Outer Rounded Container */}
         <div className="bg-white rounded-[24px] border border-gray-200 shadow-2xl shadow-slate-200/40 overflow-hidden flex flex-col min-h-[calc(100vh-80px)]">
           {/* Top Navigation Bar */}
           <div className="px-8 py-3.5 flex items-center justify-between border-b border-gray-100 bg-white">
-            <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
-              <span>Meetings</span>
+            <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400 min-w-0">
+              <Link to="/" className="hover:text-indigo-600 transition-colors">
+                Meetings
+              </Link>
+              {meeting.category && (
+                <>
+                  <span className="text-slate-300">/</span>
+                  <Link
+                    to={`/?category_id=${meeting.category.id}`}
+                    className="hover:text-indigo-600 transition-colors"
+                    style={{ color: meeting.category.color || undefined }}
+                  >
+                    {meeting.category.name}
+                  </Link>
+                </>
+              )}
+              {meeting.team && (
+                <>
+                  <span className="text-slate-300">/</span>
+                  <Link
+                    to={`/?category_id=${meeting.category?.id}&team_id=${meeting.team.id}`}
+                    className="hover:text-indigo-600 transition-colors"
+                  >
+                    {meeting.team.name}
+                  </Link>
+                </>
+              )}
               <span className="text-slate-300">/</span>
-              <span className="text-slate-500 font-semibold">
-                {meeting.title || "Q3 Product Strategy Sync"}
+              <span className="text-slate-500 font-semibold truncate">
+                {title}
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 shrink-0">
               <CategoryAssignControl
                 meetingId={meeting.id}
                 category={meeting.category}
                 team={meeting.team}
                 onChange={({ category, team }) =>
-                  setMeeting((prev: any) =>
+                  setMeeting((prev) =>
                     prev ? { ...prev, category, team } : prev,
                   )
                 }
               />
-              <Bell className="w-3.5 h-3.5 text-slate-400 cursor-pointer hover:text-indigo-600 transition-colors" />
-              <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer hover:border-indigo-300 transition-colors">
-                <div className="w-3 h-3 bg-slate-300 rounded-full" />
-              </div>
             </div>
           </div>
 
           {/* Header Section */}
           <div className="px-8 pt-8 pb-7 flex flex-col lg:flex-row lg:items-end justify-between gap-6 border-b border-gray-50">
-            <div className="space-y-3.5">
-              <h1 className="text-[26px] font-bold text-[#0F1523] tracking-tight leading-none">
-                Meeting Review: {meeting.title || "Q3 Product Strategy Sync"}
+            <div className="space-y-3.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ring-1 ${statusBadge}`}
+                >
+                  {meeting.status}
+                </span>
+                {meeting.meeting_platform && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-50 text-slate-600 ring-1 ring-slate-200">
+                    {meeting.meeting_platform.replace(/_/g, " ")}
+                  </span>
+                )}
+              </div>
+              <h1 className="text-[26px] font-bold text-[#0F1523] tracking-tight leading-tight">
+                {title}
               </h1>
-              <div className="flex items-center gap-5 text-[11px] font-medium text-slate-400">
+              <div className="flex items-center gap-5 text-[11px] font-medium text-slate-400 flex-wrap">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-slate-300" />
                   <span>{dateStr}</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-slate-300" />
-                  <span>45 min</span>
-                </div>
+                {durationStr && (
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-slate-300" />
+                    <span>{durationStr}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-slate-300" />
-                  <span>8 Participants</span>
+                  <span>
+                    {participants.length}{" "}
+                    {participants.length === 1
+                      ? "participant"
+                      : "participants"}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
-              <button className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2">
-                <Share2 className="w-3.5 h-3.5" /> Share Summary
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {meeting.meeting_url && (
+                <a
+                  href={meeting.meeting_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Open Meeting
+                </a>
+              )}
+              <button
+                disabled={!meeting.summary}
+                onClick={() => {
+                  if (!meeting.summary) return;
+                  navigator.clipboard?.writeText(meeting.summary);
+                }}
+                className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Share2 className="w-3.5 h-3.5" /> Copy Summary
               </button>
-              <button className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2">
+              <button
+                disabled={!meeting.transcript_text && !meeting.transcript}
+                onClick={() => {
+                  const text =
+                    meeting.transcript_text || meeting.transcript || "";
+                  if (!text) return;
+                  const blob = new Blob([text], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${title.replace(/[^\w\d]+/g, "_")}-transcript.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="h-8.5 px-4 bg-white border border-gray-200 text-[#0F1523] font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all shadow-xs flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 <Download className="w-3.5 h-3.5" /> Export Transcript
-              </button>
-              <button className="h-8.5 px-5 bg-[#4F46E5] text-white font-bold text-[10px] uppercase tracking-wider rounded-lg hover:bg-[#4338CA] transition-all shadow-sm shadow-indigo-200 flex items-center gap-2">
-                Edit Tasks
               </button>
             </div>
           </div>
@@ -214,7 +390,11 @@ export default function MeetingDetailPage() {
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col border-b-[3px] border-b-gray-100">
               <div className="px-6 py-3.5 bg-[#F8F9FB] border-b border-gray-100 flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-600 uppercase tracking-widest">
-                  Full Transcript
+                  {meeting.status === "completed"
+                    ? "Full Transcript"
+                    : meeting.transcript
+                    ? "Live Transcript"
+                    : "Transcript"}
                 </span>
                 <button
                   onClick={() => setAiHighlightsOn(!aiHighlightsOn)}
@@ -234,73 +414,63 @@ export default function MeetingDetailPage() {
               </div>
 
               <div className="p-7 space-y-7 overflow-y-auto max-h-[700px] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                {groups.map((group, idx) => (
-                  <div key={idx} className="relative">
-                    {/* AI Generated Context Box */}
-                    {idx === 2 && aiHighlightsOn && (
-                      <div className="mb-8 p-5 bg-[#F5F3FF] border border-dashed border-[#C7D2FE] rounded-xl animate-in fade-in slide-in-from-top-2 duration-500">
-                        <div className="flex items-center gap-2 mb-2.5">
-                          <Sparkles className="w-3.5 h-3.5 text-[#4F46E5] fill-[#4F46E5]/10" />
-                          <span className="text-[10px] font-black text-[#4F46E5] uppercase tracking-widest">
-                            AI-Generated Context
-                          </span>
+                {groups.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-slate-500 mb-1">
+                      No transcript yet
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {meeting.status === "pending" ||
+                      meeting.status === "processing"
+                        ? "The transcript will appear here once the meeting is processed."
+                        : "This meeting has no transcript on record."}
+                    </p>
+                  </div>
+                ) : (
+                  groups.map((group, idx) => (
+                    <div key={idx} className="relative">
+                      <div className="flex gap-5 p-3.5 rounded-xl">
+                        <div className="shrink-0 mt-0.5">
+                          <div
+                            className={`w-8.5 h-8.5 rounded-md flex items-center justify-center font-bold text-[11px] text-white shadow-xs ${colorFor(group.speaker)}`}
+                          >
+                            {getInitials(group.speaker)}
+                          </div>
                         </div>
-                        <p className="text-[11.5px] text-slate-600 leading-relaxed font-medium mb-3">
-                          Kevin is referring to the 'Prism' design system update
-                          discussed in the previous meeting on July 14th.
-                        </p>
-                        <button className="text-[10px] font-bold text-[#4F46E5] hover:underline flex items-center gap-1 group">
-                          View related meeting{" "}
-                          <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
-                        </button>
-                      </div>
-                    )}
-
-                    <div
-                      className={`flex gap-5 p-3.5 rounded-xl transition-all ${group.isHighlighted ? "bg-[#F8F9FC] border-l-[3px] border-[#4F46E5] shadow-xs" : ""}`}
-                    >
-                      <div className="shrink-0 mt-0.5">
-                        <div className="w-8.5 h-8.5 bg-[#EEF2FF] text-[#4F46E5] rounded-[6px] flex items-center justify-center font-bold text-[11px] border border-[#E0E7FF] shadow-xs">
-                          {getInitials(group.speaker)}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2.5">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2.5 mb-2">
                             <span className="text-[12.5px] font-bold text-[#0F1523]">
                               {group.speaker}
                             </span>
-                            <span className="text-[9.5px] font-semibold text-slate-400 uppercase tracking-tighter">
-                              {formatTime(group.timestamp)}
-                            </span>
+                            {group.timestamp && (
+                              <span className="text-[9.5px] font-semibold text-slate-400 uppercase tracking-tighter">
+                                {formatTime(group.timestamp)}
+                              </span>
+                            )}
                           </div>
-                          {group.isHighlighted && (
-                            <span className="text-[8.5px] font-black text-[#4F46E5] uppercase tracking-[0.12em] bg-indigo-50 px-1.5 py-0.5 rounded">
-                              Key Decision
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          {group.messages.map((m, midx) => (
-                            <p
-                              key={midx}
-                              className="text-[12.5px] text-slate-600 leading-relaxed font-medium"
-                            >
-                              {m}
-                            </p>
-                          ))}
+                          <div className="space-y-2">
+                            {group.messages.map((m, midx) => (
+                              <p
+                                key={midx}
+                                className="text-[12.5px] text-slate-600 leading-relaxed font-medium"
+                              >
+                                {m}
+                              </p>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
                 <div ref={transcriptEndRef} />
               </div>
             </div>
 
             {/* RIGHT COLUMN: Sidebar Cards */}
             <div className="space-y-6">
-              {/* 1. Meeting Summary Card */}
+              {/* Meeting Summary Card */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-7 border-b-[3px] border-b-gray-100">
                 <div className="flex items-center gap-2.5 mb-5">
                   <Sparkles className="w-4 h-4 text-[#4F46E5]" />
@@ -308,88 +478,108 @@ export default function MeetingDetailPage() {
                     Meeting Summary
                   </h3>
                 </div>
-                <p className="text-[11.5px] text-slate-500 leading-relaxed font-medium mb-6">
-                  The team discussed the Q3 product strategy, focusing on
-                  mobile-first indexing and the upcoming backend refactor.
-                </p>
-                <div className="space-y-3.5">
-                  {[
-                    "Mobile-first indexing prioritized",
-                    "Backend refactor at 80%",
-                    "Design system pushed to staging",
-                  ].map((bullet, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-1.5 h-1.5 bg-[#4F46E5] rounded-full shrink-0 shadow-[0_0_6px_rgba(79,70,229,0.3)]" />
-                      <span className="text-[11.5px] text-slate-700 font-bold">
-                        {bullet}
-                      </span>
+                {meeting.summary ? (
+                  summaryBullets.length > 1 ? (
+                    <div className="space-y-3.5">
+                      {summaryBullets.map((bullet, i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          <div className="w-1.5 h-1.5 bg-[#4F46E5] rounded-full shrink-0 mt-1.5 shadow-[0_0_6px_rgba(79,70,229,0.3)]" />
+                          <span className="text-[11.5px] text-slate-700 font-bold leading-relaxed">
+                            {bullet}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  ) : (
+                    <p className="text-[11.5px] text-slate-600 leading-relaxed font-medium">
+                      {meeting.summary}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-[11.5px] text-slate-400 italic leading-relaxed">
+                    No summary yet — it will appear here once the meeting is
+                    processed.
+                  </p>
+                )}
               </div>
 
-              {/* 2. Assigned Tasks Card */}
+              {/* Assigned Tasks Card */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden border-b-[3px] border-b-gray-100">
                 <div className="px-7 py-4.5 border-b border-gray-50 flex items-center justify-between bg-slate-50/30">
                   <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">
                     Assigned Tasks
                   </h3>
                   <span className="text-[10px] font-black text-slate-400 uppercase">
-                    3 Items
+                    {taskCount === 0
+                      ? "None"
+                      : `${completedTaskCount} / ${taskCount}`}
                   </span>
                 </div>
                 <div className="p-3 space-y-1.5">
-                  {[
-                    {
-                      title: "Finalize API latency report",
-                      urgent: true,
-                      owner: "SJ",
-                      due: "Jul 28",
-                    },
-                    {
-                      title: "Component token audit",
-                      owner: "MT",
-                      due: "Jul 30",
-                    },
-                    {
-                      title: "Update Beta stakeholder deck",
-                      owner: "KL",
-                      due: "Aug 02",
-                    },
-                  ].map((task, i) => (
-                    <div
-                      key={i}
-                      className="px-4 py-3.5 rounded-xl hover:bg-slate-50 transition-all flex flex-col gap-2.5 cursor-pointer border border-transparent hover:border-slate-100"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-[11.5px] font-bold text-slate-800 leading-snug line-clamp-2">
-                          {task.title}
-                        </h4>
-                        {task.urgent && (
-                          <span className="shrink-0 px-2 py-0.5 bg-red-50 text-red-600 text-[7px] font-black uppercase rounded-md border border-red-100 tracking-wider">
-                            URGENT
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 bg-[#4F46E5] text-white text-[8px] font-black rounded-md flex items-center justify-center border border-indigo-200 shadow-xs">
-                            {task.owner}
+                  {tasks.length === 0 ? (
+                    <p className="px-4 py-6 text-[11.5px] text-slate-400 italic text-center">
+                      No tasks captured from this meeting.
+                    </p>
+                  ) : (
+                    tasks.map((task) => {
+                      const priorityKey = (
+                        task.priority || "medium"
+                      ).toLowerCase();
+                      const priorityClass =
+                        PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
+                      const ownerInitials = task.owner
+                        ? getInitials(task.owner)
+                        : "?";
+                      const due = formatDateShort(task.due_date);
+                      return (
+                        <div
+                          key={task.id}
+                          className="px-4 py-3.5 rounded-xl hover:bg-slate-50 transition-all flex flex-col gap-2.5 border border-transparent hover:border-slate-100"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <h4
+                              className={`text-[11.5px] font-bold leading-snug ${
+                                task.is_completed
+                                  ? "text-slate-400 line-through"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {task.task}
+                            </h4>
+                            <span
+                              className={`shrink-0 px-2 py-0.5 text-[8px] font-black uppercase rounded-md ring-1 tracking-wider ${priorityClass}`}
+                            >
+                              {priorityKey}
+                            </span>
                           </div>
-                          <span className="text-[10px] font-bold text-slate-400">
-                            Sarah J.
-                          </span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div
+                                className={`w-5 h-5 text-white text-[8px] font-black rounded-md flex items-center justify-center shadow-xs ${colorFor(task.owner || "?")}`}
+                              >
+                                {ownerInitials}
+                              </div>
+                              <span className="text-[10px] font-bold text-slate-500 truncate">
+                                {task.owner || "Unassigned"}
+                              </span>
+                              {task.is_completed && (
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                              )}
+                            </div>
+                            {due && (
+                              <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
+                                Due {due}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-[9.5px] font-black text-slate-300 uppercase tracking-tighter">
-                          Due {task.due}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
-              {/* 3. Metadata Card */}
+              {/* Metadata Card */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-7 space-y-6 border-b-[3px] border-b-gray-100">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between py-1">
@@ -406,43 +596,59 @@ export default function MeetingDetailPage() {
                       Duration
                     </span>
                     <span className="text-[11.5px] font-bold text-slate-800">
-                      45 Minutes
+                      {durationStr || "—"}
                     </span>
                   </div>
+                  {meeting.meeting_platform && (
+                    <>
+                      <div className="h-px bg-slate-50" />
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          Platform
+                        </span>
+                        <span className="text-[11.5px] font-bold text-slate-800 capitalize">
+                          {meeting.meeting_platform.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <div className="h-px bg-slate-50" />
                   <div className="space-y-3.5">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
                       Participants
                     </span>
-                    <div className="flex items-center justify-between">
-                      <div className="flex -space-x-2">
-                        {["SJ", "MT", "KL", "AR"].map((init, i) => (
-                          <div
-                            key={i}
-                            className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-black shadow-xs ring-1 ring-slate-100 ${i === 3 ? "bg-slate-50 text-slate-400" : "bg-indigo-50 text-indigo-600"}`}
-                          >
-                            {i === 3 ? "+6" : init}
-                          </div>
-                        ))}
+                    {participants.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">
+                        No participants on record.
+                      </p>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex -space-x-2">
+                          {participants.slice(0, 4).map((p) => (
+                            <div
+                              key={p.id}
+                              title={p.name}
+                              className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-black text-white shadow-xs ${colorFor(p.name)}`}
+                            >
+                              {getInitials(p.name)}
+                            </div>
+                          ))}
+                          {participants.length > 4 && (
+                            <div className="w-7 h-7 rounded-full border-2 border-white bg-slate-100 text-slate-500 flex items-center justify-center text-[9px] font-black shadow-xs">
+                              +{participants.length - 4}
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {participants.length} total
+                        </span>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
-
-                <button className="w-full h-9 flex items-center justify-center gap-2 border border-gray-200 text-slate-600 font-black text-[10px] uppercase tracking-[0.15em] rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]">
-                  <Play className="w-3.5 h-3.5 fill-slate-300 text-slate-300" />{" "}
-                  Watch Recording
-                </button>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Page Footer / Legal */}
-        <div className="mt-8 pb-8 text-[9px] font-bold text-slate-300 uppercase tracking-[0.2em] flex items-center justify-center gap-4">
-          <span>© 2024 MeetingOps Intelligence</span>
-          <div className="w-1 h-1 bg-slate-200 rounded-full" />
-          <span>Enterprise Organizational Memory</span>
         </div>
       </div>
     </Layout>
