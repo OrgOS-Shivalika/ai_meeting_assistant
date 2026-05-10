@@ -7,6 +7,8 @@ from app.api.auth_router import router as auth_router
 from app.api.google_auth_router import router as google_auth_router 
 from app.api.routes import router
 from app.api.category_router import router as category_router, team_router, meeting_types_router
+from app.api.document_router import router as document_router
+from app.api.team_document_router import router as team_document_router
 from app.api.transcription_router import router as transcription_router
 from app.api.ws_router import ws_router
 from app.api.webhooks.recall_webhook import recall_webhook_router
@@ -36,6 +38,8 @@ app.include_router(router)
 app.include_router(category_router)
 app.include_router(meeting_types_router)
 app.include_router(team_router)
+app.include_router(document_router)
+app.include_router(team_document_router)
 app.include_router(transcription_router)
 app.include_router(google_auth_router)
 app.include_router(ws_router)
@@ -46,6 +50,18 @@ async def startup_event():
     logger.info("Starting Agentic Meeting Assistant...")
     start_scheduler()
     logger.info("Scheduler started successfully.")
+
+    # Ensure the document storage bucket exists. No-op when storage isn't
+    # configured — the app stays usable for non-storage features.
+    try:
+        from app.services.storage_service import storage
+        if storage.is_configured:
+            storage.ensure_bucket()
+            logger.info("Storage bucket ready.")
+        else:
+            logger.warning("Storage not configured (S3 credentials missing) — document uploads disabled.")
+    except Exception as exc:
+        logger.error("Storage bucket bootstrap failed: %s", exc)
 
 @app.get("/health")
 def health_check():

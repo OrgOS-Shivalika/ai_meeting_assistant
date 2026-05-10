@@ -1,0 +1,104 @@
+# Phase 1B development stack.
+#
+# Services:
+#   postgres   PostgreSQL 16 with pgvector pre-installed (port 5433 on host
+#              to avoid colliding with any existing host-Postgres on 5432).
+#   redis      Celery broker + result backend.
+#   minio      S3-compatible object storage for document uploads.
+#   minio-init Idempotent bucket bootstrap (runs once, exits).
+#   worker     Celery worker. Consumes meeting tasks from Redis.
+#
+# The FastAPI app is intentionally NOT in compose during Phase 1B — running it
+# on the host preserves the fast iterate loop. Set USE_CELERY=true in .env to
+# route /inject-bot through the worker.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: meeting-ai-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-meeting_ai}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: meeting-ai-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: meeting-ai-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: meeting-ai-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-minioadmin} ${S3_SECRET_ACCESS_KEY:-minioadmin};
+      mc mb --ignore-existing local/${S3_BUCKET:-meeting-ai-documents};
+      mc anonymous set download local/${S3_BUCKET:-meeting-ai-documents} || true;
+      echo 'MinIO bucket bootstrapped';
+      "
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meeting-ai-worker
+    command: celery -A app.celery_app.celery worker --loglevel=info --pool=prefork --concurrency=2
+    env_file:
+      - .env
+    environment:
+      # Override service-discovery values for inside-Docker.
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/meeting_ai}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      USE_CELERY: "true"
+    volumes:
+      - ./:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  minio_data:

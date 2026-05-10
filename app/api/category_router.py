@@ -33,7 +33,7 @@ def _get_owned_category(db: Session, user, category_id: int) -> Category:
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="Meeting type not found")
-    if category.user_id != user.id:
+    if category.organization_id != user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     return category
 
@@ -42,7 +42,7 @@ def _get_owned_team(db: Session, user, team_id: int) -> Team:
     team = (
         db.query(Team)
         .join(Category, Team.category_id == Category.id)
-        .filter(Team.id == team_id, Category.user_id == user.id)
+        .filter(Team.id == team_id, Category.organization_id == user.organization_id)
         .first()
     )
     if not team:
@@ -59,7 +59,7 @@ def _list_categories(db: Session, user):
     return (
         db.query(Category)
         .options(joinedload(Category.teams))
-        .filter(Category.user_id == user.id)
+        .filter(Category.organization_id == user.organization_id)
         .order_by(Category.created_at.asc())
         .all()
     )
@@ -67,6 +67,7 @@ def _list_categories(db: Session, user):
 
 def _create_category(db: Session, user, payload: CategoryCreate) -> Category:
     category = Category(
+        organization_id=user.organization_id,
         user_id=user.id,
         name=payload.name.strip(),
         description=payload.description,

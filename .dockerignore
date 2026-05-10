@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.idea/
+.vscode/
+node_modules/
+meeting_ai_frontend/node_modules/
+meeting_ai_frontend/dist/
+.planning/
+*.log
+.env
+.pytest_cache/
+.ruff_cache/

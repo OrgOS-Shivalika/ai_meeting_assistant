@@ -2,7 +2,7 @@ import requests
 
 from app.services.recall_ai_service import RecallService
 from app.processors.transcript_processor import TranscriptProcessor
-from app.ai_agents.openAI_transcript_analyzer import OpenAITranscriptAnalyzer 
+from app.ai_agents.transcript_analyzer import TranscriptAnalyzer
 from app.utils.logger import setup_logger
 import json
 from app.db.models import Meeting, Task, Participant
@@ -198,7 +198,7 @@ class MeetingPipeline:
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
             logger.info("🧠 Running AI analysis...")
-            result = OpenAITranscriptAnalyzer.analyze(formatted)
+            result = TranscriptAnalyzer.analyze(formatted)
 
             result_json = json.loads(result)
 

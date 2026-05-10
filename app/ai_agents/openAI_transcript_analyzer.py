@@ -6,12 +6,24 @@ from app.ai_agents.prompts.openAI_transcript_analyzer_prompt import prompt as an
 
 logger = setup_logger(__name__)
 
-client = OpenAI(api_key=settings.OPEN_API_KEY)  # Initialize the OpenAI client with your API key
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    """Lazily build the OpenAI client so missing keys don't crash imports."""
+    global _client
+    if _client is None:
+        if not settings.OPEN_API_KEY:
+            raise RuntimeError("OPEN_API_KEY is not set")
+        _client = OpenAI(api_key=settings.OPEN_API_KEY)
+    return _client
+
 
 class OpenAITranscriptAnalyzer:
 
     @staticmethod
     def analyze(transcript: str) -> str:
+        client = _get_client()
 
         # logger.info("original transcript length: %d characters", len(transcript))
         # if transcript.strip():

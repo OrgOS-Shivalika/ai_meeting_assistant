@@ -10,9 +10,11 @@ from app.schemas.meeting_schema import (
     MeetingAssignRequest,
     MeetingUpdateRequest,
     MeetingScheduleRequest,
+    TaskUpdateRequest,
 )
 from app.utils.logger import setup_logger
 import uuid
+from app.config.settings import settings
 from app.db.database import SessionLocal
 from app.db.models import Meeting, Task, Category, Team
 from app.services.google_calendar_service import create_calendar_event
@@ -50,12 +52,14 @@ def _validate_category_team(
     category_id: Optional[int],
     team_id: Optional[int],
 ) -> None:
-    """Ensure the (category, team) pair belongs to user and team is in category."""
+    """Ensure the (category, team) pair belongs to the requesting user's org
+    and the team is inside that category."""
     if team_id is not None and category_id is None:
         raise HTTPException(status_code=400, detail="team_id requires category_id")
     if category_id is not None:
         category = db.query(Category).filter(
-            Category.id == category_id, Category.user_id == user.id
+            Category.id == category_id,
+            Category.organization_id == user.organization_id,
         ).first()
         if not category:
             raise HTTPException(status_code=404, detail="Category not found")
@@ -65,6 +69,34 @@ def _validate_category_team(
         ).first()
         if not team:
             raise HTTPException(status_code=404, detail="Team not found in this category")
+
+
+_UNASSIGNED_SENTINELS = {"", "tbd", "to be confirmed", "unassigned", "unknown", "n/a", "na", "-", "—"}
+
+
+def _task_is_unassigned(task: Task) -> bool:
+    """A task counts as unassigned when the analyzer left the owner blank or
+    used a placeholder. Centralized here so the heuristic stays consistent
+    across every endpoint that returns task records."""
+    name = (task.owner_name or "").strip().lower()
+    return name in _UNASSIGNED_SENTINELS
+
+
+def _task_dict(task: Task, include_meeting_id: bool = False) -> dict:
+    payload = {
+        "id": task.id,
+        "task": task.task,
+        "owner": task.owner_name,
+        "priority": task.priority,
+        "due_date": task.due_date,
+        "is_completed": bool(task.is_completed),
+        "is_unassigned": _task_is_unassigned(task),
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
+    if include_meeting_id:
+        payload["meeting_id"] = task.meeting_id
+    return payload
 
 
 def _meeting_dict(m: Meeting) -> dict:
@@ -118,6 +150,7 @@ def create_meeting(
         summary=None,
         bot_id=None,
         user_id=user.id,
+        organization_id=user.organization_id,
         category_id=request.category_id,
         team_id=request.team_id,
         title=request.title,
@@ -133,29 +166,38 @@ def create_meeting(
         "meeting_id": meeting.id
     }
 
-    def run():
-        local_db = SessionLocal()
-        try:
-            # Fetch the meeting object within the new session
-            db_meeting = local_db.query(Meeting).filter(Meeting.id == meeting.id).first()
-            if not db_meeting:
-                logger.error(f"Meeting {meeting.id} not found in background task")
-                return
+    if settings.USE_CELERY:
+        # Production / Docker path: dispatch onto the Celery worker.
+        from app.celery_tasks.meeting_tasks import process_meeting
+        async_result = process_meeting.delay(meeting.id)
+        jobs[job_id]["celery_task_id"] = async_result.id
+        logger.info(
+            "Dispatched meeting %s to Celery (task=%s)", meeting.id, async_result.id
+        )
+    else:
+        # Local dev path without a broker: fall back to in-process work via
+        # FastAPI BackgroundTasks. Same behaviour as before USE_CELERY existed.
+        def run():
+            local_db = SessionLocal()
+            try:
+                db_meeting = local_db.query(Meeting).filter(Meeting.id == meeting.id).first()
+                if not db_meeting:
+                    logger.error(f"Meeting {meeting.id} not found in background task")
+                    return
 
-            result = pipeline.run(local_db, db_meeting)
+                result = pipeline.run(local_db, db_meeting)
+                jobs[job_id]["status"] = "completed"
+                jobs[job_id]["result"] = result
 
-            jobs[job_id]["status"] = "completed"
-            jobs[job_id]["result"] = result
+            except Exception as e:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["result"] = str(e)
+                logger.error(f"Error in background task: {str(e)}")
 
-        except Exception as e:
-            jobs[job_id]["status"] = "failed"
-            jobs[job_id]["result"] = str(e)
-            logger.error(f"Error in background task: {str(e)}")
+            finally:
+                local_db.close()
 
-        finally:
-            local_db.close()
-
-    background_tasks.add_task(run)
+        background_tasks.add_task(run)
 
     return {
         "job_id": job_id,
@@ -203,7 +245,7 @@ def get_meetings(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    query = db.query(Meeting).filter(Meeting.user_id == user.id)
+    query = db.query(Meeting).filter(Meeting.organization_id == user.organization_id)
     if category_id is not None:
         query = query.filter(Meeting.category_id == category_id)
     if team_id is not None:
@@ -220,7 +262,10 @@ def list_uncategorized_meetings(
 ):
     meetings = (
         db.query(Meeting)
-        .filter(Meeting.user_id == user.id, Meeting.team_id.is_(None))
+        .filter(
+            Meeting.organization_id == user.organization_id,
+            Meeting.team_id.is_(None),
+        )
         .order_by(Meeting.created_at.desc())
         .all()
     )
@@ -234,18 +279,20 @@ def list_team_meetings(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    # Ownership check via the team's category.
     team = (
         db.query(Team)
         .join(Category, Team.category_id == Category.id)
-        .filter(Team.id == team_id, Category.user_id == user.id)
+        .filter(Team.id == team_id, Category.organization_id == user.organization_id)
         .first()
     )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     meetings = (
         db.query(Meeting)
-        .filter(Meeting.user_id == user.id, Meeting.team_id == team_id)
+        .filter(
+            Meeting.organization_id == user.organization_id,
+            Meeting.team_id == team_id,
+        )
         .order_by(Meeting.created_at.desc())
         .all()
     )
@@ -264,7 +311,7 @@ def schedule_team_meeting(
     team = (
         db.query(Team)
         .join(Category, Team.category_id == Category.id)
-        .filter(Team.id == team_id, Category.user_id == user.id)
+        .filter(Team.id == team_id, Category.organization_id == user.organization_id)
         .first()
     )
     if not team:
@@ -298,6 +345,7 @@ def schedule_team_meeting(
         meeting_url=meeting_url or "",
         status="pending",
         user_id=user.id,
+        organization_id=user.organization_id,
         category_id=team.category_id,
         team_id=team.id,
         title=payload.title,
@@ -322,7 +370,7 @@ def delete_meeting(
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.user_id != user.id:
+    if meeting.organization_id != user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this meeting")
     db.delete(meeting)
     db.commit()
@@ -339,7 +387,7 @@ def assign_meeting_category(
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.user_id != user.id:
+    if meeting.organization_id != user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized")
     _validate_category_team(db, user, payload.category_id, payload.team_id)
     meeting.category_id = payload.category_id
@@ -360,7 +408,7 @@ def update_meeting(
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.user_id != user.id:
+    if meeting.organization_id != user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     data = payload.model_dump(exclude_unset=True)
@@ -410,19 +458,8 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
             {"id": meeting.team.id, "name": meeting.team.name, "category_id": meeting.team.category_id}
             if meeting.team else None
         ),
-        "tasks": [
-            {
-                "id": t.id,
-                "task": t.task,
-                "owner": t.owner_name,
-                "priority": t.priority,
-                "due_date": t.due_date,
-                "is_completed": bool(t.is_completed),
-                "created_at": t.created_at,
-                "updated_at": t.updated_at
-            }
-            for t in meeting.tasks
-        ],
+        "tasks": [_task_dict(t) for t in meeting.tasks],
+        "unassigned_task_count": sum(1 for t in meeting.tasks if _task_is_unassigned(t)),
         "participants": [
             {
                 "id": p.id,
@@ -440,45 +477,81 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
 @router.get("/tasks")
 def get_tasks(
     db: Session = Depends(get_db),
-    owner: str = None,
-    priority: str = None
+    user=Depends(get_current_user),
+    owner: Optional[str] = None,
+    priority: Optional[str] = None,
+    unassigned_only: bool = False,
+    completed: Optional[bool] = None,
 ):
-    query = db.query(Task)
+    """Cross-meeting task list, scoped to the caller's organization. Used by
+    the Action Items page."""
+    query = (
+        db.query(Task)
+        .join(Meeting, Task.meeting_id == Meeting.id)
+        .filter(Meeting.organization_id == user.organization_id)
+    )
 
     if owner:
         query = query.filter(Task.owner_name == owner)
-
     if priority:
         query = query.filter(Task.priority == priority)
+    if completed is not None:
+        query = query.filter(Task.is_completed == (1 if completed else 0))
 
-    tasks = query.all()
+    tasks = query.order_by(Task.created_at.desc()).all()
 
-    return [
-        {
-            "id": t.id,
-            "task": t.task,
-            "owner": t.owner_name,
-            "priority": t.priority,
-            "due_date": t.due_date,
-            "is_completed": bool(t.is_completed),
-            "meeting_id": t.meeting_id,
-            "created_at": t.created_at
-        }
-        for t in tasks
-    ]
+    if unassigned_only:
+        tasks = [t for t in tasks if _task_is_unassigned(t)]
+
+    # Enrich with meeting context — the Action Items page links each row back
+    # to its parent meeting and shows the title for context.
+    out = []
+    for t in tasks:
+        d = _task_dict(t, include_meeting_id=True)
+        d["meeting_title"] = t.meeting.title if t.meeting else None
+        out.append(d)
+    return out
+
 
 @router.get("/meetings/{meeting_id}/tasks")
 def get_meeting_tasks(meeting_id: int, db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(Task.meeting_id == meeting_id).all()
+    return [_task_dict(t) for t in tasks]
 
-    return [
-        {
-            "id": t.id,
-            "task": t.task,
-            "owner": t.owner_name,
-            "priority": t.priority,
-            "due_date": t.due_date,
-            "is_completed": bool(t.is_completed)
-        }
-        for t in tasks
-    ]
+
+@router.patch("/tasks/{task_id}")
+def update_task(
+    task_id: int,
+    payload: TaskUpdateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Inline edits from the Action Items page — assign an owner, mark
+    completed, change priority. Org-scoped via the parent meeting."""
+    task = (
+        db.query(Task)
+        .join(Meeting, Task.meeting_id == Meeting.id)
+        .filter(Task.id == task_id, Meeting.organization_id == user.organization_id)
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "owner_name" in data:
+        task.owner_name = (data["owner_name"] or "").strip() or None
+    if "priority" in data and data["priority"]:
+        priority = data["priority"].lower()
+        if priority not in {"low", "medium", "high"}:
+            raise HTTPException(status_code=400, detail="priority must be low|medium|high")
+        task.priority = priority
+    if "is_completed" in data and data["is_completed"] is not None:
+        task.is_completed = 1 if data["is_completed"] else 0
+    if "due_date" in data:
+        task.due_date = data["due_date"]
+
+    db.commit()
+    db.refresh(task)
+    out = _task_dict(task, include_meeting_id=True)
+    out["meeting_title"] = task.meeting.title if task.meeting else None
+    return out

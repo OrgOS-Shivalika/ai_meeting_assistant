@@ -34,6 +34,9 @@ class Meeting(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user = relationship("User", back_populates="meetings")
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    organization = relationship("Organization", back_populates="meetings")
+
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True)
     category = relationship("Category", back_populates="meetings")
@@ -79,6 +82,27 @@ class Task(Base):
     meeting = relationship("Meeting", back_populates="tasks")
 
 
+class Organization(Base):
+    """Tenancy boundary. Every user belongs to exactly one organization;
+    every category and meeting is scoped to an organization.
+
+    For existing single-user installs the migration creates one org per user,
+    so behaviour is unchanged today but the queries are correct for multi-user
+    orgs once that surface lands."""
+    __tablename__ = "organizations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    users = relationship("User", back_populates="organization")
+    categories = relationship("Category", back_populates="organization")
+    meetings = relationship("Meeting", back_populates="organization")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -86,7 +110,10 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
-    
+
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    organization = relationship("Organization", back_populates="users")
+
     google_access_token = Column(String)
     google_refresh_token = Column(String)
     google_token_expires_at = Column(DateTime(timezone=True))
@@ -100,12 +127,48 @@ class User(Base):
     categories = relationship("Category", back_populates="user", cascade="all, delete-orphan")
 
 
+class CategoryDocument(Base):
+    """A user-uploaded document scoped to a single category. Phase 1D persists
+    the file to object storage and records metadata. Phase 2 picks these up
+    via the `process_document` Celery task to chunk + embed + ingest into the
+    category knowledge graph."""
+    __tablename__ = "category_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    name = Column(String, nullable=False)                 # display name (defaults to filename)
+    original_filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=False)
+    storage_key = Column(String, nullable=False, unique=True)
+
+    # Lifecycle. Phase 1 only flips between `uploaded` and `failed`; Phase 2
+    # adds `processing` -> `ready` once chunking lands.
+    status = Column(String, nullable=False, default="uploaded")
+    error_message = Column(Text, nullable=True)
+
+    # Light-weight access tracking — useful even before the graph layer
+    # exists (e.g. "show recently used docs").
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    category = relationship("Category", back_populates="documents")
+    organization = relationship("Organization")
+
+
 class Category(Base):
     """Meeting type / category (per meeting-types-architecture.md, this is `meeting_types`)."""
     __tablename__ = "categories"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_category_user_name"),)
+    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_category_org_name"),)
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -115,9 +178,11 @@ class Category(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    organization = relationship("Organization", back_populates="categories")
     user = relationship("User", back_populates="categories")
     teams = relationship("Team", back_populates="category", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="category")
+    documents = relationship("CategoryDocument", back_populates="category", cascade="all, delete-orphan")
 
 
 class Team(Base):
@@ -134,3 +199,35 @@ class Team(Base):
 
     category = relationship("Category", back_populates="teams")
     meetings = relationship("Meeting", back_populates="team")
+    documents = relationship("TeamDocument", back_populates="team", cascade="all, delete-orphan")
+
+
+class TeamDocument(Base):
+    """Team-scoped knowledge document. Mirrors CategoryDocument but lives in
+    a separate physical table per the architecture spec's level isolation
+    rule ("DO NOT use one giant table"). Phase 2 picks these up via the
+    `process_team_document` Celery task to feed the team knowledge graph."""
+    __tablename__ = "team_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    name = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=False)
+    storage_key = Column(String, nullable=False, unique=True)
+
+    status = Column(String, nullable=False, default="uploaded")
+    error_message = Column(Text, nullable=True)
+
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    team = relationship("Team", back_populates="documents")
+    organization = relationship("Organization")

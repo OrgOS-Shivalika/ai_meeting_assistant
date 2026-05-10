@@ -19,6 +19,14 @@ class MeetingAssignRequest(BaseModel):
     team_id: Optional[int] = None
 
 
+class TaskUpdateRequest(BaseModel):
+    """Inline edits from the Action Items page. Any subset may be provided."""
+    owner_name: Optional[str] = None
+    priority: Optional[str] = None
+    is_completed: Optional[bool] = None
+    due_date: Optional[datetime] = None
+
+
 class MeetingUpdateRequest(BaseModel):
     """Generic PATCH /meetings/{id}. Any subset of these may be provided."""
     title: Optional[str] = None
