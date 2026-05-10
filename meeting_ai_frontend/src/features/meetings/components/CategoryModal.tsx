@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { invalidateCategories } from "../hooks/useCategories";
 import type { Category, Team } from "../types";
+import DocumentsPanel from "./DocumentsPanel";
 
 const COLOR_PALETTE = [
   "#4F46E5",
@@ -378,6 +379,10 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
                 </div>
               </div>
             </div>
+          )}
+
+          {isEditing && category && (
+            <DocumentsPanel scope="category" scopeId={category.id} />
           )}
 
           {error && (

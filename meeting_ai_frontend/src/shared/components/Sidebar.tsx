@@ -18,6 +18,7 @@ import CategoryModal from "../../features/meetings/components/CategoryModal";
 import { authService } from "../../services/authService";
 import { apiClient } from "../../services/apiClient";
 import { useCategories } from "../../features/meetings/hooks/useCategories";
+import { useCurrentUser } from "../../features/auth/hooks/useCurrentUser";
 import type { Category } from "../../features/meetings/types";
 
 export default function Sidebar() {
@@ -28,6 +29,7 @@ export default function Sidebar() {
   const [editingCategory] = useState<Category | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   useCategories();
+  const { user } = useCurrentUser();
 
   useEffect(() => {
     const checkGoogleStatus = async () => {
@@ -109,6 +111,39 @@ export default function Sidebar() {
             );
           })}
         </nav>
+
+        {/* Identity card — shows the signed-in user + their organization. */}
+        {user && (
+          <div className="px-3 pt-3">
+            <div className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
+              {user.google_profile_picture ? (
+                <img
+                  src={user.google_profile_picture}
+                  alt={user.name}
+                  className="w-8 h-8 rounded-full object-cover ring-1 ring-gray-200"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold ring-1 ring-indigo-700/20">
+                  {user.name
+                    ?.split(/\s+/)
+                    .slice(0, 2)
+                    .map((p) => p[0]?.toUpperCase() || "")
+                    .join("") || "?"}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-gray-900 truncate">{user.name}</p>
+                <p
+                  className="text-[10px] font-medium text-gray-500 truncate"
+                  title={user.organization?.name || ""}
+                >
+                  {user.organization?.name || "No organization"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="p-3 border-t border-gray-200 space-y-1">

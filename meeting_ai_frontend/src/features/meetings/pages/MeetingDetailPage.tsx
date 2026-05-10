@@ -246,6 +246,12 @@ export default function MeetingDetailPage() {
   const tasks: Task[] = meeting.tasks ?? [];
   const taskCount = tasks.length;
   const completedTaskCount = tasks.filter((t) => t.is_completed).length;
+  const isTaskUnassigned = (t: Task) => {
+    if (typeof t.is_unassigned === "boolean") return t.is_unassigned;
+    const owner = (t.owner || "").trim().toLowerCase();
+    return ["", "tbd", "to be confirmed", "unassigned", "unknown", "n/a", "na", "-", "—"].includes(owner);
+  };
+  const unassignedTaskCount = tasks.filter(isTaskUnassigned).length;
   const statusBadge =
     STATUS_STYLE[meeting.status] || "bg-slate-50 text-slate-700 ring-slate-200";
 
@@ -515,6 +521,32 @@ export default function MeetingDetailPage() {
                       : `${completedTaskCount} / ${taskCount}`}
                   </span>
                 </div>
+                {unassignedTaskCount > 0 && (
+                  <div className="mx-3 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <svg
+                      className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a1 1 0 011 1v3a1 1 0 11-2 0V7a1 1 0 011-1zm0 7a1 1 0 100 2 1 1 0 000-2z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-[10.5px] font-bold text-amber-900 leading-snug">
+                        {unassignedTaskCount === 1
+                          ? "1 task has not been assigned to anyone."
+                          : `${unassignedTaskCount} tasks have not been assigned to anyone.`}
+                      </p>
+                      <p className="text-[9.5px] font-medium text-amber-700/80 mt-0.5">
+                        Review the highlighted items below and pick an owner.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="p-3 space-y-1.5">
                   {tasks.length === 0 ? (
                     <p className="px-4 py-6 text-[11.5px] text-slate-400 italic text-center">
@@ -531,10 +563,15 @@ export default function MeetingDetailPage() {
                         ? getInitials(task.owner)
                         : "?";
                       const due = formatDateShort(task.due_date);
+                      const unassigned = isTaskUnassigned(task);
                       return (
                         <div
                           key={task.id}
-                          className="px-4 py-3.5 rounded-xl hover:bg-slate-50 transition-all flex flex-col gap-2.5 border border-transparent hover:border-slate-100"
+                          className={`px-4 py-3.5 rounded-xl hover:bg-slate-50 transition-all flex flex-col gap-2.5 border ${
+                            unassigned
+                              ? "border-l-[3px] border-l-amber-400 border-amber-100 bg-amber-50/30"
+                              : "border-transparent hover:border-slate-100"
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <h4
@@ -546,11 +583,21 @@ export default function MeetingDetailPage() {
                             >
                               {task.task}
                             </h4>
-                            <span
-                              className={`shrink-0 px-2 py-0.5 text-[8px] font-black uppercase rounded-md ring-1 tracking-wider ${priorityClass}`}
-                            >
-                              {priorityKey}
-                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {unassigned && (
+                                <span
+                                  className="px-1.5 py-0.5 text-[8px] font-black uppercase rounded-md tracking-wider bg-amber-100 text-amber-800 ring-1 ring-amber-200"
+                                  title="No owner detected — assign someone"
+                                >
+                                  Needs owner
+                                </span>
+                              )}
+                              <span
+                                className={`px-2 py-0.5 text-[8px] font-black uppercase rounded-md ring-1 tracking-wider ${priorityClass}`}
+                              >
+                                {priorityKey}
+                              </span>
+                            </div>
                           </div>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 min-w-0">
@@ -559,7 +606,11 @@ export default function MeetingDetailPage() {
                               >
                                 {ownerInitials}
                               </div>
-                              <span className="text-[10px] font-bold text-slate-500 truncate">
+                              <span
+                                className={`text-[10px] font-bold truncate ${
+                                  unassigned ? "text-amber-700 italic" : "text-slate-500"
+                                }`}
+                              >
                                 {task.owner || "Unassigned"}
                               </span>
                               {task.is_completed && (

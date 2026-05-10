@@ -1,5 +1,5 @@
 import { apiClient } from "../../services/apiClient";
-import type { Category, Meeting, Team } from "./types";
+import type { Category, CategoryDocument, Meeting, Team } from "./types";
 
 export interface MeetingFilter {
   category_id?: number | null;
@@ -182,3 +182,90 @@ export const updateTeam = (
 
 export const deleteTeam = (id: number) =>
   apiClient(`/teams/${id}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Category documents (Phase 1D)
+// ---------------------------------------------------------------------------
+
+// Empty default => same-origin requests, proxied to the backend by vite in
+// dev. Override with VITE_API_URL when pointing at a remote backend.
+const documentBaseUrl = import.meta.env.VITE_API_URL || "";
+
+/**
+ * Multipart upload — bypasses apiClient's JSON-only path. The backend
+ * enqueues processing asynchronously, so the response returns quickly with
+ * status="uploaded" and the worker flips to "ready" shortly after.
+ */
+export const uploadCategoryDocument = async (
+  categoryId: number,
+  file: File,
+): Promise<CategoryDocument> => {
+  const token = localStorage.getItem("token");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `${documentBaseUrl.replace(/\/$/, "")}/categories/${categoryId}/documents`,
+    {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    },
+  );
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) {
+    let detail = "Upload failed";
+    try {
+      const body = await res.json();
+      detail = body?.detail || detail;
+    } catch {
+      // ignore — non-JSON error response
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+};
+
+export const fetchCategoryDocuments = (categoryId: number): Promise<CategoryDocument[]> =>
+  apiClient(`/categories/${categoryId}/documents`);
+
+export const deleteCategoryDocument = (categoryId: number, documentId: string) =>
+  apiClient(`/categories/${categoryId}/documents/${documentId}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// Tasks (Action Items) — cross-meeting, org-scoped.
+// ---------------------------------------------------------------------------
+
+export interface TaskFilter {
+  owner?: string;
+  priority?: "low" | "medium" | "high";
+  unassigned_only?: boolean;
+  completed?: boolean;
+}
+
+export const fetchAllTasks = (filter: TaskFilter = {}) => {
+  const params = new URLSearchParams();
+  if (filter.owner) params.set("owner", filter.owner);
+  if (filter.priority) params.set("priority", filter.priority);
+  if (filter.unassigned_only) params.set("unassigned_only", "true");
+  if (filter.completed !== undefined) params.set("completed", String(filter.completed));
+  const qs = params.toString();
+  return apiClient(`/tasks${qs ? `?${qs}` : ""}`);
+};
+
+export interface TaskUpdate {
+  owner_name?: string | null;
+  priority?: "low" | "medium" | "high";
+  is_completed?: boolean;
+  due_date?: string | null;
+}
+
+export const updateTask = (taskId: number, payload: TaskUpdate) =>
+  apiClient(`/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });

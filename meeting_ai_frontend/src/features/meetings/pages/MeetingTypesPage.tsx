@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import CategoryModal from "../components/CategoryModal";
+import DocumentsPanel from "../components/DocumentsPanel";
+import OrgDocumentsPanel from "../components/OrgDocumentsPanel";
 import { useCategories } from "../hooks/useCategories";
 import { fetchTeamMeetings } from "../api";
 import type { Category, Meeting, Team } from "../types";
@@ -513,7 +515,7 @@ export default function MeetingTypesPage() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Breadcrumb */}
         {level !== "types" && (
           <nav className="flex items-center gap-1 text-xs font-semibold text-slate-500 mb-4">
@@ -616,10 +618,44 @@ export default function MeetingTypesPage() {
           />
         </div>
 
-        {/* Body */}
-        {level === "types" && renderTypesView()}
-        {level === "teams" && renderTeamsView()}
-        {level === "meetings" && renderMeetingsView()}
+        {/* Body — every level gets a docs sidebar on the right. The contents
+            differ: aggregated at the types level, category at the teams level,
+            team at the meetings level. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          <div className="min-w-0">
+            {level === "types" && renderTypesView()}
+            {level === "teams" && renderTeamsView()}
+            {level === "meetings" && renderMeetingsView()}
+          </div>
+          <aside className="bg-white rounded-xl border border-slate-200 p-4 h-fit lg:sticky lg:top-4">
+            <div className="mb-3">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">
+                {level === "types"
+                  ? "Organization Knowledge"
+                  : level === "teams"
+                  ? `${selectedType!.name} Knowledge`
+                  : `${selectedTeam!.name} Knowledge`}
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                {level === "types"
+                  ? "Every document uploaded across your categories. Click any to jump to its category."
+                  : level === "teams"
+                  ? "Reference docs shared across every team in this category."
+                  : "Team-specific docs. Narrower than category-level knowledge."}
+              </p>
+            </div>
+            {level === "types" ? (
+              <OrgDocumentsPanel />
+            ) : (
+              <DocumentsPanel
+                scope={level === "teams" ? "category" : "team"}
+                scopeId={level === "teams" ? selectedType!.id : selectedTeam!.id}
+                title="Documents"
+                compact
+              />
+            )}
+          </aside>
+        </div>
       </div>
 
       <CategoryModal

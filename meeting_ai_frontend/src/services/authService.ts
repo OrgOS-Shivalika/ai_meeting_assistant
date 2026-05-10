@@ -1,7 +1,9 @@
 import { apiClient } from "./apiClient";
+import { clearCurrentUser } from "../features/auth/hooks/useCurrentUser";
 
 export const authService = {
   async login(credentials: any) {
+    clearCurrentUser();
     const data = await apiClient("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -23,6 +25,7 @@ export const authService = {
 
   logout() {
     localStorage.removeItem("token");
+    clearCurrentUser();
   },
 
   getToken() {

@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import MeetingsPage from "../features/meetings/pages/MeetingPage";
 import MeetingDetailPage from "../features/meetings/pages/MeetingDetailPage";
 import MeetingTypesPage from "../features/meetings/pages/MeetingTypesPage";
+import ActionItemsPage from "../features/meetings/pages/ActionItemsPage";
 import LoginPage from "../features/auth/pages/LoginPage";
 import RegisterPage from "../features/auth/pages/RegisterPage";
 import GoogleCallbackPage from "../features/auth/pages/GoogleCallbackPage";
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
       {
         path: "/meeting-types",
         element: <MeetingTypesPage />,
+      },
+      {
+        path: "/action-items",
+        element: <ActionItemsPage />,
       },
       {
         path: "/agent-control",
