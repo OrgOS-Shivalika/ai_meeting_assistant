@@ -12,6 +12,8 @@ from app.api.team_document_router import router as team_document_router
 from app.api.transcription_router import router as transcription_router
 from app.api.ws_router import ws_router
 from app.api.webhooks.recall_webhook import recall_webhook_router
+from app.api.search_router import router as search_router
+from app.api.graph_router import router as graph_router
 from app.utils.logger import setup_logger
 from app.config.settings import settings
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +44,8 @@ app.include_router(document_router)
 app.include_router(team_document_router)
 app.include_router(transcription_router)
 app.include_router(google_auth_router)
+app.include_router(search_router)
+app.include_router(graph_router)
 app.include_router(ws_router)
 app.include_router(recall_webhook_router)
 

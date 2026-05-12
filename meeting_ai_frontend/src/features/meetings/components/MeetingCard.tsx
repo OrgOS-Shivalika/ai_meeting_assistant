@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MoreVertical, Calendar, Users } from "lucide-react";
 import { useState } from "react";
 import MeetingSourceIcon from "./MeetingSourceIcon";
+import AIMemoryStatusDot from "./AIMemoryStatusDot";
 
 const AVATAR_COLORS = [
   "bg-indigo-500",
@@ -209,6 +210,10 @@ export default function MeetingCard({
             >
               {status.label}
             </span>
+            <AIMemoryStatusDot
+              embeddingStatus={meeting.embedding_status}
+              graphStatus={meeting.graph_status}
+            />
           </div>
           <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
             Details

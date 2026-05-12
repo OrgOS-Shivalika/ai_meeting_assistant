@@ -62,6 +62,34 @@ class Settings:
     S3_REGION = os.getenv("S3_REGION", "us-east-1")
     S3_USE_PATH_STYLE = os.getenv("S3_USE_PATH_STYLE", "true").lower() in {"1", "true", "yes"}
 
+    # ---- Vector memory (Phase 2) -----------------------------------------
+    # `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` must agree with the
+    # `vector(N)` column on `meeting_chunks` — changing the dimension means
+    # a follow-up migration. The chunker targets `CHUNK_SIZE_TOKENS` per
+    # chunk with `CHUNK_OVERLAP_TOKENS` carried into the next chunk's head;
+    # both are tokens under the embedding model's tokenizer (tiktoken
+    # `cl100k_base` for OpenAI). `EMBEDDING_BATCH_SIZE` caps how many texts
+    # are POSTed to OpenAI per call — OpenAI accepts up to 2048 but 100 is
+    # a safer default for token-budget reasons.
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+    CHUNK_SIZE_TOKENS = int(os.getenv("CHUNK_SIZE_TOKENS", "800"))
+    CHUNK_OVERLAP_TOKENS = int(os.getenv("CHUNK_OVERLAP_TOKENS", "100"))
+    EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "100"))
+
+    # ---- Graph extraction (Phase 3) --------------------------------------
+    # `GRAPH_PROMPT_VERSION` selects which file under
+    # app/ai_agents/prompts/graph/<version>.txt the extractor loads, and
+    # gets persisted on every `graph_extraction_runs` row so a stale-prompt
+    # backfill (3E) can target rows that need re-extraction. Use string
+    # tags (`v1`, `v1-experimental`) not numbers — sortable, grep-friendly,
+    # and supports non-linear iteration.
+    GRAPH_PROMPT_VERSION = os.getenv("GRAPH_PROMPT_VERSION", "v1")
+    GRAPH_EXTRACTION_MODEL = os.getenv("GRAPH_EXTRACTION_MODEL", "gpt-4o-mini")
+    # Number of meeting chunks bundled into one LLM call. 5 is a balance
+    # between prompt-overhead amortization and per-call latency.
+    GRAPH_EXTRACTION_BATCH_SIZE = int(os.getenv("GRAPH_EXTRACTION_BATCH_SIZE", "5"))
+
     def __init__(self):
         if not self.OPEN_API_KEY:
             logger.warning("OPEN_API_KEY is not set in environment variables.")

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MoreVertical, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import MeetingSourceIcon from "./MeetingSourceIcon";
+import AIMemoryStatusDot from "./AIMemoryStatusDot";
 
 const AVATAR_COLORS = [
   "bg-indigo-500",
@@ -163,6 +164,10 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg ${status.badge}`}>
               {status.label}
             </span>
+            <AIMemoryStatusDot
+              embeddingStatus={meeting.embedding_status}
+              graphStatus={meeting.graph_status}
+            />
           </div>
         </td>
 

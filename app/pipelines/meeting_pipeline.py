@@ -228,6 +228,18 @@ class MeetingPipeline:
             except Exception as ws_err:
                 logger.error(f"Failed to broadcast status update: {ws_err}")
 
+            # Phase 2: fan out to the embedding pipeline. Best-effort —
+            # `dispatch_embed_meeting` swallows its own errors so a broken
+            # embedding setup never poisons the main meeting flow.
+            try:
+                from app.celery_tasks.embedding_tasks import dispatch_embed_meeting
+                dispatch_embed_meeting(meeting.id)
+            except Exception as embed_err:
+                logger.error(
+                    "Failed to dispatch embedding for meeting %s: %s",
+                    meeting.id, embed_err,
+                )
+
             return result_json
 
         except Exception as e:

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import CategoryModal from "../components/CategoryModal";
+import TeamModal from "../components/TeamModal";
 import DocumentsPanel from "../components/DocumentsPanel";
 import OrgDocumentsPanel from "../components/OrgDocumentsPanel";
 import { useCategories } from "../hooks/useCategories";
@@ -68,6 +69,12 @@ export default function MeetingTypesPage() {
 
   const [editing, setEditing] = useState<Category | null>(null);
   const [showModal, setShowModal] = useState(false);
+  // Focused team-add/edit modal — separate from the full CategoryModal
+  // so users adding a team don't get dragged through the color picker /
+  // icon grid / documents panel of the parent category.
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
+  const [teamModalCategory, setTeamModalCategory] = useState<Category | null>(null);
+  const [teamModalTeam, setTeamModalTeam] = useState<Team | null>(null);
   const [search, setSearch] = useState("");
 
   // Reset the search box every time we change levels.
@@ -126,6 +133,16 @@ export default function MeetingTypesPage() {
   const openEdit = (cat: Category) => {
     setEditing(cat);
     setShowModal(true);
+  };
+  const openAddTeam = (cat: Category) => {
+    setTeamModalCategory(cat);
+    setTeamModalTeam(null);
+    setTeamModalOpen(true);
+  };
+  const closeTeamModal = () => {
+    setTeamModalOpen(false);
+    setTeamModalTeam(null);
+    setTeamModalCategory(null);
   };
 
   // Loading skeleton, used at the top level only.
@@ -287,7 +304,7 @@ export default function MeetingTypesPage() {
               Add a team to group meetings inside this meeting type.
             </p>
             <button
-              onClick={() => openEdit(selectedType)}
+              onClick={() => openAddTeam(selectedType)}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
             >
               <Plus className="w-4 h-4" />
@@ -497,7 +514,7 @@ export default function MeetingTypesPage() {
       </button>
     ) : level === "teams" ? (
       <button
-        onClick={() => openEdit(selectedType!)}
+        onClick={() => openAddTeam(selectedType!)}
         className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
       >
         <Plus className="w-4 h-4" />
@@ -663,6 +680,15 @@ export default function MeetingTypesPage() {
         onClose={() => setShowModal(false)}
         category={editing}
       />
+
+      {teamModalCategory && (
+        <TeamModal
+          isOpen={teamModalOpen}
+          onClose={closeTeamModal}
+          category={teamModalCategory}
+          team={teamModalTeam}
+        />
+      )}
     </Layout>
   );
 }

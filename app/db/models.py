@@ -1,8 +1,12 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy import (
+    Column, String, Integer, ForeignKey, DateTime, Text, UniqueConstraint,
+    Float, CheckConstraint, Index,
+)
+from sqlalchemy.dialects.postgresql import JSON, JSONB, UUID, ARRAY
 from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime, timezone
+from pgvector.sqlalchemy import Vector
 from .database import Base
 
 
@@ -44,6 +48,26 @@ class Meeting(Base):
 
     tasks = relationship("Task", back_populates="meeting", cascade="all, delete-orphan")
     participants = relationship("Participant", back_populates="meeting", cascade="all, delete-orphan")
+
+    # Phase 2 vector memory: every completed meeting becomes a sequence of
+    # embedded chunks. `embedding_status` lets the embedding pipeline run
+    # independently of the main meeting lifecycle, so an embedding failure
+    # doesn't roll back the meeting itself.
+    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedded_at = Column(DateTime(timezone=True), nullable=True)
+    chunks = relationship(
+        "MeetingChunk",
+        foreign_keys="[MeetingChunk.meeting_id]",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+    )
+
+    # Phase 3 graph extraction lifecycle. Same decoupled-status pattern
+    # as `embedding_status`: an extraction failure flips this column to
+    # 'failed' but leaves `status` and `embedding_status` untouched.
+    # Values: 'pending' | 'processing' | 'extracted' | 'failed' | 'skipped'.
+    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
 
     google_event_id = Column(String, unique=True)
     google_event_data = Column(JSON)      # Full event details including attendees
@@ -231,3 +255,417 @@ class TeamDocument(Base):
 
     team = relationship("Team", back_populates="documents")
     organization = relationship("Organization")
+
+
+class MeetingChunk(Base):
+    """A semantic chunk of a meeting transcript with its 1536-d embedding.
+
+    Phase 2 vector memory. Each completed meeting becomes a sequence of
+    chunks (~800 tokens with 100-token overlap, speaker-turn aware). Scope
+    columns (organization / category / team) are denormalized so Phase 5
+    scope-priority retrieval can filter without joining.
+
+    The six knowledge-metadata columns (`importance_score`,
+    `confidence_score`, `knowledge_version`, `created_from_meeting_id`,
+    `last_accessed_at`, `access_count`) are present from row one per the
+    locked Phase 2+ architecture, so Phase 3 (graph) and Phase 6 (reranking
+    + memory optimization) have a stable shape to fill in."""
+    __tablename__ = "meeting_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "meeting_id",
+            "chunk_index",
+            name="uq_meeting_chunks_org_meeting_chunk",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    team_id = Column(
+        Integer,
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    chunk_index = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    token_count = Column(Integer, nullable=False)
+    speakers = Column(ARRAY(String), nullable=True)
+    start_timestamp = Column(Integer, nullable=True)
+    end_timestamp = Column(Integer, nullable=True)
+
+    embedding = Column(Vector(1536), nullable=False)
+    embedding_model = Column(String, nullable=False)
+
+    importance_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    knowledge_version = Column(Integer, nullable=False, default=1, server_default="1")
+    # Provenance — distinct from `meeting_id` so future derived rows
+    # (entities/relationships) can record original origin even after a
+    # later meeting updates them.
+    created_from_meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    metadata_json = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    meeting = relationship(
+        "Meeting",
+        foreign_keys=[meeting_id],
+        back_populates="chunks",
+    )
+    created_from_meeting = relationship(
+        "Meeting",
+        foreign_keys=[created_from_meeting_id],
+    )
+    organization = relationship("Organization")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Graph foundation
+#
+# Single-table-per-concept design (rejected three-tier physical split).
+# Scope is encoded via `scope_type` + `scope_id`; partial unique indexes
+# enforce dedup correctly across the NULL scope_id of `scope_type='global'`.
+#
+# `source_type` is on entities + mentions from day one so Phase 4 documents
+# plug in without a schema rev. Mention tables carry typed nullable source
+# FK columns + a CHECK constraint that ties them to `source_type`.
+#
+# Every knowledge-tier row carries the six metadata-mandate columns.
+# Phase 5/6 will read them; Phase 3 only writes them.
+# ---------------------------------------------------------------------------
+
+
+class Entity(Base):
+    __tablename__ = "entities"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('team','category','global')",
+            name="ck_entities_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'global' AND scope_id IS NULL) OR "
+            "(scope_type IN ('team','category') AND scope_id IS NOT NULL)",
+            name="ck_entities_scope_id_matches_type",
+        ),
+        # Partial unique indexes (created in the migration; declared here
+        # so SQLAlchemy is aware of them and ORM-level constraint hints
+        # work).
+        Index(
+            "uq_entities_scoped",
+            "organization_id", "scope_type", "scope_id", "entity_type", "canonical_name",
+            unique=True, postgresql_where="scope_id IS NOT NULL",
+        ),
+        Index(
+            "uq_entities_global",
+            "organization_id", "entity_type", "canonical_name",
+            unique=True, postgresql_where="scope_type = 'global'",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scope_type = Column(String, nullable=False)
+    scope_id = Column(Integer, nullable=True)
+    source_type = Column(String, nullable=False)
+    entity_type = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    canonical_name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    aliases = Column(ARRAY(String), nullable=True)
+    attributes = Column(JSONB, nullable=True)
+
+    # 6-column metadata mandate
+    importance_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    knowledge_version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_from_meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="SET NULL"), nullable=True,
+    )
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+    created_from_meeting = relationship("Meeting", foreign_keys=[created_from_meeting_id])
+    mentions = relationship(
+        "EntityMention", back_populates="entity", cascade="all, delete-orphan",
+    )
+    # Outgoing relationships (this entity is the subject).
+    outgoing_relationships = relationship(
+        "Relationship",
+        foreign_keys="[Relationship.subject_entity_id]",
+        back_populates="subject_entity",
+        cascade="all, delete-orphan",
+    )
+    incoming_relationships = relationship(
+        "Relationship",
+        foreign_keys="[Relationship.object_entity_id]",
+        back_populates="object_entity",
+        cascade="all, delete-orphan",
+    )
+
+
+class Relationship(Base):
+    __tablename__ = "relationships"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('team','category','global')",
+            name="ck_relationships_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'global' AND scope_id IS NULL) OR "
+            "(scope_type IN ('team','category') AND scope_id IS NOT NULL)",
+            name="ck_relationships_scope_id_matches_type",
+        ),
+        Index(
+            "uq_relationships_scoped",
+            "organization_id", "scope_type", "scope_id",
+            "subject_entity_id", "predicate", "object_entity_id",
+            unique=True, postgresql_where="scope_id IS NOT NULL",
+        ),
+        Index(
+            "uq_relationships_global",
+            "organization_id", "subject_entity_id", "predicate", "object_entity_id",
+            unique=True, postgresql_where="scope_type = 'global'",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scope_type = Column(String, nullable=False)
+    scope_id = Column(Integer, nullable=True)
+    source_type = Column(String, nullable=False)
+    subject_entity_id = Column(
+        UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+    )
+    predicate = Column(String, nullable=False)
+    object_entity_id = Column(
+        UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False,
+    )
+    attributes = Column(JSONB, nullable=True)
+
+    importance_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    knowledge_version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_from_meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="SET NULL"), nullable=True,
+    )
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True),
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+    created_from_meeting = relationship("Meeting", foreign_keys=[created_from_meeting_id])
+    subject_entity = relationship(
+        "Entity", foreign_keys=[subject_entity_id], back_populates="outgoing_relationships",
+    )
+    object_entity = relationship(
+        "Entity", foreign_keys=[object_entity_id], back_populates="incoming_relationships",
+    )
+    mentions = relationship(
+        "RelationshipMention", back_populates="parent_relationship",
+        cascade="all, delete-orphan",
+    )
+
+
+class EntityMention(Base):
+    """One (entity, source_chunk) tuple. Provenance for graph rows.
+
+    Polymorphic source: `source_type` ∈ {meeting, document, chat, email, task}.
+    Exactly one of `source_meeting_id` / `source_document_id` is populated
+    and must match `source_type` (CHECK constraint enforced in the DB)."""
+    __tablename__ = "entity_mentions"
+    __table_args__ = (
+        CheckConstraint(
+            "(source_type = 'meeting' "
+            " AND source_meeting_id IS NOT NULL "
+            " AND source_document_id IS NULL) "
+            "OR (source_type = 'document' "
+            " AND source_document_id IS NOT NULL "
+            " AND source_meeting_id IS NULL) "
+            "OR (source_type IN ('chat','email','task') "
+            " AND source_meeting_id IS NULL "
+            " AND source_document_id IS NULL)",
+            name="ck_entity_mentions_source_typed",
+        ),
+        Index(
+            "uq_entity_mentions_meeting",
+            "entity_id", "source_meeting_id", "source_chunk_id",
+            unique=True,
+            postgresql_where="source_type = 'meeting' AND source_chunk_id IS NOT NULL",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_type = Column(String, nullable=False)
+    source_meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=True,
+    )
+    source_chunk_id = Column(
+        UUID(as_uuid=True), ForeignKey("meeting_chunks.id", ondelete="SET NULL"), nullable=True,
+    )
+    # Phase 4 hooks (no FK yet — wired when document_chunks table lands).
+    source_document_id = Column(UUID(as_uuid=True), nullable=True)
+    source_document_chunk_id = Column(UUID(as_uuid=True), nullable=True)
+
+    span = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    entity = relationship("Entity", back_populates="mentions")
+    organization = relationship("Organization")
+    source_meeting = relationship("Meeting", foreign_keys=[source_meeting_id])
+    source_chunk = relationship("MeetingChunk", foreign_keys=[source_chunk_id])
+
+
+class RelationshipMention(Base):
+    __tablename__ = "relationship_mentions"
+    __table_args__ = (
+        CheckConstraint(
+            "(source_type = 'meeting' "
+            " AND source_meeting_id IS NOT NULL "
+            " AND source_document_id IS NULL) "
+            "OR (source_type = 'document' "
+            " AND source_document_id IS NOT NULL "
+            " AND source_meeting_id IS NULL) "
+            "OR (source_type IN ('chat','email','task') "
+            " AND source_meeting_id IS NULL "
+            " AND source_document_id IS NULL)",
+            name="ck_relationship_mentions_source_typed",
+        ),
+        Index(
+            "uq_relationship_mentions_meeting",
+            "relationship_id", "source_meeting_id", "source_chunk_id",
+            unique=True,
+            postgresql_where="source_type = 'meeting' AND source_chunk_id IS NOT NULL",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    relationship_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("relationships.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_type = Column(String, nullable=False)
+    source_meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=True,
+    )
+    source_chunk_id = Column(
+        UUID(as_uuid=True), ForeignKey("meeting_chunks.id", ondelete="SET NULL"), nullable=True,
+    )
+    source_document_id = Column(UUID(as_uuid=True), nullable=True)
+    source_document_chunk_id = Column(UUID(as_uuid=True), nullable=True)
+
+    span = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # `relationship` shadows the imported function name; using
+    # `parent_relationship` keeps the class body sane.
+    # `back_populates` on `Relationship.mentions` points at this attr.
+    parent_relationship = relationship(
+        "Relationship", back_populates="mentions",
+    )
+    organization = relationship("Organization")
+    source_meeting = relationship("Meeting", foreign_keys=[source_meeting_id])
+    source_chunk = relationship("MeetingChunk", foreign_keys=[source_chunk_id])
+
+
+class GraphExtractionRun(Base):
+    """One row per `extract_graph` invocation. Captures the prompt
+    version, model, counts, duration, status, and raw LLM response —
+    so prompt iteration in Phase 3.5+ has full ground truth without
+    needing to re-run the model.
+
+    NOT a knowledge-tier table — it has no metadata-mandate columns,
+    no `created_from_meeting_id`, no `last_accessed_at`. It's pure
+    observability."""
+    __tablename__ = "graph_extraction_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    prompt_version = Column(String, nullable=False, index=True)
+    model = Column(String, nullable=False)
+    chunks_processed = Column(Integer, nullable=False, default=0, server_default="0")
+    entities_found = Column(Integer, nullable=False, default=0, server_default="0")
+    relationships_found = Column(Integer, nullable=False, default=0, server_default="0")
+    mentions_found = Column(Integer, nullable=False, default=0, server_default="0")
+    duration_ms = Column(Integer, nullable=False, default=0, server_default="0")
+    status = Column(String, nullable=False)  # 'completed' | 'failed'
+    error_message = Column(Text, nullable=True)
+    raw_response = Column(JSONB, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+    meeting = relationship("Meeting", foreign_keys=[meeting_id])

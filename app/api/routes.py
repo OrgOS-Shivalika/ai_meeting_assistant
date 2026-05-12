@@ -113,6 +113,13 @@ def _meeting_dict(m: Meeting) -> dict:
         "ended_at": m.ended_at,
         "duration_minutes": m.duration_minutes,
         "meeting_platform": m.meeting_platform,
+        # AI memory lifecycle (Phase 2 vector + Phase 3 graph). Surfaced
+        # on list payloads so the meetings UI can render a status dot
+        # without a per-meeting follow-up fetch.
+        "embedding_status": m.embedding_status,
+        "embedded_at": m.embedded_at,
+        "graph_status": m.graph_status,
+        "graph_extracted_at": m.graph_extracted_at,
         "category": (
             {"id": m.category.id, "name": m.category.name, "color": m.category.color}
             if m.category else None
@@ -377,6 +384,68 @@ def delete_meeting(
     return {"status": "ok", "deleted_id": meeting_id}
 
 
+# ---------------------------------------------------------------------------
+# Manual retry endpoints for the AI Memory pipeline. The pipeline normally
+# fans out automatically (process_meeting → embed_meeting → extract_graph),
+# but when a stage fails the user needs a one-click way to retry it from
+# the meeting detail page without dropping into a CLI.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/meetings/{meeting_id}/retry-embedding")
+def retry_embedding(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    meeting = db.query(Meeting).filter(
+        Meeting.id == meeting_id,
+        Meeting.organization_id == user.organization_id,
+    ).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if meeting.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Meeting is not completed yet (status={meeting.status}); embedding cannot run.",
+        )
+    # Reset to pending so the dispatcher's idempotency checks see this
+    # as eligible. dispatch_* swallows its own errors and routes to Celery
+    # or inline depending on USE_CELERY.
+    meeting.embedding_status = "pending"
+    db.commit()
+    from app.celery_tasks.embedding_tasks import dispatch_embed_meeting
+    dispatch_embed_meeting(meeting_id)
+    return {"status": "dispatched", "meeting_id": meeting_id, "stage": "embedding"}
+
+
+@router.post("/meetings/{meeting_id}/retry-graph")
+def retry_graph(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    meeting = db.query(Meeting).filter(
+        Meeting.id == meeting_id,
+        Meeting.organization_id == user.organization_id,
+    ).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if meeting.embedding_status != "embedded":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Meeting embeddings aren't ready (embedding_status="
+                f"{meeting.embedding_status}); cannot retry graph extraction yet."
+            ),
+        )
+    meeting.graph_status = "pending"
+    db.commit()
+    from app.celery_tasks.graph_tasks import dispatch_extract_graph
+    dispatch_extract_graph(meeting_id)
+    return {"status": "dispatched", "meeting_id": meeting_id, "stage": "graph"}
+
+
 @router.patch("/meetings/{meeting_id}/category")
 def assign_meeting_category(
     meeting_id: int,
@@ -434,6 +503,25 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
     if not meeting:
         return {"error": "Meeting not found"}
 
+    # If the graph extraction failed, surface the latest run's
+    # error_message so the AI Memory card can render it + a retry CTA.
+    # Cheap query — one row max, indexed by meeting_id.
+    graph_error = None
+    if meeting.graph_status == "failed":
+        from app.db.models import GraphExtractionRun
+        from sqlalchemy import select, desc
+        latest_failed = db.execute(
+            select(GraphExtractionRun)
+            .where(
+                GraphExtractionRun.meeting_id == meeting.id,
+                GraphExtractionRun.status == "failed",
+            )
+            .order_by(desc(GraphExtractionRun.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+        if latest_failed and latest_failed.error_message:
+            graph_error = latest_failed.error_message[:500]
+
     return {
         "id": meeting.id,
         "meeting_url": meeting.meeting_url,
@@ -450,6 +538,13 @@ def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
         "ended_at": meeting.ended_at,
         "duration_minutes": meeting.duration_minutes,
         "meeting_platform": meeting.meeting_platform,
+        # Phase 2 + 3 lifecycle for the meeting detail page's AI Memory
+        # card.
+        "embedding_status": meeting.embedding_status,
+        "embedded_at": meeting.embedded_at,
+        "graph_status": meeting.graph_status,
+        "graph_extracted_at": meeting.graph_extracted_at,
+        "graph_error": graph_error,
         "category": (
             {"id": meeting.category.id, "name": meeting.category.name, "color": meeting.category.color}
             if meeting.category else None

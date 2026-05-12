@@ -98,4 +98,29 @@ export interface Meeting {
   participants?: Participant[];
   category?: MeetingCategoryRef | null;
   team?: MeetingTeamRef | null;
+
+  // Phase 2 vector memory lifecycle.
+  embedding_status?: MemoryLifecycleStatus;
+  embedded_at?: string | null;
+  // Phase 3 knowledge graph lifecycle.
+  graph_status?: MemoryLifecycleStatus;
+  graph_extracted_at?: string | null;
+  /**
+   * Latest failed graph_extraction_runs.error_message, if the most
+   * recent graph attempt failed. The detail endpoint surfaces this
+   * so the AI Memory card can render a diagnostic + retry CTA without
+   * a second round-trip.
+   */
+  graph_error?: string | null;
 }
+
+// Shared by `embedding_status` and `graph_status`. `skipped` is the
+// status the backend writes when there's nothing to do (e.g. an empty
+// transcript hit the embedder).
+export type MemoryLifecycleStatus =
+  | "pending"
+  | "processing"
+  | "embedded"
+  | "extracted"
+  | "failed"
+  | "skipped";

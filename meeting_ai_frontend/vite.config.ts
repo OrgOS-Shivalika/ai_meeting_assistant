@@ -22,6 +22,9 @@ const API_PATH_PREFIXES = [
   '/inject-bot',
   '/transcriptions',
   '/tasks',
+  // Phase 2D + 3D — semantic search + graph read API.
+  '/search',
+  '/entities',
   '/webhook',
   '/ws',
   '/health',

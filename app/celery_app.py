@@ -21,6 +21,8 @@ celery = Celery(
         "app.celery_tasks.meeting_tasks",
         "app.celery_tasks.document_tasks",
         "app.celery_tasks.team_document_tasks",
+        "app.celery_tasks.embedding_tasks",
+        "app.celery_tasks.graph_tasks",
     ],
 )
 

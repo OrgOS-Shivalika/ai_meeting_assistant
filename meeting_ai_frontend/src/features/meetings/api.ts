@@ -53,6 +53,14 @@ export const injectBot = (
 export const deleteMeeting = (id: number) =>
   apiClient(`/meetings/${id}`, { method: "DELETE" });
 
+/** Manually re-trigger the embedding pipeline for one meeting. */
+export const retryMeetingEmbedding = (id: number) =>
+  apiClient(`/meetings/${id}/retry-embedding`, { method: "POST" });
+
+/** Manually re-trigger graph extraction for one meeting. */
+export const retryMeetingGraph = (id: number) =>
+  apiClient(`/meetings/${id}/retry-graph`, { method: "POST" });
+
 export const assignMeetingCategory = (
   id: number,
   payload: { category_id: number | null; team_id: number | null },

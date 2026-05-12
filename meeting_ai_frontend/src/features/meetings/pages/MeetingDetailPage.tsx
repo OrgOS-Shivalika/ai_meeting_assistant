@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMeetingById } from "../api";
 import Layout from "../../../shared/components/Layout";
 import CategoryAssignControl from "../components/CategoryAssignControl";
@@ -15,14 +15,20 @@ import {
   AlertCircle,
   CheckCircle2,
   Inbox,
+  Radio,
 } from "lucide-react";
 import type { Meeting, Participant, Task } from "../types";
+import MeetingAIMemorySection from "../components/MeetingAIMemorySection";
+import {
+  useLiveTranscript,
+  type LiveFinal,
+} from "../hooks/useLiveTranscript";
 
-type LiveLine = { speaker: string; text: string; timestamp: number };
 type TranscriptGroup = {
   speaker: string;
   timestamp?: number | string;
   messages: string[];
+  isPartial?: boolean;
 };
 
 const getInitials = (name: string) => {
@@ -103,13 +109,57 @@ const STATUS_STYLE: Record<string, string> = {
   processing: "bg-indigo-50 text-indigo-700 ring-indigo-200",
 };
 
+// Parse a stored transcript blob ("Speaker: line\nSpeaker: line\n…") back
+// into per-line LiveFinal records. Same shape the live WS produces, so
+// seeded history + live events render through one code path.
+const parseStoredTranscript = (blob: string): LiveFinal[] => {
+  return blob
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((line) => {
+      const colonIdx = line.indexOf(": ");
+      const speaker = colonIdx >= 0 ? line.slice(0, colonIdx) : "Unknown";
+      const text = colonIdx >= 0 ? line.slice(colonIdx + 2) : line;
+      return { speaker, text, timestamp: Date.now() };
+    });
+};
+
 export default function MeetingDetailPage() {
   const { id } = useParams();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
-  const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  // Stable callback so the hook doesn't see a "new" reference each
+  // render. Refetches the meeting when the pipeline broadcasts a
+  // status change (e.g. "completed" → summary + tasks are now real).
+  const refetchMeeting = useCallback(() => {
+    if (!id) return;
+    fetchMeetingById(id)
+      .then((data) => {
+        if (data?.id) setMeeting(data);
+      })
+      .catch((err) => console.error("Refetch failed", err));
+  }, [id]);
+
+  const { finals, partial, connected, seed } = useLiveTranscript(
+    meeting?.id ?? null,
+    {
+      onStatusUpdate: (status) => {
+        // Any pipeline status flip is worth re-pulling — the meeting
+        // payload (status, summary, tasks, participants) gets rewritten
+        // and we want it on screen without a manual refresh.
+        if (
+          status === "completed" ||
+          status === "failed" ||
+          status === "processing"
+        ) {
+          refetchMeeting();
+        }
+      },
+    },
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -122,24 +172,6 @@ export default function MeetingDetailPage() {
           return;
         }
         setMeeting(data);
-        if (data.transcript) {
-          const parseLine = (line: string) => {
-            const colonIdx = line.indexOf(": ");
-            if (colonIdx < 0) return { speaker: "Unknown", text: line };
-            return {
-              speaker: line.slice(0, colonIdx),
-              text: line.slice(colonIdx + 2),
-            };
-          };
-          const lines: LiveLine[] = data.transcript
-            .split("\n")
-            .filter((l: string) => l.trim())
-            .map((line: string) => ({
-              ...parseLine(line),
-              timestamp: Date.now(),
-            }));
-          setLiveLines(lines);
-        }
       })
       .catch((err) => {
         console.error("Failed to load meeting", err);
@@ -150,9 +182,18 @@ export default function MeetingDetailPage() {
     };
   }, [id]);
 
+  // Seed the hook's `finals` from the stored transcript blob whenever
+  // the meeting (re)loads. Runs after the hook's own reset effect, so
+  // the seed lands cleanly. Dedup inside `seed()` ensures we don't
+  // replay history that already came through WS.
+  useEffect(() => {
+    if (!meeting?.transcript) return;
+    seed(parseStoredTranscript(meeting.transcript));
+  }, [meeting?.transcript, seed]);
+
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [liveLines]);
+  }, [finals, partial]);
 
   const groups = useMemo<TranscriptGroup[]>(() => {
     if (!meeting) return [];
@@ -173,12 +214,12 @@ export default function MeetingDetailPage() {
       return gs;
     }
 
-    if (liveLines.length === 0) return [];
+    if (finals.length === 0 && !partial) return [];
 
     const gs: TranscriptGroup[] = [];
-    for (const line of liveLines) {
+    for (const line of finals) {
       const last = gs[gs.length - 1];
-      if (last && last.speaker === line.speaker) {
+      if (last && last.speaker === line.speaker && !last.isPartial) {
         last.messages.push(line.text);
       } else {
         gs.push({
@@ -188,8 +229,18 @@ export default function MeetingDetailPage() {
         });
       }
     }
+    if (partial) {
+      // Tack on a partial group so the user sees text appear as it's
+      // recognized. Marked `isPartial` so the renderer can style it
+      // differently (italic + pulsing dot).
+      gs.push({
+        speaker: partial.speaker,
+        messages: [partial.text],
+        isPartial: true,
+      });
+    }
     return gs;
-  }, [meeting, liveLines]);
+  }, [meeting, finals, partial]);
 
   const summaryBullets = useMemo(() => {
     if (!meeting?.summary) return [];
@@ -394,14 +445,39 @@ export default function MeetingDetailPage() {
           <div className="flex-1 bg-[#F9FAFC] p-8 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
             {/* LEFT COLUMN: Transcript Panel */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col border-b-[3px] border-b-gray-100">
-              <div className="px-6 py-3.5 bg-[#F8F9FB] border-b border-gray-100 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-widest">
-                  {meeting.status === "completed"
-                    ? "Full Transcript"
-                    : meeting.transcript
-                    ? "Live Transcript"
-                    : "Transcript"}
-                </span>
+              <div className="px-6 py-3.5 bg-[#F8F9FB] border-b border-gray-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-widest">
+                    {meeting.status === "completed"
+                      ? "Full Transcript"
+                      : meeting.transcript || finals.length > 0
+                      ? "Live Transcript"
+                      : "Transcript"}
+                  </span>
+                  {meeting.status !== "completed" && (
+                    <span
+                      className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${
+                        connected
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                      title={
+                        connected
+                          ? "Live transcript stream connected"
+                          : "Reconnecting to live transcript…"
+                      }
+                    >
+                      <Radio
+                        className={`w-2.5 h-2.5 ${
+                          connected ? "text-emerald-600" : "text-slate-400"
+                        }`}
+                      />
+                      <span className={connected ? "" : "opacity-60"}>
+                        {connected ? "Live" : "Off"}
+                      </span>
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => setAiHighlightsOn(!aiHighlightsOn)}
                   className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all ${
@@ -436,7 +512,13 @@ export default function MeetingDetailPage() {
                 ) : (
                   groups.map((group, idx) => (
                     <div key={idx} className="relative">
-                      <div className="flex gap-5 p-3.5 rounded-xl">
+                      <div
+                        className={`flex gap-5 p-3.5 rounded-xl ${
+                          group.isPartial
+                            ? "bg-indigo-50/40 ring-1 ring-indigo-100"
+                            : ""
+                        }`}
+                      >
                         <div className="shrink-0 mt-0.5">
                           <div
                             className={`w-8.5 h-8.5 rounded-md flex items-center justify-center font-bold text-[11px] text-white shadow-xs ${colorFor(group.speaker)}`}
@@ -454,12 +536,22 @@ export default function MeetingDetailPage() {
                                 {formatTime(group.timestamp)}
                               </span>
                             )}
+                            {group.isPartial && (
+                              <span className="inline-flex items-center gap-1 text-[8.5px] font-black text-indigo-600 uppercase tracking-widest">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                                speaking
+                              </span>
+                            )}
                           </div>
                           <div className="space-y-2">
                             {group.messages.map((m, midx) => (
                               <p
                                 key={midx}
-                                className="text-[12.5px] text-slate-600 leading-relaxed font-medium"
+                                className={`text-[12.5px] leading-relaxed font-medium ${
+                                  group.isPartial
+                                    ? "text-slate-500 italic"
+                                    : "text-slate-600"
+                                }`}
                               >
                                 {m}
                               </p>
@@ -698,6 +790,16 @@ export default function MeetingDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* AI Memory Card — Phase 2+3 lifecycle and entity preview */}
+              <MeetingAIMemorySection
+                meetingId={meeting.id}
+                embeddingStatus={meeting.embedding_status}
+                embeddedAt={meeting.embedded_at}
+                graphStatus={meeting.graph_status}
+                graphExtractedAt={meeting.graph_extracted_at}
+                graphError={meeting.graph_error}
+              />
             </div>
           </div>
         </div>
