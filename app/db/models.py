@@ -179,11 +179,30 @@ class CategoryDocument(Base):
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0)
 
+    # Phase 4 AI memory lifecycle — same decoupled-status pattern as
+    # Meeting in Phase 2/3. `status` above stays for upload/storage;
+    # these two columns track the ingestion pipeline independently so a
+    # parser failure doesn't poison the storage-level state.
+    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedded_at = Column(DateTime(timezone=True), nullable=True)
+    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
+    # Caches refreshed by the ingestion task so the UI doesn't need a
+    # JOIN to render chunk counts in the documents panel.
+    chunk_count = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     category = relationship("Category", back_populates="documents")
     organization = relationship("Organization")
+    chunks = relationship(
+        "DocumentChunk",
+        foreign_keys="[DocumentChunk.category_document_id]",
+        back_populates="category_document",
+        cascade="all, delete-orphan",
+    )
 
 
 class Category(Base):
@@ -250,11 +269,25 @@ class TeamDocument(Base):
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0)
 
+    # Phase 4 AI memory lifecycle (mirrors CategoryDocument).
+    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedded_at = Column(DateTime(timezone=True), nullable=True)
+    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
+    chunk_count = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     team = relationship("Team", back_populates="documents")
     organization = relationship("Organization")
+    chunks = relationship(
+        "DocumentChunk",
+        foreign_keys="[DocumentChunk.team_document_id]",
+        back_populates="team_document",
+        cascade="all, delete-orphan",
+    )
 
 
 class MeetingChunk(Base):
@@ -512,30 +545,63 @@ class Relationship(Base):
 
 
 class EntityMention(Base):
-    """One (entity, source_chunk) tuple. Provenance for graph rows.
+    """One (entity, source) tuple. Provenance for graph rows.
 
     Polymorphic source: `source_type` ∈ {meeting, document, chat, email, task}.
-    Exactly one of `source_meeting_id` / `source_document_id` is populated
-    and must match `source_type` (CHECK constraint enforced in the DB)."""
+    The CHECK constraint enforces exactly one of the four legal shapes:
+      - meeting: `source_meeting_id` set, all doc FKs null.
+      - document (category): `source_category_document_id` set, others null.
+      - document (team): `source_team_document_id` set, others null.
+      - chat/email/task: all source FKs null (context-only — provenance
+        lives in the row's other metadata).
+
+    Typed FKs (CASCADE on parent delete) replace the un-FK'd Phase 3
+    placeholders, so deleting a doc atomically wipes its mentions.
+    Phase 4 ingestion is the first writer for the document branches."""
     __tablename__ = "entity_mentions"
     __table_args__ = (
         CheckConstraint(
             "(source_type = 'meeting' "
             " AND source_meeting_id IS NOT NULL "
-            " AND source_document_id IS NULL) "
+            " AND source_category_document_id IS NULL "
+            " AND source_team_document_id IS NULL) "
             "OR (source_type = 'document' "
-            " AND source_document_id IS NOT NULL "
-            " AND source_meeting_id IS NULL) "
+            " AND source_meeting_id IS NULL "
+            " AND (    (source_category_document_id IS NOT NULL AND source_team_document_id IS NULL) "
+            "       OR (source_category_document_id IS NULL AND source_team_document_id IS NOT NULL))) "
             "OR (source_type IN ('chat','email','task') "
             " AND source_meeting_id IS NULL "
-            " AND source_document_id IS NULL)",
+            " AND source_category_document_id IS NULL "
+            " AND source_team_document_id IS NULL)",
             name="ck_entity_mentions_source_typed",
         ),
+        # One row per (entity, source) — meeting branch.
         Index(
             "uq_entity_mentions_meeting",
             "entity_id", "source_meeting_id", "source_chunk_id",
             unique=True,
             postgresql_where="source_type = 'meeting' AND source_chunk_id IS NOT NULL",
+        ),
+        # Document branches.
+        Index(
+            "uq_entity_mentions_category_doc",
+            "entity_id", "source_category_document_id", "source_document_chunk_id",
+            unique=True,
+            postgresql_where=(
+                "source_type = 'document' "
+                "AND source_category_document_id IS NOT NULL "
+                "AND source_document_chunk_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_entity_mentions_team_doc",
+            "entity_id", "source_team_document_id", "source_document_chunk_id",
+            unique=True,
+            postgresql_where=(
+                "source_type = 'document' "
+                "AND source_team_document_id IS NOT NULL "
+                "AND source_document_chunk_id IS NOT NULL"
+            ),
         ),
     )
 
@@ -558,9 +624,23 @@ class EntityMention(Base):
     source_chunk_id = Column(
         UUID(as_uuid=True), ForeignKey("meeting_chunks.id", ondelete="SET NULL"), nullable=True,
     )
-    # Phase 4 hooks (no FK yet — wired when document_chunks table lands).
-    source_document_id = Column(UUID(as_uuid=True), nullable=True)
-    source_document_chunk_id = Column(UUID(as_uuid=True), nullable=True)
+    # Typed doc FKs — replaces Phase 3 placeholders. CASCADE so mention
+    # rows die with their parent doc.
+    source_category_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("category_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_team_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("team_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_document_chunk_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_chunks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     span = Column(Text, nullable=True)
     confidence = Column(Float, nullable=True)
@@ -570,21 +650,35 @@ class EntityMention(Base):
     organization = relationship("Organization")
     source_meeting = relationship("Meeting", foreign_keys=[source_meeting_id])
     source_chunk = relationship("MeetingChunk", foreign_keys=[source_chunk_id])
+    source_category_document = relationship(
+        "CategoryDocument", foreign_keys=[source_category_document_id],
+    )
+    source_team_document = relationship(
+        "TeamDocument", foreign_keys=[source_team_document_id],
+    )
+    source_document_chunk = relationship(
+        "DocumentChunk", foreign_keys=[source_document_chunk_id],
+    )
 
 
 class RelationshipMention(Base):
+    """Same shape + CHECK contract as `EntityMention` — see that class
+    for the rationale on the typed FK layout."""
     __tablename__ = "relationship_mentions"
     __table_args__ = (
         CheckConstraint(
             "(source_type = 'meeting' "
             " AND source_meeting_id IS NOT NULL "
-            " AND source_document_id IS NULL) "
+            " AND source_category_document_id IS NULL "
+            " AND source_team_document_id IS NULL) "
             "OR (source_type = 'document' "
-            " AND source_document_id IS NOT NULL "
-            " AND source_meeting_id IS NULL) "
+            " AND source_meeting_id IS NULL "
+            " AND (    (source_category_document_id IS NOT NULL AND source_team_document_id IS NULL) "
+            "       OR (source_category_document_id IS NULL AND source_team_document_id IS NOT NULL))) "
             "OR (source_type IN ('chat','email','task') "
             " AND source_meeting_id IS NULL "
-            " AND source_document_id IS NULL)",
+            " AND source_category_document_id IS NULL "
+            " AND source_team_document_id IS NULL)",
             name="ck_relationship_mentions_source_typed",
         ),
         Index(
@@ -592,6 +686,26 @@ class RelationshipMention(Base):
             "relationship_id", "source_meeting_id", "source_chunk_id",
             unique=True,
             postgresql_where="source_type = 'meeting' AND source_chunk_id IS NOT NULL",
+        ),
+        Index(
+            "uq_relationship_mentions_category_doc",
+            "relationship_id", "source_category_document_id", "source_document_chunk_id",
+            unique=True,
+            postgresql_where=(
+                "source_type = 'document' "
+                "AND source_category_document_id IS NOT NULL "
+                "AND source_document_chunk_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_relationship_mentions_team_doc",
+            "relationship_id", "source_team_document_id", "source_document_chunk_id",
+            unique=True,
+            postgresql_where=(
+                "source_type = 'document' "
+                "AND source_team_document_id IS NOT NULL "
+                "AND source_document_chunk_id IS NOT NULL"
+            ),
         ),
     )
 
@@ -614,22 +728,44 @@ class RelationshipMention(Base):
     source_chunk_id = Column(
         UUID(as_uuid=True), ForeignKey("meeting_chunks.id", ondelete="SET NULL"), nullable=True,
     )
-    source_document_id = Column(UUID(as_uuid=True), nullable=True)
-    source_document_chunk_id = Column(UUID(as_uuid=True), nullable=True)
+    source_category_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("category_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_team_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("team_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_document_chunk_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("document_chunks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     span = Column(Text, nullable=True)
     confidence = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # `relationship` shadows the imported function name; using
-    # `parent_relationship` keeps the class body sane.
-    # `back_populates` on `Relationship.mentions` points at this attr.
+    # `parent_relationship` keeps the class body sane. `back_populates`
+    # on `Relationship.mentions` points at this attr.
     parent_relationship = relationship(
         "Relationship", back_populates="mentions",
     )
     organization = relationship("Organization")
     source_meeting = relationship("Meeting", foreign_keys=[source_meeting_id])
     source_chunk = relationship("MeetingChunk", foreign_keys=[source_chunk_id])
+    source_category_document = relationship(
+        "CategoryDocument", foreign_keys=[source_category_document_id],
+    )
+    source_team_document = relationship(
+        "TeamDocument", foreign_keys=[source_team_document_id],
+    )
+    source_document_chunk = relationship(
+        "DocumentChunk", foreign_keys=[source_document_chunk_id],
+    )
 
 
 class GraphExtractionRun(Base):
@@ -637,6 +773,12 @@ class GraphExtractionRun(Base):
     version, model, counts, duration, status, and raw LLM response —
     so prompt iteration in Phase 3.5+ has full ground truth without
     needing to re-run the model.
+
+    Phase 4D extension: the source is now polymorphic. Exactly one of
+    `meeting_id`, `source_category_document_id`, `source_team_document_id`
+    is set per row, enforced by `ck_graph_extraction_runs_one_source`.
+    Same audit-log shape; the source FK identifies which knowledge tier
+    a given run wrote to.
 
     NOT a knowledge-tier table — it has no metadata-mandate columns,
     no `created_from_meeting_id`, no `last_accessed_at`. It's pure
@@ -649,9 +791,20 @@ class GraphExtractionRun(Base):
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
+    # Polymorphic source — exactly one of these three is set per row.
     meeting_id = Column(
         Integer, ForeignKey("meetings.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        nullable=True, index=True,
+    )
+    source_category_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("category_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    source_team_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("team_documents.id", ondelete="CASCADE"),
+        nullable=True,
     )
     prompt_version = Column(String, nullable=False, index=True)
     model = Column(String, nullable=False)
@@ -669,3 +822,141 @@ class GraphExtractionRun(Base):
 
     organization = relationship("Organization")
     meeting = relationship("Meeting", foreign_keys=[meeting_id])
+    source_category_document = relationship(
+        "CategoryDocument", foreign_keys=[source_category_document_id],
+    )
+    source_team_document = relationship(
+        "TeamDocument", foreign_keys=[source_team_document_id],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Document chunks
+#
+# Single polymorphic table. `document_type` + the typed FK pair
+# (category_document_id, team_document_id) carry the parent. CHECK
+# enforces exactly one is set, matching the type. Both FKs CASCADE so
+# deleting a doc atomically wipes its chunks.
+#
+# Same scope-denormalization story as `meeting_chunks` (Phase 2A) — the
+# `category_id` / `team_id` columns let Phase 5 hybrid retrieval filter
+# without joining the doc parent.
+#
+# Same embedding dimensionality (1536) as `meeting_chunks` is
+# non-negotiable: Phase 5 unions both tables in one ORDER BY.
+# ---------------------------------------------------------------------------
+
+
+class DocumentChunk(Base):
+    """A semantic chunk of a document with its 1536-d embedding.
+
+    Phase 4 vector memory. Each ingested doc becomes a sequence of
+    chunks (~800 tokens, 100-token overlap, block-aware via the
+    document chunker). `page_number` and `section_path` carry
+    block-level provenance for retrieval citations.
+
+    The six knowledge-metadata columns mirror `meeting_chunks` exactly,
+    so Phase 6 reranking treats meeting and document chunks uniformly."""
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        CheckConstraint(
+            "document_type IN ('category','team')",
+            name="ck_document_chunks_document_type",
+        ),
+        CheckConstraint(
+            "(document_type = 'category' "
+            " AND category_document_id IS NOT NULL "
+            " AND team_document_id IS NULL) "
+            "OR (document_type = 'team' "
+            " AND team_document_id IS NOT NULL "
+            " AND category_document_id IS NULL)",
+            name="ck_document_chunks_typed_parent",
+        ),
+        Index(
+            "uq_doc_chunks_category",
+            "category_document_id", "chunk_index",
+            unique=True,
+            postgresql_where="document_type = 'category'",
+        ),
+        Index(
+            "uq_doc_chunks_team",
+            "team_document_id", "chunk_index",
+            unique=True,
+            postgresql_where="document_type = 'team'",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    document_type = Column(String, nullable=False)
+    category_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("category_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    team_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("team_documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    team_id = Column(
+        Integer,
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    chunk_index = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    token_count = Column(Integer, nullable=False)
+    page_number = Column(Integer, nullable=True)
+    section_path = Column(Text, nullable=True)
+
+    embedding = Column(Vector(1536), nullable=False)
+    embedding_model = Column(String, nullable=False)
+
+    # Knowledge-metadata mandate (mirrors meeting_chunks).
+    importance_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    knowledge_version = Column(Integer, nullable=False, default=1, server_default="1")
+    # Always NULL on doc chunks; the column is kept for schema symmetry
+    # with meeting_chunks so Phase 6's reranker can treat both tables
+    # uniformly.
+    created_from_meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="SET NULL"), nullable=True,
+    )
+    last_accessed_at = Column(DateTime(timezone=True), nullable=True)
+    access_count = Column(Integer, nullable=False, default=0, server_default="0")
+
+    # Free-form so the parsers can stash source_subtype (pdf/docx/xlsx),
+    # original mime_type, truncation flags, etc. without a schema rev.
+    metadata_json = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+    category_document = relationship(
+        "CategoryDocument",
+        foreign_keys=[category_document_id],
+        back_populates="chunks",
+    )
+    team_document = relationship(
+        "TeamDocument",
+        foreign_keys=[team_document_id],
+        back_populates="chunks",
+    )

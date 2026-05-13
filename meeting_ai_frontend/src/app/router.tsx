@@ -11,6 +11,7 @@ import CalendarPage from "../features/calendar/pages/CalendarPage";
 import AgentControlPage from "../features/agent-control/pages/AgentControlPage";
 import KnowledgeHubPage from "../features/knowledge/pages/KnowledgeHubPage";
 import KnowledgeGraphPage from "../features/knowledge/pages/KnowledgeGraphPage";
+import DashboardPage from "../features/dashboard/pages/DashboardPage";
 
 export const router = createBrowserRouter([
   {
@@ -55,6 +56,10 @@ export const router = createBrowserRouter([
       {
         path: "/knowledge-graph",
         element: <KnowledgeGraphPage />,
+      },
+      {
+        path: "/dashboard",
+        element: <DashboardPage />,
       },
       {
         path: "/auth/google/callback",

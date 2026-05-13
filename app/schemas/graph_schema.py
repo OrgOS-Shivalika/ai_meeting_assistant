@@ -75,13 +75,19 @@ class EntityListResponse(BaseModel):
 class MentionRef(BaseModel):
     """One mention attached to an entity or relationship detail view.
     Source columns are polymorphic; the unused ones come back as None
-    so the client can render whichever applies."""
+    so the client can render whichever applies.
+
+    Phase 4A split the placeholder `source_document_id` into the typed
+    pair `source_category_document_id` / `source_team_document_id`.
+    Exactly one is set for `source_type='document'` mentions; both are
+    None for meeting / chat / email / task sources."""
     id: UUID
     source_type: SourceType
     source_meeting_id: Optional[int] = None
     source_meeting_title: Optional[str] = None
     source_chunk_id: Optional[UUID] = None
-    source_document_id: Optional[UUID] = None
+    source_category_document_id: Optional[UUID] = None
+    source_team_document_id: Optional[UUID] = None
     source_document_chunk_id: Optional[UUID] = None
     span: Optional[str] = None
     confidence: Optional[float] = None

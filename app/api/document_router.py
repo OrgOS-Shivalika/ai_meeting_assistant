@@ -238,3 +238,77 @@ def delete_category_document(
     db.delete(doc)
     db.commit()
     return {"status": "ok", "deleted_id": str(document_id)}
+
+
+# ---------------------------------------------------------------------------
+# Manual retry. Mirrors the meeting retry endpoints in app/api/routes.py —
+# the AI Memory pipeline normally fans out on upload, but a transient
+# OpenAI / parser failure needs a one-click re-run from the UI.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/categories/{category_id}/documents/{document_id}/retry-embedding")
+def retry_category_document_embedding(
+    category_id: int,
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _category_in_user_org(db, user, category_id)
+    doc = (
+        db.query(CategoryDocument)
+        .filter(
+            CategoryDocument.id == document_id,
+            CategoryDocument.category_id == category_id,
+        )
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc.embedding_status = "pending"
+    doc.error_message = None
+    db.commit()
+    from app.celery_tasks.document_ingest import dispatch_ingest_document
+    dispatch_ingest_document("category", str(document_id))
+    return {"status": "dispatched", "document_id": str(document_id), "stage": "embedding"}
+
+
+@router.post("/categories/{category_id}/documents/{document_id}/retry-graph")
+def retry_category_document_graph(
+    category_id: int,
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _category_in_user_org(db, user, category_id)
+    doc = (
+        db.query(CategoryDocument)
+        .filter(
+            CategoryDocument.id == document_id,
+            CategoryDocument.category_id == category_id,
+        )
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.embedding_status != "embedded":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Document embeddings aren't ready (embedding_status="
+                f"{doc.embedding_status}); cannot retry graph extraction yet."
+            ),
+        )
+    doc.graph_status = "pending"
+    db.commit()
+    try:
+        from app.celery_tasks.document_graph_tasks import (
+            dispatch_extract_document_graph,
+        )
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Document graph extraction is not enabled yet (Phase 4D pending).",
+        )
+    dispatch_extract_document_graph("category", str(document_id))
+    return {"status": "dispatched", "document_id": str(document_id), "stage": "graph"}

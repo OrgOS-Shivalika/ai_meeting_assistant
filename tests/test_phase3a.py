@@ -251,12 +251,24 @@ def test_mention_source_check_constraint():
         except IntegrityError:
             db.rollback()
 
-        # source_type='meeting' AND source_document_id set -> CHECK violation
+        # source_type='meeting' AND a doc FK also set -> CHECK violation.
+        # Phase 4A rewired the placeholder source_document_id into the
+        # typed FKs source_category_document_id / source_team_document_id.
+        # We need a real category_document row to attach for the FK to be
+        # acceptable shape-wise (so the CHECK is what rejects, not the FK).
+        from app.db.models import CategoryDocument
+        cdoc = CategoryDocument(
+            organization_id=_FX.org_id, category_id=_FX.category_id,
+            name="ck-doc", original_filename="ck-doc.pdf",
+            mime_type="application/pdf", size_bytes=1,
+            storage_key=f"ck/{uuid.uuid4()}.pdf",
+        )
+        db.add(cdoc); db.commit(); db.refresh(cdoc)
         bad2 = EntityMention(
             organization_id=_FX.org_id, entity_id=entity.id,
             source_type="meeting",
             source_meeting_id=_FX.meeting_id, source_chunk_id=_FX.chunk_id,
-            source_document_id=uuid.uuid4(),
+            source_category_document_id=cdoc.id,
         )
         db.add(bad2)
         try:
@@ -264,6 +276,8 @@ def test_mention_source_check_constraint():
             raise AssertionError("expected CHECK violation on mixed source columns")
         except IntegrityError:
             db.rollback()
+        db.query(CategoryDocument).filter(CategoryDocument.id == cdoc.id).delete()
+        db.commit()
 
         # Valid mention
         ok = EntityMention(

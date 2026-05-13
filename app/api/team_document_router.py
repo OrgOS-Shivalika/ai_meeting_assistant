@@ -219,3 +219,75 @@ def delete_team_document(
     db.delete(doc)
     db.commit()
     return {"status": "ok", "deleted_id": str(document_id)}
+
+
+# ---------------------------------------------------------------------------
+# Manual retry (mirrors document_router.py).
+# ---------------------------------------------------------------------------
+
+
+@router.post("/teams/{team_id}/documents/{document_id}/retry-embedding")
+def retry_team_document_embedding(
+    team_id: int,
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _team_in_user_org(db, user, team_id)
+    doc = (
+        db.query(TeamDocument)
+        .filter(
+            TeamDocument.id == document_id,
+            TeamDocument.team_id == team_id,
+        )
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc.embedding_status = "pending"
+    doc.error_message = None
+    db.commit()
+    from app.celery_tasks.document_ingest import dispatch_ingest_document
+    dispatch_ingest_document("team", str(document_id))
+    return {"status": "dispatched", "document_id": str(document_id), "stage": "embedding"}
+
+
+@router.post("/teams/{team_id}/documents/{document_id}/retry-graph")
+def retry_team_document_graph(
+    team_id: int,
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _team_in_user_org(db, user, team_id)
+    doc = (
+        db.query(TeamDocument)
+        .filter(
+            TeamDocument.id == document_id,
+            TeamDocument.team_id == team_id,
+        )
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.embedding_status != "embedded":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Document embeddings aren't ready (embedding_status="
+                f"{doc.embedding_status}); cannot retry graph extraction yet."
+            ),
+        )
+    doc.graph_status = "pending"
+    db.commit()
+    try:
+        from app.celery_tasks.document_graph_tasks import (
+            dispatch_extract_document_graph,
+        )
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Document graph extraction is not enabled yet (Phase 4D pending).",
+        )
+    dispatch_extract_document_graph("team", str(document_id))
+    return {"status": "dispatched", "document_id": str(document_id), "stage": "graph"}
