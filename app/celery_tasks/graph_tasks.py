@@ -506,6 +506,20 @@ def _extract_graph_sync(
         used_prompt_version,
         used_model,
     )
+
+    # Phase 6A — fan out to importance scoring. The graph just changed
+    # (new entities, new mentions, new relationships) so importance is
+    # stale until we re-score. Fire-and-forget; a scorer failure must
+    # never invalidate the graph commit we just made.
+    try:
+        from app.celery_tasks.importance_tasks import dispatch_score_org
+        dispatch_score_org(meeting.organization_id)
+    except Exception as exc:
+        logger.error(
+            "extract_graph(%s): importance dispatch failed: %s",
+            meeting_id, exc,
+        )
+
     return {
         "status": "extracted",
         "meeting_id": meeting_id,

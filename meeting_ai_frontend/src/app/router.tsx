@@ -12,6 +12,7 @@ import AgentControlPage from "../features/agent-control/pages/AgentControlPage";
 import KnowledgeHubPage from "../features/knowledge/pages/KnowledgeHubPage";
 import KnowledgeGraphPage from "../features/knowledge/pages/KnowledgeGraphPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
+import AskPage from "../features/ask/pages/AskPage";
 
 export const router = createBrowserRouter([
   {
@@ -60,6 +61,10 @@ export const router = createBrowserRouter([
       {
         path: "/dashboard",
         element: <DashboardPage />,
+      },
+      {
+        path: "/ask",
+        element: <AskPage />,
       },
       {
         path: "/auth/google/callback",

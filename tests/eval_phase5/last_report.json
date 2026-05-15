@@ -1,0 +1,192 @@
+{
+  "mode": "real",
+  "total_cases": 10,
+  "passed_cases": 10,
+  "pass_rate": 1.0,
+  "threshold": 0.8,
+  "overall_passed": true,
+  "duration_ms": 63530,
+  "timestamp": "2026-05-15T07:06:51Z",
+  "cases": [
+    {
+      "case_id": "helios-leader-at-team-scope",
+      "description": "Anchored at team Backend; expects Alice + Helios + the leads relationship.",
+      "query": "Who is leading the Helios project?",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 6,
+        "retrieved_entities": 6,
+        "retrieved_relationships": 4
+      },
+      "duration_ms": 9446,
+      "status": "completed",
+      "answer_text": "Alice is leading the Helios project [1][4].",
+      "citations_count": 2,
+      "error": null
+    },
+    {
+      "case_id": "helios-depends-on-phoenix",
+      "description": "Should surface the Helios-depends_on-Phoenix relationship + the doc chunk that describes it.",
+      "query": "What does Helios depend on?",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 6,
+        "retrieved_entities": 6,
+        "retrieved_relationships": 4
+      },
+      "duration_ms": 5944,
+      "status": "completed",
+      "answer_text": "Helios depends on Phoenix for the underlying event store [3][5].",
+      "citations_count": 2,
+      "error": null
+    },
+    {
+      "case_id": "graph-expansion-from-alice",
+      "description": "Critical: query anchors on Alice only; Helios should appear via graph expansion (Alice -> leads -> Helios).",
+      "query": "What is Alice working on?",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 6,
+        "retrieved_entities": 6,
+        "retrieved_relationships": 4
+      },
+      "duration_ms": 4764,
+      "status": "completed",
+      "answer_text": "Alice is working on the Helios project, which is an authentication overhaul initiative [2][6].",
+      "citations_count": 2,
+      "error": null
+    },
+    {
+      "case_id": "oauth2-cross-source",
+      "description": "OAuth2 is mentioned in both Q3 planning meeting and the Backend Architecture doc.",
+      "query": "What did we decide about OAuth2?",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 6,
+        "retrieved_entities": 6,
+        "retrieved_relationships": 4
+      },
+      "duration_ms": 7772,
+      "status": "completed",
+      "answer_text": "The decision was made to use OAuth2 as the authentication path for Helios, with a rollout planned by the end of September [1][4].",
+      "citations_count": 2,
+      "error": null
+    },
+    {
+      "case_id": "enterprise-tier-pricing",
+      "description": "Sales Playbook doc, category Sales scope.",
+      "query": "What's our enterprise tier pricing?",
+      "scope": "cat_sales",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 4,
+        "retrieved_entities": 4,
+        "retrieved_relationships": 3
+      },
+      "duration_ms": 4977,
+      "status": "completed",
+      "answer_text": "The enterprise tier pricing starts at $24,000 per year base plus per-seat fees. It includes features such as SSO, audit logs, and 90-day data retention [1].",
+      "citations_count": 1,
+      "error": null
+    },
+    {
+      "case_id": "scope-routing-alice-isolation",
+      "description": "Alice exists at team Backend AND at category Sales scope. Asking at team scope must surface team-scope relationships only.",
+      "query": "Tell me about Alice's commitments",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 6,
+        "retrieved_entities": 6,
+        "retrieved_relationships": 4
+      },
+      "duration_ms": 5859,
+      "status": "completed",
+      "answer_text": "Alice is committed to shipping the Helios project by September 30, which includes implementing OAuth2 as the authentication method. She is also responsible for coordinating the cutover to Phoenix v2 with the Helios launch [2][4][5].",
+      "citations_count": 3,
+      "error": null
+    },
+    {
+      "case_id": "tier-widen-from-empty-team",
+      "description": "Team Enterprise Sales has no chunks; should widen to category Sales.",
+      "query": "What's the NorthStar customer status?",
+      "scope": "team_sales",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 10,
+        "retrieved_entities": 13,
+        "retrieved_relationships": 0
+      },
+      "duration_ms": 5548,
+      "status": "completed",
+      "answer_text": "NorthStar is the lead reference account for the enterprise tier, and their onboarding kicked off in Q2 [5][9]. A proposal with the enterprise pricing tier is being sent to them, with a target close in Q4 [7].",
+      "citations_count": 3,
+      "error": null
+    },
+    {
+      "case_id": "auto-scope-broad-question",
+      "description": "Org-wide question; planner should pick a sensible scope.",
+      "query": "Summarize what we're building",
+      "scope": "auto",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 10,
+        "retrieved_entities": 13,
+        "retrieved_relationships": 9
+      },
+      "duration_ms": 5871,
+      "status": "completed",
+      "answer_text": "We are building Helios, an authentication overhaul project that utilizes OAuth2 with token-bound sessions and depends on Phoenix as the underlying event store. The project aims to enhance authentication processes, including support for single sign-on (SSO) and improved data retention features for enterprise accounts [4][6][9]. Helios is scheduled to ship by September 30, 2026 [7].",
+      "citations_count": 4,
+      "error": null
+    },
+    {
+      "case_id": "documents-only-filter",
+      "description": "sources='documents' must exclude meeting chunks entirely.",
+      "query": "What are the Helios authentication details?",
+      "scope": "team_backend",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 4,
+        "retrieved_entities": 5,
+        "retrieved_relationships": 0
+      },
+      "duration_ms": 5530,
+      "status": "completed",
+      "answer_text": "Helios authentication uses OAuth2 with token-bound sessions and depends on Phoenix for the event store. It employs the PKCE flow for SPA clients [2].",
+      "citations_count": 1,
+      "error": null
+    },
+    {
+      "case_id": "no-fabrication-on-unknown-topic",
+      "description": "Query has no real signal in the fixture \u2014 answer must not fabricate.",
+      "query": "What did we decide about the time-travel feature?",
+      "scope": "global",
+      "passed": true,
+      "failures": [],
+      "metrics": {
+        "retrieved_chunks": 10,
+        "retrieved_entities": 13,
+        "retrieved_relationships": 0
+      },
+      "duration_ms": 5599,
+      "status": "completed",
+      "answer_text": "I don't have enough information to answer that.",
+      "citations_count": 0,
+      "error": null
+    }
+  ]
+}

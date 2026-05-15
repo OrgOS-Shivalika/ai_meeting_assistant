@@ -90,6 +90,92 @@ class Settings:
     # between prompt-overhead amortization and per-call latency.
     GRAPH_EXTRACTION_BATCH_SIZE = int(os.getenv("GRAPH_EXTRACTION_BATCH_SIZE", "5"))
 
+    # Phase 5 — RAG. Same versioning + model convention as the graph
+    # extractor: tagged prompt versions stored in
+    # `rag_query_runs.{planner,synth}_prompt_version`, so prompt
+    # iteration in 5F has full ground truth without re-running the model.
+    RAG_PLANNER_MODEL = os.getenv("RAG_PLANNER_MODEL", "gpt-4o-mini")
+    RAG_PLANNER_PROMPT_VERSION = os.getenv("RAG_PLANNER_PROMPT_VERSION", "v1")
+    RAG_SYNTH_MODEL = os.getenv("RAG_SYNTH_MODEL", "gpt-4o-mini")
+    RAG_SYNTH_PROMPT_VERSION = os.getenv("RAG_SYNTH_PROMPT_VERSION", "v1")
+    # Retrieval defaults — overridable per-request from the API layer.
+    RAG_TOP_K_VECTOR = int(os.getenv("RAG_TOP_K_VECTOR", "20"))   # primary vector recall
+    RAG_TOP_K_FINAL = int(os.getenv("RAG_TOP_K_FINAL", "10"))     # after merge + rerank
+    RAG_MAX_GRAPH_DEPTH = int(os.getenv("RAG_MAX_GRAPH_DEPTH", "1"))
+    RAG_TIER_WIDEN_THRESHOLD = int(os.getenv("RAG_TIER_WIDEN_THRESHOLD", "3"))
+    # Rerank weights — Phase 5 ships hand-tuned defaults. 5F's eval
+    # harness learns better values; Phase 6 replaces these with a
+    # learned scorer.
+    RAG_RERANK_W_SIMILARITY = float(os.getenv("RAG_RERANK_W_SIMILARITY", "0.7"))
+    RAG_RERANK_W_ANCHOR = float(os.getenv("RAG_RERANK_W_ANCHOR", "0.2"))
+    RAG_RERANK_W_RECENCY = float(os.getenv("RAG_RERANK_W_RECENCY", "0.1"))
+
+    # ---------------------------------------------------------------------
+    # Phase 6 — Importance scoring + reranking
+    # ---------------------------------------------------------------------
+    # Algorithm provenance. Bump when the formula changes; lands in
+    # `importance_runs.algorithm_version` for replayability.
+    IMPORTANCE_ALGORITHM_VERSION = os.getenv("IMPORTANCE_ALGORITHM_VERSION", "v1")
+
+    # Coefficients shared by chunks / entities / relationships. Each
+    # column is normalized to [0,1] before weighted sum so coefficients
+    # are directly comparable. 6F's backfill runs a grid sweep against
+    # the eval harness to validate these defaults.
+    IMPORTANCE_W_ACCESS = float(os.getenv("IMPORTANCE_W_ACCESS", "0.30"))
+    IMPORTANCE_W_CITATION = float(os.getenv("IMPORTANCE_W_CITATION", "0.30"))
+    IMPORTANCE_W_RECENCY = float(os.getenv("IMPORTANCE_W_RECENCY", "0.15"))
+    IMPORTANCE_W_CONFIDENCE = float(os.getenv("IMPORTANCE_W_CONFIDENCE", "0.10"))
+    IMPORTANCE_W_ANCHOR_DENSITY = float(os.getenv("IMPORTANCE_W_ANCHOR_DENSITY", "0.10"))
+    # Graph centrality: stubbed to 0.0 in 6A; 6C wires in the real
+    # PageRank-style score. Coefficient lives here so the scorer
+    # interface freezes now.
+    IMPORTANCE_W_CENTRALITY = float(os.getenv("IMPORTANCE_W_CENTRALITY", "0.05"))
+
+    # Recency: exp(-age_days / IMPORTANCE_RECENCY_DECAY_DAYS).
+    # 30 = a 1-month-old chunk has 37% of a brand-new chunk's recency
+    # weight. Reasonable for meeting/doc churn rates we've seen.
+    IMPORTANCE_RECENCY_DECAY_DAYS = float(os.getenv("IMPORTANCE_RECENCY_DECAY_DAYS", "30"))
+
+    # log1p saturation point for count signals. Counts ≥ this are
+    # treated as fully-saturated (1.0 after norm). Prevents a single
+    # 1000-citation outlier from monopolizing the importance scale.
+    IMPORTANCE_COUNT_SATURATION = int(os.getenv("IMPORTANCE_COUNT_SATURATION", "20"))
+
+    # Reranking strategy. Phase 6C ships 'importance_aware'; 6A leaves
+    # the default as Phase 5's 'legacy_weighted' so importance scores
+    # populate without changing user-facing ranking yet.
+    RAG_RERANK_STRATEGY = os.getenv("RAG_RERANK_STRATEGY", "legacy_weighted")
+
+    # ---------------------------------------------------------------------
+    # Phase 6D — Consolidation (archive + merge suggestion thresholds)
+    # ---------------------------------------------------------------------
+    # A chunk/entity/rel is a candidate for archival when ALL of:
+    #   - age > CONSOLIDATION_MIN_AGE_DAYS
+    #   - access_count == 0
+    #   - importance_score < CONSOLIDATION_MAX_IMPORTANCE
+    # Defaults are conservative — fresh content + anything cited/important
+    # is safe by default. Tune per-org in Phase 7+ if customer profiles diverge.
+    CONSOLIDATION_MIN_AGE_DAYS = float(os.getenv("CONSOLIDATION_MIN_AGE_DAYS", "180"))
+    CONSOLIDATION_MAX_IMPORTANCE = float(os.getenv("CONSOLIDATION_MAX_IMPORTANCE", "0.2"))
+    # Merge suggestion threshold. SequenceMatcher ratio in [0, 1] of
+    # canonical_name + sorted aliases. 1.0 = identical text; we exclude
+    # those because the upsert dedup already covers them. 0.6-0.85 is
+    # the suggestion sweet spot (high enough to be a real candidate;
+    # low enough to surface genuine variants like "Helios" vs "Helios Initiative").
+    CONSOLIDATION_MERGE_MIN_SIMILARITY = float(
+        os.getenv("CONSOLIDATION_MERGE_MIN_SIMILARITY", "0.85"),
+    )
+    CONSOLIDATION_MERGE_MAX_PAIRS_PER_RUN = int(
+        os.getenv("CONSOLIDATION_MERGE_MAX_PAIRS_PER_RUN", "100"),
+    )
+
+    # Phase 6C — importance-aware rerank coefficients (additive on top
+    # of the legacy weighted score). These are conservative defaults;
+    # 6F's coefficient sweep tunes them against the eval harness.
+    RAG_RERANK_W_CHUNK_IMP = float(os.getenv("RAG_RERANK_W_CHUNK_IMP", "0.30"))
+    RAG_RERANK_W_ENTITY_IMP = float(os.getenv("RAG_RERANK_W_ENTITY_IMP", "0.20"))
+    RAG_RERANK_W_ACCESS = float(os.getenv("RAG_RERANK_W_ACCESS_RERANK", "0.10"))
+
     def __init__(self):
         if not self.OPEN_API_KEY:
             logger.warning("OPEN_API_KEY is not set in environment variables.")

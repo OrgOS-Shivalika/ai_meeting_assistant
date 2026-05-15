@@ -22,11 +22,32 @@ export async function apiClient(endpoint: string, options: RequestInit = {}) {
   });
 
   if (res.status === 401) {
+    // Stale / expired token. Wipe it and hand off to the login page.
+    // We return a never-resolving promise so calling components don't see
+    // "Not authenticated" flash up while the browser navigates away —
+    // throwing here would surface the raw FastAPI detail to whatever
+    // UI catches the error.
     localStorage.removeItem("token");
-    window.location.href = "/login";
+    // Avoid an infinite reload loop if we're already on /login.
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    return new Promise(() => {});
   }
 
-  if (!res.ok) throw new Error("API Error");
+  if (!res.ok) {
+    // Try to surface the backend's detail (e.g. "Document not found",
+    // "Storage upload failed") instead of a generic "API Error" — most
+    // calling code feeds err.message into a toast or inline error.
+    let detail = `API Error (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      // non-JSON error body — keep the generic message
+    }
+    throw new Error(detail);
+  }
 
   return res.json();
 }

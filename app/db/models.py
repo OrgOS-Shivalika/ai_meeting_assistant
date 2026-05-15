@@ -1,6 +1,6 @@
 from sqlalchemy import (
-    Column, String, Integer, ForeignKey, DateTime, Text, UniqueConstraint,
-    Float, CheckConstraint, Index,
+    BigInteger, Column, String, Integer, ForeignKey, DateTime, Text,
+    UniqueConstraint, Float, CheckConstraint, Index, text,
 )
 from sqlalchemy.dialects.postgresql import JSON, JSONB, UUID, ARRAY
 from sqlalchemy.orm import relationship
@@ -360,6 +360,12 @@ class MeetingChunk(Base):
     )
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Phase 6D — consolidation lifecycle. 'active' (default) means
+    # visible to retrieval; 'archived' means hidden (rehydratable).
+    # 'merged_into' is entity-only — never applies to chunks.
+    archive_status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
 
     metadata_json = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -446,6 +452,19 @@ class Entity(Base):
     )
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Phase 6D — consolidation lifecycle. Entities can be 'merged_into'
+    # in addition to 'active' / 'archived'; the `merged_into_entity_id`
+    # pointer below records the survivor. CHECK constraint
+    # `ck_entities_merged_into_consistency` enforces the invariant:
+    # status='merged_into' iff merged_into_entity_id IS NOT NULL.
+    archive_status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
+    merged_into_entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("entities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True),
@@ -454,6 +473,9 @@ class Entity(Base):
 
     organization = relationship("Organization")
     created_from_meeting = relationship("Meeting", foreign_keys=[created_from_meeting_id])
+    merged_into = relationship(
+        "Entity", remote_side="Entity.id", foreign_keys=[merged_into_entity_id],
+    )
     mentions = relationship(
         "EntityMention", back_populates="entity", cascade="all, delete-orphan",
     )
@@ -524,6 +546,11 @@ class Relationship(Base):
     )
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Phase 6D — consolidation lifecycle. Relationships are 'active'
+    # or 'archived' — no 'merged_into' (only entities merge).
+    archive_status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True),
@@ -938,6 +965,10 @@ class DocumentChunk(Base):
     )
     last_accessed_at = Column(DateTime(timezone=True), nullable=True)
     access_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Phase 6D — consolidation lifecycle. Same semantics as meeting_chunks.
+    archive_status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
 
     # Free-form so the parsers can stash source_subtype (pdf/docx/xlsx),
     # original mime_type, truncation flags, etc. without a schema rev.
@@ -960,3 +991,376 @@ class DocumentChunk(Base):
         foreign_keys=[team_document_id],
         back_populates="chunks",
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — RAG conversations + query runs
+#
+# Conversations are the parent (one per chat thread). Query runs are an
+# append-only audit log — one row per `/rag/ask` invocation. The audit
+# row captures the full retrieval bundle + cited answer + per-stage
+# timings, so 5F eval and Phase 6 reranking can replay queries without
+# re-running the LLM.
+#
+# Conversations cascade with their owning user (your private chat dies
+# with you). Runs cascade with their conversation.
+# ---------------------------------------------------------------------------
+
+
+class RagConversation(Base):
+    """One chat thread. Title is auto-derived from the first query.
+    `pinned_scope_*` is a UX convenience — the chat panel re-opens with
+    the right scope picker; it does NOT bias retrieval, which always
+    honors the request's explicit scope.
+    """
+    __tablename__ = "rag_conversations"
+    __table_args__ = (
+        CheckConstraint(
+            "pinned_scope_type IS NULL "
+            "OR pinned_scope_type IN ('team','category','global')",
+            name="ck_rag_conversations_pinned_scope_type",
+        ),
+        CheckConstraint(
+            "(pinned_scope_type IS NULL AND pinned_scope_id IS NULL) "
+            "OR (pinned_scope_type = 'global' AND pinned_scope_id IS NULL) "
+            "OR (pinned_scope_type IN ('team','category') AND pinned_scope_id IS NOT NULL)",
+            name="ck_rag_conversations_pinned_scope_id_matches",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title = Column(Text, nullable=True)
+    pinned_scope_type = Column(String(16), nullable=True)
+    pinned_scope_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+    user = relationship("User", foreign_keys=[user_id])
+    runs = relationship(
+        "RagQueryRun",
+        foreign_keys="[RagQueryRun.conversation_id]",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="RagQueryRun.created_at",
+    )
+
+
+class RagQueryRun(Base):
+    """One `/rag/ask` invocation. Pure observability — no
+    knowledge-metadata columns; never participates in retrieval. The
+    retrieval_bundle JSONB is the eval harness's input: chunk_ids +
+    entity_ids + per-chunk retrieval_reasons + retrieval_stage_scores.
+    """
+    __tablename__ = "rag_query_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('completed','no_context','failed')",
+            name="ck_rag_query_runs_status",
+        ),
+        CheckConstraint(
+            "effective_scope_type IS NULL "
+            "OR effective_scope_type IN ('team','category','global')",
+            name="ck_rag_query_runs_scope_type",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # SET NULL so the audit row survives a user deletion (org may want
+    # the historical query for compliance / debugging).
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("rag_conversations.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    query_text = Column(Text, nullable=False)
+    requested_scope_type = Column(String(16), nullable=True)
+    requested_scope_id = Column(Integer, nullable=True)
+    effective_scope_type = Column(String(16), nullable=True)
+    effective_scope_id = Column(Integer, nullable=True)
+
+    planner_model = Column(String(64), nullable=True)
+    planner_prompt_version = Column(String(32), nullable=True)
+    synth_model = Column(String(64), nullable=True)
+    synth_prompt_version = Column(String(32), nullable=True)
+
+    retrieved_chunks = Column(Integer, nullable=False, default=0, server_default="0")
+    retrieved_entities = Column(Integer, nullable=False, default=0, server_default="0")
+    retrieved_relationships = Column(Integer, nullable=False, default=0, server_default="0")
+    planner_duration_ms = Column(Integer, nullable=True)
+    retrieval_duration_ms = Column(Integer, nullable=True)
+    synth_duration_ms = Column(Integer, nullable=True)
+    total_duration_ms = Column(Integer, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+
+    status = Column(String(16), nullable=False)
+    answer_text = Column(Text, nullable=True)
+    citations = Column(JSONB, nullable=True)
+    retrieval_bundle = Column(JSONB, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    # Phase 6C — which reranker produced this run's ordering. NULL on
+    # rows from Phase 5/6A/6B (those always used legacy_weighted).
+    rerank_strategy = Column(String(24), nullable=True)
+
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+    user = relationship("User", foreign_keys=[user_id])
+    conversation = relationship(
+        "RagConversation",
+        foreign_keys=[conversation_id],
+        back_populates="runs",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Importance scoring audit
+#
+# `importance_score` is a column on every knowledge-tier table since Phase 1.
+# Phase 6A is the first slice that actually computes values into it.
+# `importance_runs` records EVERY scoring pass:
+#
+#   - algorithm_version + weights_json: every score is replayable
+#   - score_distribution_json: min/max/p50/p95/mean per run — sentinel
+#     for silent drift (importance systems regress quietly otherwise)
+#   - org-scoped — never cross-tenant
+#
+# Read-only after insert; same audit-log shape as graph_extraction_runs
+# and rag_query_runs.
+# ---------------------------------------------------------------------------
+
+
+class ImportanceRun(Base):
+    """One row per importance-scoring batch. Pure observability —
+    never participates in retrieval."""
+    __tablename__ = "importance_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "target_kind IN ('meeting_chunk','document_chunk','entity','relationship')",
+            name="ck_importance_runs_target_kind",
+        ),
+        CheckConstraint(
+            "status IN ('completed','failed')",
+            name="ck_importance_runs_status",
+        ),
+        CheckConstraint(
+            "target_scope_type IS NULL OR target_scope_type IN ('team','category','global')",
+            name="ck_importance_runs_scope_type",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    target_kind = Column(String(32), nullable=False)
+    target_scope_type = Column(String(16), nullable=True)
+    target_scope_id = Column(Integer, nullable=True)
+
+    algorithm_version = Column(String(32), nullable=False)
+    weights_json = Column(JSONB, nullable=False)
+
+    rows_scored = Column(Integer, nullable=False, default=0, server_default="0")
+    rows_updated = Column(Integer, nullable=False, default=0, server_default="0")
+    duration_ms = Column(Integer, nullable=False)
+
+    # Drift sentinel — see migration docstring.
+    score_distribution_json = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+    )
+
+    status = Column(String(16), nullable=False)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization")
+
+
+# ---------------------------------------------------------------------------
+# Phase 6B — chunk access + citation click event logs
+#
+# Append-only event tables that drive Phase 6C's citation_count /
+# access_count signals. See the migration docstring for the design
+# rationale (no FK to chunks, BIGSERIAL ids, cascade behavior).
+# ---------------------------------------------------------------------------
+
+
+class ChunkAccessEvent(Base):
+    """One row per time a chunk was surfaced.
+
+    `event_type`:
+      - 'search_hit'   — surfaced in /search top-K
+      - 'rag_retrieve' — in a RAG retrieval bundle
+      - 'rag_cited'    — made it into the final cited answer
+    """
+    __tablename__ = "rag_chunk_access_events"
+    __table_args__ = (
+        CheckConstraint(
+            "chunk_kind IN ('meeting','document')",
+            name="ck_chunk_access_chunk_kind",
+        ),
+        CheckConstraint(
+            "event_type IN ('search_hit','rag_retrieve','rag_cited')",
+            name="ck_chunk_access_event_type",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # NO FK on chunk_id — chunks may be wiped + re-inserted; events outlive them.
+    chunk_id = Column(UUID(as_uuid=True), nullable=False)
+    chunk_kind = Column(String(16), nullable=False)
+    event_type = Column(String(16), nullable=False)
+    run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("rag_query_runs.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rank_position = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+
+
+class CitationClickEvent(Base):
+    """User clicked a [N] citation chip in the chat UI. Separate from
+    `ChunkAccessEvent` because the schema differs — clicks always
+    belong to a run, carry a citation_index, and have no rank position.
+    """
+    __tablename__ = "rag_citation_click_events"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("rag_query_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chunk_id = Column(UUID(as_uuid=True), nullable=False)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    citation_index = Column(Integer, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+
+
+# ---------------------------------------------------------------------------
+# Phase 6D — Entity merge suggestions
+#
+# Append-only candidate queue. The consolidation pass produces rows
+# with status='pending'; a future UI surfaces them for human approval.
+# Until then, suggestions just queue.
+#
+# Sticky rejection: the partial unique index on the unordered pair
+# prevents re-proposing the same merge across consolidation runs.
+# Status transitions are 'pending' -> 'merged' | 'rejected'; the
+# transition recorder lives on this row (decided_by_user_id +
+# decided_at) so rejected pairs stay rejected on re-run.
+# ---------------------------------------------------------------------------
+
+
+class EntityMergeSuggestion(Base):
+    """One row per candidate duplicate pair."""
+    __tablename__ = "entity_merge_suggestions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','merged','rejected')",
+            name="ck_merge_suggestions_status",
+        ),
+        CheckConstraint(
+            "candidate_a_id <> candidate_b_id",
+            name="ck_merge_suggestions_distinct_pair",
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    candidate_a_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("entities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    candidate_b_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("entities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    similarity_score = Column(Float, nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(
+        String(16), nullable=False, default="pending", server_default="pending",
+    )
+    decided_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+    candidate_a = relationship("Entity", foreign_keys=[candidate_a_id])
+    candidate_b = relationship("Entity", foreign_keys=[candidate_b_id])

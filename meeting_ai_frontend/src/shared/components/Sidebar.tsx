@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Calendar,
   CheckSquare,
- 
+
   LogOut,
   Zap,
   BookOpen,
@@ -12,6 +12,7 @@ import {
   Users,
   FileText,
   Network,
+  Sparkles,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
@@ -56,6 +57,7 @@ export default function Sidebar() {
     { path: "/", label: "Meetings", icon: Calendar },
     { path: "/meeting-types", label: "Categories & Groups", icon: Layers },
     { path: "/action-items", label: "Tasks", icon: CheckSquare },
+    { path: "/ask", label: "Ask AI", icon: Sparkles },
     { path: "/knowledge-hub", label: "Knowledge Hub", icon: BookOpen },
     { path: "/knowledge-graph", label: "Knowledge Graph", icon: Network },
     { path: "/agent-control", label: "Agent Control", icon: Zap },

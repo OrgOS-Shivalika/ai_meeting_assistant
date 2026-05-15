@@ -4,11 +4,16 @@ The worker is started with:
 
     celery -A app.celery_app.celery worker --loglevel=info --pool=solo
 
+The beat scheduler (Phase 6E) runs as a separate process:
+
+    celery -A app.celery_app.celery beat --loglevel=info
+
 `--pool=solo` is required on Windows for development. In Docker (Linux) the
 default `prefork` pool is used.
 """
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.config.settings import settings
 
@@ -23,6 +28,16 @@ celery = Celery(
         "app.celery_tasks.team_document_tasks",
         "app.celery_tasks.embedding_tasks",
         "app.celery_tasks.graph_tasks",
+        # Phase 4D — registers `meeting_ai.extract_document_graph`. Without
+        # this entry the worker logs "Received unregistered task of type
+        # 'meeting_ai.extract_document_graph'" and silently drops the
+        # message, leaving every doc stuck at graph_status='pending'.
+        "app.celery_tasks.document_graph_tasks",
+        # Phase 6A — registers `meeting_ai.score_importance`. Same
+        # "must be in include OR worker drops the message" rule.
+        "app.celery_tasks.importance_tasks",
+        # Phase 6D — registers `meeting_ai.consolidate_memory`.
+        "app.celery_tasks.consolidation_tasks",
     ],
 )
 
@@ -42,3 +57,21 @@ celery.conf.update(
     # automatically; the route can resubmit if needed.
     task_default_retry_delay=0,
 )
+
+# ---------------------------------------------------------------------------
+# Phase 6E — Celery beat schedule.
+#
+# Worker needs `celery beat` running alongside the worker to actually
+# fire these. Cron values are intentionally off-peak: scoring at :07
+# past every hour, consolidation Sundays at 03:30 UTC.
+# ---------------------------------------------------------------------------
+celery.conf.beat_schedule = {
+    "score-importance-hourly": {
+        "task": "meeting_ai.score_importance_all_orgs",
+        "schedule": crontab(minute=7),  # every hour at H:07
+    },
+    "consolidate-memory-weekly": {
+        "task": "meeting_ai.consolidate_memory_all_orgs",
+        "schedule": crontab(minute=30, hour=3, day_of_week=0),
+    },
+}

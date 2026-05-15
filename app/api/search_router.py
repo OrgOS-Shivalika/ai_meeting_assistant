@@ -190,7 +190,14 @@ def _search_meeting_chunks(
         .join(Meeting, MeetingChunk.meeting_id == Meeting.id)
         .outerjoin(Category, MeetingChunk.category_id == Category.id)
         .outerjoin(Team, MeetingChunk.team_id == Team.id)
-        .where(MeetingChunk.organization_id == user.organization_id)
+        .where(
+            MeetingChunk.organization_id == user.organization_id,
+            # Phase 6D — archived chunks are excluded from user-facing
+            # search. The inspection endpoints below (which power "show
+            # me everything in this meeting") deliberately do NOT
+            # filter so admins can see the full archive.
+            MeetingChunk.archive_status == "active",
+        )
         .order_by(distance)
         .limit(payload.top_k)
     )
@@ -243,7 +250,10 @@ def _search_document_chunks(
         .outerjoin(TeamDocument, DocumentChunk.team_document_id == TeamDocument.id)
         .outerjoin(Category, DocumentChunk.category_id == Category.id)
         .outerjoin(Team, DocumentChunk.team_id == Team.id)
-        .where(DocumentChunk.organization_id == user.organization_id)
+        .where(
+            DocumentChunk.organization_id == user.organization_id,
+            DocumentChunk.archive_status == "active",
+        )
         .order_by(distance)
         .limit(payload.top_k)
     )
@@ -340,6 +350,22 @@ def search(
                 synchronize_session=False,
             )
         db.commit()
+
+    # Phase 6B — log one 'search_hit' event per surviving chunk so the
+    # 6C reranker can read citation/access patterns. Fire-and-forget;
+    # a logging failure must NEVER affect the search response.
+    if merged:
+        from app.services.importance.access_log import log_chunk_events_batch
+        events = []
+        for rank, h in enumerate(merged):
+            events.append((h.chunk_id, h.source_type, rank))
+        log_chunk_events_batch(
+            db,
+            organization_id=user.organization_id,
+            user_id=user.id,
+            event_type="search_hit",
+            chunks=events,
+        )
 
     logger.info(
         "search(org=%s, scope=%s, scope_id=%s, top_k=%d, sources=%s): "

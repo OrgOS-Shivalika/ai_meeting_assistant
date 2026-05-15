@@ -580,6 +580,17 @@ def _extract_graph_for_document_sync(
         entities_count, relationships_count, mentions_count, duration_ms,
         used_prompt_version, used_model,
     )
+
+    # Phase 6A — fan out to importance scoring. Mirrors graph_tasks.
+    try:
+        from app.celery_tasks.importance_tasks import dispatch_score_org
+        dispatch_score_org(doc.organization_id)
+    except Exception as exc:
+        logger.error(
+            "extract_graph_doc(%s, %s): importance dispatch failed: %s",
+            doc_kind, doc_id, exc,
+        )
+
     return {
         "status": "extracted",
         "doc_kind": doc_kind, "doc_id": str(doc_id),

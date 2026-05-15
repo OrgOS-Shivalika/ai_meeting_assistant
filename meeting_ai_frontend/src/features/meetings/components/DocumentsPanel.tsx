@@ -40,19 +40,60 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const STATUS_STYLES: Record<CategoryDocument["status"], string> = {
-  uploaded: "bg-amber-50 text-amber-700 border-amber-200",
-  processing: "bg-amber-50 text-amber-700 border-amber-200",
+// Phase 4 status mapping. The storage-level `status` (`uploaded`/`ready`/
+// `failed`) is a Phase 1 placeholder and never advances for new docs; the
+// real pipeline state lives in `embedding_status` + `graph_status`. We
+// derive a single user-facing badge from those two columns.
+type PipelineBadge =
+  | "queued"        // embedding hasn't run yet
+  | "indexing"      // embedding in progress
+  | "extracting"    // embedded; graph extraction running
+  | "ready"         // both stages done
+  | "empty"         // parser yielded no text (e.g. scanned PDF)
+  | "graph-failed"  // chunks indexed but graph failed (search still works)
+  | "failed";       // embedding failed (search broken on this doc)
+
+const BADGE_STYLES: Record<PipelineBadge, string> = {
+  queued: "bg-amber-50 text-amber-700 border-amber-200",
+  indexing: "bg-amber-50 text-amber-700 border-amber-200",
+  extracting: "bg-blue-50 text-blue-700 border-blue-200",
   ready: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  empty: "bg-slate-50 text-slate-600 border-slate-200",
+  "graph-failed": "bg-orange-50 text-orange-700 border-orange-200",
   failed: "bg-red-50 text-red-700 border-red-200",
 };
 
-const STATUS_LABELS: Record<CategoryDocument["status"], string> = {
-  uploaded: "Queued",
-  processing: "Processing",
+const BADGE_LABELS: Record<PipelineBadge, string> = {
+  queued: "Queued",
+  indexing: "Indexing",
+  extracting: "Building graph",
   ready: "Ready",
+  empty: "Empty",
+  "graph-failed": "Graph failed",
   failed: "Failed",
 };
+
+function pipelineBadge(doc: ScopedDocument): PipelineBadge {
+  const es = doc.embedding_status ?? "pending";
+  const gs = doc.graph_status ?? "pending";
+  if (es === "failed") return "failed";
+  if (es === "empty") return "empty";
+  if (es === "pending") return "queued";
+  if (es === "processing") return "indexing";
+  // es === "embedded" or "skipped" -> chunks exist (or are intentionally
+  // absent). Look at graph state for the secondary signal.
+  if (gs === "extracted" || gs === "skipped") return "ready";
+  if (gs === "failed") return "graph-failed";
+  // graph_status pending/processing
+  return "extracting";
+}
+
+// `pollable` returns true while the doc is in a non-terminal state, so
+// the panel knows to keep refreshing.
+function isPollable(doc: ScopedDocument): boolean {
+  const badge = pipelineBadge(doc);
+  return badge === "queued" || badge === "indexing" || badge === "extracting";
+}
 
 const SCOPE_HINTS: Record<DocumentScope, string> = {
   category: "Used to seed the category's knowledge base",
@@ -89,9 +130,7 @@ export default function DocumentsPanel({
     setLoading(true);
     refresh();
     const id = window.setInterval(() => {
-      const stillProcessing = docs.some(
-        (d) => d.status === "uploaded" || d.status === "processing",
-      );
+      const stillProcessing = docs.some(isPollable);
       if (stillProcessing) refresh();
     }, 3000);
     return () => window.clearInterval(id);
@@ -206,12 +245,17 @@ export default function DocumentsPanel({
                 <p className="text-xs font-semibold text-slate-700 truncate">{doc.name}</p>
                 <p className="text-[10px] text-slate-400">{formatBytes(doc.size_bytes)}</p>
               </div>
-              <span
-                className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${STATUS_STYLES[doc.status]}`}
-                title={doc.error_message || undefined}
-              >
-                {STATUS_LABELS[doc.status]}
-              </span>
+              {(() => {
+                const badge = pipelineBadge(doc);
+                return (
+                  <span
+                    className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${BADGE_STYLES[badge]}`}
+                    title={doc.error_message || undefined}
+                  >
+                    {BADGE_LABELS[badge]}
+                  </span>
+                );
+              })()}
               {doc.download_url && (
                 <a
                   href={doc.download_url}

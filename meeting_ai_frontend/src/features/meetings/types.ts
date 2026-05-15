@@ -49,6 +49,24 @@ export type MeetingType = Category;
 
 export type CategoryDocumentStatus = "uploaded" | "processing" | "ready" | "failed";
 
+// Phase 4 lifecycle states. `status` above is the storage-level field
+// (uploaded/ready/failed) — it stays as a placeholder. These two columns
+// own the real ingestion pipeline state and are what the UI should
+// render. See `documentLifecycleLabel` in DocumentsPanel for the mapping.
+export type DocumentEmbeddingStatus =
+  | "pending"
+  | "processing"
+  | "embedded"
+  | "empty"
+  | "failed"
+  | "skipped";
+export type DocumentGraphStatus =
+  | "pending"
+  | "processing"
+  | "extracted"
+  | "failed"
+  | "skipped";
+
 export interface CategoryDocument {
   id: string;
   category_id: number;
@@ -61,6 +79,13 @@ export interface CategoryDocument {
   download_url?: string | null;
   created_at: string;
   updated_at: string;
+  // Phase 4 lifecycle — added by /categories/{id}/documents response.
+  embedding_status?: DocumentEmbeddingStatus;
+  embedded_at?: string | null;
+  graph_status?: DocumentGraphStatus;
+  graph_extracted_at?: string | null;
+  chunk_count?: number | null;
+  total_tokens?: number | null;
 }
 
 export interface MeetingCategoryRef {

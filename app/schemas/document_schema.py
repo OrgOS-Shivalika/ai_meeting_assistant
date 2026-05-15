@@ -5,7 +5,20 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
-class CategoryDocumentSchema(BaseModel):
+# Shared lifecycle fields surface to the UI so it can render the
+# pipeline state directly instead of inferring from the storage-level
+# `status` (Phase 1 left `status` as a placeholder; Phase 4 owns the
+# real pipeline via `embedding_status` + `graph_status`).
+class _DocumentLifecycleMixin(BaseModel):
+    embedding_status: str = "pending"
+    embedded_at: Optional[datetime] = None
+    graph_status: str = "pending"
+    graph_extracted_at: Optional[datetime] = None
+    chunk_count: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
+class CategoryDocumentSchema(_DocumentLifecycleMixin):
     id: UUID
     category_id: int
     name: str
@@ -21,7 +34,7 @@ class CategoryDocumentSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class TeamDocumentSchema(BaseModel):
+class TeamDocumentSchema(_DocumentLifecycleMixin):
     id: UUID
     team_id: int
     name: str
