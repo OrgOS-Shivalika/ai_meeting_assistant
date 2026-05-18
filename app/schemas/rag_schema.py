@@ -316,3 +316,14 @@ class RagRunRecord:
     # predates this field. The audit writer interprets None as
     # "legacy_weighted" (Phase 5 behavior).
     rerank_strategy: Optional[str] = None
+    # Phase 7C — resolver back-references. Populated when the resolver
+    # ran (always, in shadow + production); the value reflects which
+    # profile + version *would have been* used. In shadow mode the
+    # actual synth still uses filesystem prompts, so prompt_version_id
+    # here is purely observability. Once 7D flips, the consumer reads
+    # the same fields back. resolution_path_hash is the sha256 of the
+    # canonicalized resolution path — distinct hashes per day ≈
+    # distinct configs running.
+    agent_profile_id: Optional[UUID] = None
+    prompt_version_id: Optional[UUID] = None
+    resolution_path_hash: Optional[str] = None

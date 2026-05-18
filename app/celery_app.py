@@ -38,6 +38,9 @@ celery = Celery(
         "app.celery_tasks.importance_tasks",
         # Phase 6D — registers `meeting_ai.consolidate_memory`.
         "app.celery_tasks.consolidation_tasks",
+        # Phase 7F — registers `meeting_ai.aggregate_agent_performance_daily`
+        # and `meeting_ai.aggregate_agent_performance_for_date`.
+        "app.celery_tasks.agent_tasks",
     ],
 )
 
@@ -73,5 +76,12 @@ celery.conf.beat_schedule = {
     "consolidate-memory-weekly": {
         "task": "meeting_ai.consolidate_memory_all_orgs",
         "schedule": crontab(minute=30, hour=3, day_of_week=0),
+    },
+    # Phase 7F — nightly rollup. Runs at 03:00 UTC so the data is
+    # fresh for west-coast business hours the next morning. The task
+    # aggregates *yesterday's* rag_query_runs across all orgs.
+    "agent-performance-daily": {
+        "task": "meeting_ai.aggregate_agent_performance_daily",
+        "schedule": crontab(minute=0, hour=3),
     },
 }

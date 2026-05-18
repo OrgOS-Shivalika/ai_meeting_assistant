@@ -52,6 +52,22 @@ from app.schemas.rag_schema import (
 )
 from sqlalchemy.orm import Session
 
+# Phase 7D — when a resolved agent config is present, the synth
+# composes its prompt from the modular sections instead of the
+# filesystem template. The user-message template below carries the
+# context+question contract; it stays per-agent-type (admins don't
+# edit this — only the 8 modular sections).
+# Trailing `\n` matches the filesystem v1.txt exactly so the resolved
+# path's prompt text is byte-identical to the legacy path when no DB
+# layer has contributed. Verified in test_phase7d.py.
+_RAG_SYNTH_USER_TEMPLATE = (
+    "=== CONTEXT ===\n\n"
+    "{context_blocks}\n\n"
+    "=== QUESTION ===\n"
+    "{query_text}\n\n"
+    "=== ANSWER ===\n"
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -255,6 +271,60 @@ def _resolve_org_name(db: Session, organization_id: UUID) -> str:
     return org.name if org else ""
 
 
+def _build_resolved_prompt(
+    *,
+    resolved_config,
+    org_name: str,
+    context_blocks: str,
+    query_text: str,
+) -> tuple[str, list[str]]:
+    """Phase 7D path. Compose the system content from the resolved
+    modular sections, then append the user-message template. Returns
+    `(prompt, warnings)`. Warnings come from missing-variable
+    placeholders the composer had to inject.
+
+    The returned `prompt` goes into the SAME user-message slot as
+    today's filesystem path so the chat-completion structure stays
+    bit-identical: hardcoded chat system + this string as the user.
+    For an un-seeded org, `resolved_config.modular_prompts['system']`
+    is the pre-context portion of v1.txt with `{{org_name}}` interpolated
+    — concatenated with the user template, this reconstructs the
+    exact prompt today's code sends.
+    """
+    from app.services.agents.composition import compose_system_message
+    composed, warnings = compose_system_message(
+        resolved_config.modular_prompts,
+        variables={
+            "org_name": org_name or "(unknown org)",
+            # Reserved-for-future variables — declared here so the
+            # composer doesn't warn on a published version that
+            # references them even if no value is wired today.
+            "context_blocks": context_blocks,
+            "query_text": query_text,
+        },
+    )
+    user_msg = _RAG_SYNTH_USER_TEMPLATE.format(
+        context_blocks=context_blocks, query_text=query_text,
+    )
+    return f"{composed}\n\n{user_msg}", warnings
+
+
+def _resolved_prompt_version_tag(resolved_config) -> str:
+    """The string that lands in `rag_query_runs.synth_prompt_version`
+    when the resolved path is taken. Mirrors the filesystem path's
+    `vN` shape so 5F eval can still re-run a stored query against the
+    same version body. Falls back to a marker when no DB layer
+    contributed."""
+    if resolved_config.version_number is not None:
+        # DB-backed version. e.g. "v3" or "v3-q2-experiment"
+        if resolved_config.label:
+            return f"v{resolved_config.version_number}-{resolved_config.label}"
+        return f"v{resolved_config.version_number}"
+    # Resolver returned filesystem floor only — composition is
+    # equivalent to the filesystem template at `settings.RAG_SYNTH_PROMPT_VERSION`.
+    return f"{settings.RAG_SYNTH_PROMPT_VERSION}-floor"
+
+
 # ---------------------------------------------------------------------------
 # LLM call helpers
 # ---------------------------------------------------------------------------
@@ -425,6 +495,7 @@ def synthesize_stream(
     bundle: RetrievalBundle,
     model: Optional[str] = None,
     prompt_version: Optional[str] = None,
+    resolved_config=None,
 ):
     """Streaming synthesis. Yields per-token strings as they arrive
     from the LLM. After the generator is exhausted, the caller should
@@ -432,13 +503,35 @@ def synthesize_stream(
     validated `SynthesisResult` — the API layer in 5D reads this to
     write the audit row.
 
-    Implementation detail: we return a small helper object that wraps
-    the generator + holds the post-stream result. This avoids the
-    "validate mid-stream" anti-pattern.
+    Phase 7D: when `resolved_config` is supplied and carries any
+    modular sections, the system content comes from
+    `composition.compose_system_message`; the per-agent user-message
+    template is appended. The chat-completion shape stays identical
+    to the legacy path (hardcoded chat system + one user message),
+    so for an un-seeded org the prompt text is bit-identical too.
+
+    When `resolved_config` is None, the legacy filesystem path runs
+    unchanged — preserves backward compat for callers that don't
+    invoke the resolver (e.g. older Celery tasks or one-off scripts).
     """
-    model = model or settings.RAG_SYNTH_MODEL
-    prompt_version = prompt_version or settings.RAG_SYNTH_PROMPT_VERSION
     started = time.monotonic()
+
+    # Decide path + finalize model/version metadata. Resolved-config
+    # path wins when modular_prompts has content.
+    use_resolved = (
+        resolved_config is not None
+        and bool(resolved_config.modular_prompts)
+    )
+    if use_resolved:
+        model = (
+            (resolved_config.model_config.model if resolved_config.model_config else None)
+            or model
+            or settings.RAG_SYNTH_MODEL
+        )
+        prompt_version = _resolved_prompt_version_tag(resolved_config)
+    else:
+        model = model or settings.RAG_SYNTH_MODEL
+        prompt_version = prompt_version or settings.RAG_SYNTH_PROMPT_VERSION
 
     handle = _StreamHandle(model=model, prompt_version=prompt_version, started=started)
 
@@ -452,28 +545,40 @@ def synthesize_stream(
         handle._gen = _gen()
         return handle
 
-    try:
-        template = load_synth_prompt(prompt_version)
-    except FileNotFoundError as e:
-        logger.error("synth_stream: prompt template missing: %s", e)
-        handle.result = SynthesisResult(
-            answer_text=NO_CONTEXT_ANSWER,
-            citations=[], bundle_misses=[],
-            no_context=False, model=model, prompt_version=prompt_version,
-            duration_ms=int((time.monotonic() - started) * 1000),
-            raw_response={"error": str(e)},
-        )
-        def _gen():
-            yield NO_CONTEXT_ANSWER
-        handle._gen = _gen()
-        return handle
-
     context_text, index_map = build_context_blocks(bundle)
     org_name = _resolve_org_name(db, organization_id)
-    prompt = _render_synth_prompt(
-        template=template, org_name=org_name,
-        query_text=query_text, context_blocks=context_text,
-    )
+
+    if use_resolved:
+        prompt, warnings = _build_resolved_prompt(
+            resolved_config=resolved_config,
+            org_name=org_name,
+            context_blocks=context_text,
+            query_text=query_text,
+        )
+        if warnings:
+            logger.info(
+                "synth_stream: resolved-path warnings: %s", warnings,
+            )
+    else:
+        try:
+            template = load_synth_prompt(prompt_version)
+        except FileNotFoundError as e:
+            logger.error("synth_stream: prompt template missing: %s", e)
+            handle.result = SynthesisResult(
+                answer_text=NO_CONTEXT_ANSWER,
+                citations=[], bundle_misses=[],
+                no_context=False, model=model, prompt_version=prompt_version,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                raw_response={"error": str(e)},
+            )
+            def _gen():
+                yield NO_CONTEXT_ANSWER
+            handle._gen = _gen()
+            return handle
+        prompt = _render_synth_prompt(
+            template=template, org_name=org_name,
+            query_text=query_text, context_blocks=context_text,
+        )
 
     handle._prompt = prompt
     handle._index_map = index_map

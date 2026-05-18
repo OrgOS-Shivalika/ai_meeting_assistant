@@ -1,6 +1,6 @@
 from sqlalchemy import (
-    BigInteger, Column, String, Integer, ForeignKey, DateTime, Text,
-    UniqueConstraint, Float, CheckConstraint, Index, text,
+    BigInteger, Boolean, Column, Date, String, Integer, ForeignKey, DateTime,
+    Text, UniqueConstraint, Float, CheckConstraint, Index, text,
 )
 from sqlalchemy.dialects.postgresql import JSON, JSONB, UUID, ARRAY
 from sqlalchemy.orm import relationship
@@ -137,6 +137,13 @@ class User(Base):
 
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
     organization = relationship("Organization", back_populates="users")
+
+    # Phase 7E RBAC. Nullable for backward compat: a NULL row is
+    # treated as 'viewer' (the safe-deny default) by
+    # `dependencies/auth.py`. The 7E migration backfills existing
+    # users to 'org_admin' so they keep their pre-7E privileges.
+    # Values: 'viewer' | 'prompt_editor' | 'org_admin'.
+    role = Column(String(24), nullable=True)
 
     google_access_token = Column(String)
     google_refresh_token = Column(String)
@@ -1129,6 +1136,23 @@ class RagQueryRun(Base):
     # rows from Phase 5/6A/6B (those always used legacy_weighted).
     rerank_strategy = Column(String(24), nullable=True)
 
+    # Phase 7C — backrefs to the resolver. NULL for pre-7C rows; also
+    # NULL while the resolver runs in shadow mode if the resolution
+    # fell all the way through to filesystem.
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prompt_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Denormalized for cardinality counting: distinct hashes per day
+    # ≈ distinct configs that ran.
+    resolution_path_hash = Column(String(64), nullable=True)
+
     started_at = Column(DateTime(timezone=True), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -1364,3 +1388,787 @@ class EntityMergeSuggestion(Base):
     organization = relationship("Organization")
     candidate_a = relationship("Entity", foreign_keys=[candidate_a_id])
     candidate_b = relationship("Entity", foreign_keys=[candidate_b_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A — Agent Control Dashboard: profiles + scoped bindings + epochs
+#
+# The runtime configuration layer that sits on top of the existing RAG
+# pipeline. See `plan_phase_7_agent_control.md` for the full architecture.
+#
+#   - `AgentProfile`        — reusable identity for an LLM-driven service.
+#   - `AgentPromptConfig`   — binding of a profile to a scope (org/category/
+#                             team/meeting). Carries the `active_version_id`
+#                             pointer once Phase 7B lands `prompt_versions`.
+#   - `AgentConfigEpoch`    — monotonic counter per (org, profile) used by
+#                             the resolver cache for cross-worker
+#                             invalidation. Bumped under advisory lock
+#                             every publish/rollback.
+#
+# Phase 7A intentionally ships ZERO consumers of these tables — runtime
+# behavior is bit-for-bit identical to Phase 6 until 7D wires the
+# resolver into `ask_stream`. Tables exist now so 7B can add
+# `prompt_versions` with a clean FK target.
+# ---------------------------------------------------------------------------
+
+
+class AgentProfile(Base):
+    """One reusable agent identity (e.g. `sales_copilot`).
+
+    `agent_type` is the bridge to existing services. Allowed values
+    track the agent-type matrix in the plan (rag_synth, rag_planner,
+    graph_extractor, transcript_analyzer, importance_scorer,
+    summarizer, live_copilot). New types require a CHECK update.
+
+    Soft-active uniqueness on `(organization_id, slug)` lets admins
+    archive a profile and re-create one with the same slug — same
+    pattern as 6D chunk archival.
+    """
+    __tablename__ = "agent_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "agent_type IN ("
+            "'rag_synth','rag_planner','graph_extractor','transcript_analyzer',"
+            "'importance_scorer','summarizer','live_copilot'"
+            ")",
+            name="ck_agent_profiles_agent_type",
+        ),
+        CheckConstraint(
+            "status IN ('active','archived')",
+            name="ck_agent_profiles_status",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    slug = Column(String(64), nullable=False)
+    display_name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    agent_type = Column(String(32), nullable=False)
+    status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
+    # 8-section modular prompt starter, surfaced in the editor on
+    # profile creation. {} until 7B writes a draft. Stored on the
+    # profile (not on versions) so duplicating a profile carries its
+    # template forward.
+    default_modular_prompt_json = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+    )
+    # 7H — eval-gated publish. Scaffolded now so 7B doesn't need a
+    # schema migration; defaults to off.
+    eval_gate_required = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    eval_fixture_set_id = Column(UUID(as_uuid=True), nullable=True)
+    eval_min_score = Column(Float, nullable=True)
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    organization = relationship("Organization")
+    creator = relationship("User", foreign_keys=[created_by])
+    prompt_configs = relationship(
+        "AgentPromptConfig",
+        back_populates="agent_profile",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentPromptConfig(Base):
+    """Binding of an agent profile to a scope.
+
+    One row per (agent_profile, scope) tuple. `scope_type` enumerates
+    the resolution layer:
+
+      - `organization`      → applies org-wide; `scope_id` is NULL
+      - `category`          → meeting-type override; `scope_id` is the
+                              `categories.id`
+      - `team`              → team override; `scope_id` is `teams.id`
+      - `meeting_specific`  → reserved for Phase 8; `scope_id` stays NULL
+                              (Phase 8 will add a sibling scope_uuid)
+
+    `active_version_id` is the pointer to the currently-published
+    `prompt_versions` row; it stays NULL throughout 7A (versions land
+    in 7B). The FK is added in the 7B migration.
+    """
+    __tablename__ = "agent_prompt_configs"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('organization','category','team','meeting_specific')",
+            name="ck_agent_prompt_configs_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type IN ('organization','meeting_specific') AND scope_id IS NULL) "
+            "OR (scope_type IN ('category','team') AND scope_id IS NOT NULL)",
+            name="ck_agent_prompt_configs_scope_id",
+        ),
+        CheckConstraint(
+            "status IN ('active','archived')",
+            name="ck_agent_prompt_configs_status",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_type = Column(String(32), nullable=False)
+    # BigInteger to give headroom; today's Category/Team PKs are Integer
+    # but BigInt accepts those values fine. Phase 8 may move to UUIDs;
+    # that lands as a sibling `scope_uuid` column, not a type change.
+    scope_id = Column(BigInteger, nullable=True)
+    # Pointer to the published version. FK added in 7B once
+    # `prompt_versions` exists. Until then the column carries no
+    # constraint beyond nullability.
+    active_version_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(
+        String(16), nullable=False, default="active", server_default="active",
+    )
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    organization = relationship("Organization")
+    agent_profile = relationship("AgentProfile", back_populates="prompt_configs")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class AgentConfigEpoch(Base):
+    """Monotonic counter per (organization, agent_profile).
+
+    Bumped on every publish/rollback. The resolver cache reads this on
+    every cache hit; if the row's epoch exceeds the cached entry's
+    snapshot the entry is evicted and recomputed. Cross-worker
+    invalidation without a pub/sub transport — at the cost of one
+    indexed SELECT per resolver call.
+
+    Inserted lazily by the publish flow (Phase 7B) under a Postgres
+    advisory lock so concurrent publishes serialize.
+    """
+    __tablename__ = "agent_config_epochs"
+
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    epoch = Column(
+        BigInteger, nullable=False, default=0, server_default=text("0"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    organization = relationship("Organization")
+    agent_profile = relationship("AgentProfile")
+
+
+# ---------------------------------------------------------------------------
+# Phase 7B — Immutable prompt versions + deployment audit
+#
+# `prompt_versions` is the immutable snapshot — modular prompts +
+# retrieval/model/tool configs + lifecycle state. The trigger in the
+# 7B migration enforces body immutability for non-draft rows.
+#
+# `prompt_deployments` is append-only audit. BIGSERIAL, no FK on the
+# config pointer so history outlives cascade. Same shape as 6B access
+# events.
+#
+# Version numbering is application-managed under a per-config advisory
+# lock; see `app/services/agents/publish.py`.
+# ---------------------------------------------------------------------------
+
+
+class PromptVersion(Base):
+    """One snapshot of a `agent_prompt_config`. Immutable once published.
+
+    The 8 modular prompt sections live inside `modular_prompt_json` as a
+    flat dict keyed by section name (`system`, `behavior`, `retrieval`,
+    `citation`, `output`, `team_rules`, `meeting_type`, `guardrails`).
+    Composition (7B+) reads this dict, interpolates variables, and
+    concatenates in a fixed order.
+
+    `seeded_from_filesystem` is the 7D guard — the seed migration sets
+    it true so re-running the seed script is idempotent and a human-
+    authored version never collides with a seed.
+    """
+    __tablename__ = "prompt_versions"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('draft','published','archived')",
+            name="ck_prompt_versions_state",
+        ),
+        CheckConstraint(
+            "(state = 'published' AND published_at IS NOT NULL) "
+            "OR (state <> 'published' AND published_at IS NULL)",
+            name="ck_prompt_versions_published_consistency",
+        ),
+        UniqueConstraint(
+            "agent_prompt_config_id", "version_number",
+            name="uq_prompt_versions_config_version_number",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_prompt_config_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_prompt_configs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_number = Column(Integer, nullable=False)
+    label = Column(String(120), nullable=True)
+    modular_prompt_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    variables_schema_json = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    retrieval_config_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    model_config_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    tool_permissions_json = Column(
+        JSONB, nullable=False,
+        default=lambda: {"allowed": [], "denied": []},
+        server_default=text("""'{"allowed":[],"denied":[]}'::jsonb"""),
+    )
+    meta_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    state = Column(
+        String(16), nullable=False, default="draft", server_default="draft",
+    )
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    published_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    eval_score = Column(Float, nullable=True)
+    eval_run_id = Column(UUID(as_uuid=True), nullable=True)
+    seeded_from_filesystem = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        nullable=False,
+    )
+
+    organization = relationship("Organization")
+    config = relationship(
+        "AgentPromptConfig",
+        foreign_keys=[agent_prompt_config_id],
+    )
+    publisher = relationship("User", foreign_keys=[published_by])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class PromptDeployment(Base):
+    """Append-only deployment audit. BIGSERIAL PK; no FK on
+    `agent_prompt_config_id` so history outlives cascades.
+
+    `action`:
+      - 'publish'           — draft → published, set active_version_id
+      - 'rollback'          — different published version → active
+      - 'unpublish'         — clear active_version_id (rare)
+      - 'eval_gate_failed'  — refused publish; from_version_id is the
+                              candidate, to_version_id is NULL
+    """
+    __tablename__ = "prompt_deployments"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('publish','rollback','unpublish','eval_gate_failed')",
+            name="ck_prompt_deployments_action",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # No FK — audit history outlives cascades.
+    agent_prompt_config_id = Column(UUID(as_uuid=True), nullable=False)
+    action = Column(String(24), nullable=False)
+    from_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    to_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reason = Column(Text, nullable=True)
+    metadata_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    actor = relationship("User", foreign_keys=[actor_user_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7F — Daily performance rollup
+#
+# Materialized aggregate over `rag_query_runs`, keyed by
+# (organization, agent_profile, prompt_version, bucket_date). Built
+# nightly by the Celery task `aggregate_agent_performance_daily` and
+# read by the analytics endpoints. Idempotent rebuild: deleting a
+# day's rows + re-inserting produces the same numbers because the
+# source `rag_query_runs` is append-only.
+#
+# Null-handling on the natural-key index: a `/rag/ask` that resolved
+# to the filesystem floor lands NULL for both `agent_profile_id` and
+# `prompt_version_id`. The 7F migration's UNIQUE index uses COALESCE
+# so a "no profile, no version" bucket still dedups.
+# ---------------------------------------------------------------------------
+
+
+class AgentPerformanceDaily(Base):
+    """One row per (org, agent_profile, prompt_version, day) bucket.
+    Read-only from the app's perspective — the only writer is the
+    `aggregate_agent_performance_daily` Celery task. Direct queries
+    against `rag_query_runs` are still allowed for the
+    "recent-runs" detail view but not for the dashboard's headline
+    metrics."""
+    __tablename__ = "agent_performance_daily"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prompt_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    bucket_date = Column(Date, nullable=False)
+    runs_total = Column(Integer, nullable=False, default=0, server_default="0")
+    runs_completed = Column(Integer, nullable=False, default=0, server_default="0")
+    runs_no_context = Column(Integer, nullable=False, default=0, server_default="0")
+    runs_failed = Column(Integer, nullable=False, default=0, server_default="0")
+    avg_total_duration_ms = Column(Integer, nullable=True)
+    p50_total_duration_ms = Column(Integer, nullable=True)
+    p95_total_duration_ms = Column(Integer, nullable=True)
+    sum_input_tokens = Column(BigInteger, nullable=False, default=0, server_default="0")
+    sum_output_tokens = Column(BigInteger, nullable=False, default=0, server_default="0")
+    avg_citation_count = Column(Float, nullable=True)
+    avg_chunks_retrieved = Column(Float, nullable=True)
+    distinct_users = Column(Integer, nullable=False, default=0, server_default="0")
+    computed_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
+    prompt_version = relationship("PromptVersion", foreign_keys=[prompt_version_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7C — Runtime resolution observability
+#
+# One row per resolver call. Lives alongside `rag_query_runs` (which
+# records per-query observability); the two surfaces are parallel and
+# joinable via `rag_query_run_id` when the resolver fires inside a
+# /rag/ask. Append-only; no body mutations after insert.
+#
+# Architectural notes:
+#   - `resolution_path_json` is the ordered audit trail — which layer
+#     contributed which fields. Lets admins debug "why is my prompt
+#     acting like this" by reading the resolution.
+#   - `resolved_config_hash` is the deterministic sha256 of the final
+#     bundle. Counts of distinct hashes ≈ distinct configs running.
+#   - `cache_hit` records whether the resolver returned from cache.
+#     Used to estimate cache effectiveness in production.
+#   - `warnings_json` collects non-fatal issues (e.g. missing-variable
+#     placeholders the composer had to inject).
+# ---------------------------------------------------------------------------
+
+
+class AgentRuntimeLog(Base):
+    """One row per `resolve_agent_runtime_config(...)` call.
+
+    Independent of `rag_query_runs` so the resolver can fire from
+    non-query paths (the /agent-runtime-config debug endpoint, future
+    Celery tasks, the playground). `rag_query_run_id` is set when the
+    call is part of an /rag/ask.
+    """
+    __tablename__ = "agent_runtime_logs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    rag_query_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("rag_query_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prompt_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    agent_type = Column(String(32), nullable=False)
+    requested_scope_type = Column(String(32), nullable=True)
+    requested_scope_id = Column(BigInteger, nullable=True)
+    resolution_path_json = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    resolved_config_hash = Column(String(64), nullable=False)
+    cache_hit = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    resolve_duration_ms = Column(Integer, nullable=False)
+    warnings_json = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
+    prompt_version = relationship("PromptVersion", foreign_keys=[prompt_version_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7E — Playground + audit events
+#
+# Two tables:
+#
+#   - `prompt_test_runs`: append-only observability for the playground.
+#     One row per sandboxed run. Carries the assembled prompt, retrieved
+#     bundle, answer, citations, latency, tokens. Strictly isolated
+#     from production observability: the playground never writes to
+#     `rag_query_runs`, never logs chunk-access events, never touches
+#     `rag_conversations`.
+#
+#   - `agent_audit_events`: append-only audit log for non-publish
+#     mutations on agent surfaces. Complements `prompt_deployments`
+#     (which is publish-specific) by capturing profile + config
+#     create / update / archive / duplicate actions.
+# ---------------------------------------------------------------------------
+
+
+class PromptTestRun(Base):
+    """One sandbox run. Mirrors `RagQueryRun`'s shape for the fields
+    that matter to dashboards (timings, tokens, citations) plus the
+    playground-specific `assembled_prompt_text` and
+    `inline_overrides_json`."""
+    __tablename__ = "prompt_test_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('completed','no_context','failed')",
+            name="ck_prompt_test_runs_status",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_prompt_config_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_prompt_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prompt_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    inline_overrides_json = Column(JSONB, nullable=True)
+    simulated_scope_type = Column(String(16), nullable=True)
+    simulated_scope_id = Column(BigInteger, nullable=True)
+    simulated_user_id = Column(UUID(as_uuid=True), nullable=True)
+    query_text = Column(Text, nullable=False)
+    assembled_prompt_text = Column(Text, nullable=False)
+    retrieval_bundle_json = Column(JSONB, nullable=True)
+    answer_text = Column(Text, nullable=True)
+    citations_json = Column(JSONB, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    planner_duration_ms = Column(Integer, nullable=True)
+    retrieval_duration_ms = Column(Integer, nullable=True)
+    synth_duration_ms = Column(Integer, nullable=True)
+    total_duration_ms = Column(Integer, nullable=True)
+    status = Column(String(16), nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class AgentAuditEvent(Base):
+    """Append-only audit log for non-publish mutations. Captures
+    profile + config CRUD. Publish/rollback audit lives on
+    `prompt_deployments`."""
+    __tablename__ = "agent_audit_events"
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('agent_profile','agent_prompt_config','prompt_version')",
+            name="ck_agent_audit_events_entity_type",
+        ),
+        CheckConstraint(
+            "action IN ('create','update','archive','unarchive','duplicate','delete')",
+            name="ck_agent_audit_events_action",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    entity_type = Column(String(32), nullable=False)
+    # No FK on entity_id — audit outlives cascades, matches the
+    # `prompt_deployments` pattern.
+    entity_id = Column(UUID(as_uuid=True), nullable=False)
+    action = Column(String(24), nullable=False)
+    before_json = Column(JSONB, nullable=True)
+    after_json = Column(JSONB, nullable=True)
+    metadata_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    actor = relationship("User", foreign_keys=[actor_user_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7H — Eval-gate runs
+#
+# One row per eval invocation. Triggered manually
+# (POST /agents/{id}/eval/run), automatically by publish_version when
+# the profile's `eval_gate_required` flag is set, or by a future
+# Celery beat job for periodic regression checks.
+#
+# `report_json` carries the full Phase 5F EvalReport so the dashboard
+# can render per-case results without re-running. `score` is the
+# pass_rate from the report (0.0..1.0).
+# ---------------------------------------------------------------------------
+
+
+class AgentEvalRun(Base):
+    """One eval run against a (profile, version) pair. Append-only;
+    no body mutations after insert."""
+    __tablename__ = "agent_eval_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('stub','real')",
+            name="ck_agent_eval_runs_mode",
+        ),
+        CheckConstraint(
+            "triggered_by IN ('manual','publish_gate','celery','script')",
+            name="ck_agent_eval_runs_triggered_by",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_profile_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    prompt_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("prompt_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mode = Column(String(16), nullable=False)
+    threshold = Column(Float, nullable=False)
+    score = Column(Float, nullable=True)
+    overall_passed = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    total_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    passed_cases = Column(Integer, nullable=False, default=0, server_default="0")
+    duration_ms = Column(Integer, nullable=True)
+    report_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    error_message = Column(Text, nullable=True)
+    triggered_by = Column(
+        String(24), nullable=False, default="manual",
+        server_default="manual",
+    )
+    triggered_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    agent_profile_rel = relationship(
+        "AgentProfile", foreign_keys=[agent_profile_id],
+    )
+    prompt_version_rel = relationship(
+        "PromptVersion", foreign_keys=[prompt_version_id],
+    )
+    triggered_by_user = relationship(
+        "User", foreign_keys=[triggered_by_user_id],
+    )

@@ -115,6 +115,9 @@ def _write_audit_row(
         retrieval_bundle=record.retrieval_bundle,
         error_message=record.error_message,
         rerank_strategy=record.rerank_strategy,
+        agent_profile_id=record.agent_profile_id,
+        prompt_version_id=record.prompt_version_id,
+        resolution_path_hash=record.resolution_path_hash,
         started_at=record.started_at,
         completed_at=record.completed_at,
     )
@@ -178,15 +181,53 @@ def ask_stream(
     top_k_final: Optional[int] = None,
     embedder: Embedder | None = None,
     rerank_strategy: Optional[str] = None,
+    agent_profile_slug: Optional[str] = None,
 ) -> Iterator[dict]:
     """Run plan -> retrieve -> stream synth -> audit. Yields event dicts.
 
     `embedder` is injectable so ship tests can use the canonical stub.
     The HTTP layer never passes it — production uses the lazy OpenAI
     client.
+
+    Phase 7C SHADOW MODE: the resolver runs and its result is logged
+    to `agent_runtime_logs` + back-referenced on `rag_query_runs`,
+    but the synth still uses the filesystem prompts. 7D flips the
+    consumption switch.
     """
     started_at = datetime.now(timezone.utc)
     t_total_start = time.monotonic()
+
+    # -------- 0. Resolve runtime config (shadow mode) --------
+    # Fire-and-forget: a resolver failure must never affect the user
+    # response. Wrapped defensively. `resolved` is captured for the
+    # audit-row back-references + the runtime-log insert, but NOT
+    # used to drive prompts/retrieval in 7C.
+    resolved = None
+    try:
+        from app.services.agents.resolver import (
+            resolve_agent_runtime_config,
+        )
+        # Translate the request's scope into resolver inputs. Scope=team
+        # gives team_id; scope=category gives category_id. Scope=global
+        # leaves both None and the resolver uses only the
+        # organization-scoped layer.
+        team_id = (
+            requested_scope_id if requested_scope_type == "team" else None
+        )
+        category_id = (
+            requested_scope_id if requested_scope_type == "category" else None
+        )
+        resolved = resolve_agent_runtime_config(
+            db,
+            organization_id=organization_id,
+            agent_type="rag_synth",
+            agent_profile_slug=agent_profile_slug,
+            team_id=team_id,
+            category_id=category_id,
+            current_user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("ask_stream: resolver failed in shadow mode: %s", exc)
 
     # -------- 1. Plan --------
     t_plan_start = time.monotonic()
@@ -288,9 +329,22 @@ def ask_stream(
 
     # -------- 3. Stream synthesis --------
     t_synth_start = time.monotonic()
+    # Phase 7D — pass the resolved config to the synthesizer. The synth
+    # picks the resolved-path (composer) when modular_prompts has
+    # content; otherwise it stays on the legacy filesystem template.
+    # `AGENT_RESOLVER_SHADOW_MODE=true` forces the legacy path even
+    # when a resolved bundle is available — the kill switch for
+    # rolling back consumption without a code change.
+    synth_resolved = (
+        resolved
+        if (resolved is not None
+            and not getattr(settings, "AGENT_RESOLVER_SHADOW_MODE", False))
+        else None
+    )
     handle = synthesize_stream(
         db, organization_id=organization_id,
         query_text=query_text, bundle=bundle,
+        resolved_config=synth_resolved,
     )
     for token in handle:
         yield {"event": "token", "data": {"text": token}}
@@ -339,10 +393,31 @@ def ask_stream(
         retrieval_bundle=bundle_to_debug_dict(bundle),
         error_message=synth_result.raw_response.get("error"),
         rerank_strategy=bundle.debug.get("rerank_strategy"),
+        agent_profile_id=(resolved.agent_profile_id if resolved else None),
+        prompt_version_id=(resolved.prompt_version_id if resolved else None),
+        resolution_path_hash=(resolved.config_hash if resolved else None),
         started_at=started_at,
         completed_at=datetime.now(timezone.utc),
     )
     run_id = _write_audit_row(db, record)
+
+    # Phase 7C — write the resolver's observability row, tied back to
+    # the just-written audit row. Fire-and-forget: a log failure must
+    # not affect the user's response.
+    if resolved is not None:
+        try:
+            from app.services.agents.resolver import log_resolution
+            log_resolution(
+                db,
+                organization_id=organization_id,
+                resolved=resolved,
+                rag_query_run_id=run_id,
+                requested_scope_type=requested_scope_type,
+                requested_scope_id=requested_scope_id,
+            )
+        except Exception as exc:
+            logger.warning("ask_stream: log_resolution failed: %s", exc)
+
     if conversation_id is not None:
         _touch_conversation(db, conversation_id, query_text)
 

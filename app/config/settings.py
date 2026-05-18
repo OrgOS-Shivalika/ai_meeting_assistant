@@ -165,6 +165,28 @@ class Settings:
     CONSOLIDATION_MERGE_MIN_SIMILARITY = float(
         os.getenv("CONSOLIDATION_MERGE_MIN_SIMILARITY", "0.85"),
     )
+    # ---------------------------------------------------------------------
+    # Phase 7C — Agent Control Dashboard runtime resolver
+    # ---------------------------------------------------------------------
+    # In-process LRU cache for resolved configs (see resolver.py /
+    # cache.py). TTL keeps stale-on-no-publishes bounded; epoch table
+    # invalidates cross-worker on every publish/rollback. Defaults are
+    # plan §6.5.
+    AGENT_RESOLVER_CACHE_TTL_S = int(os.getenv("AGENT_RESOLVER_CACHE_TTL_S", "60"))
+    AGENT_RESOLVER_CACHE_SIZE = int(os.getenv("AGENT_RESOLVER_CACHE_SIZE", "2048"))
+    # 7D flips this default to FALSE: ask_stream now consumes the
+    # resolver's bundle (synth uses the composed system message; the
+    # planner stays on filesystem until a later slice). Setting back
+    # to `true` is the kill switch — falls through to the pre-7D
+    # filesystem-only path. Behavior under shadow mode is identical
+    # to Phase 6.
+    AGENT_RESOLVER_SHADOW_MODE = (
+        os.getenv("AGENT_RESOLVER_SHADOW_MODE", "false").lower() == "true"
+    )
+
+    # ---------------------------------------------------------------------
+    # Phase 6D — Consolidation (continued)
+    # ---------------------------------------------------------------------
     CONSOLIDATION_MERGE_MAX_PAIRS_PER_RUN = int(
         os.getenv("CONSOLIDATION_MERGE_MAX_PAIRS_PER_RUN", "100"),
     )

@@ -13,6 +13,7 @@ import {
   FileText,
   Network,
   Sparkles,
+  Bot,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
@@ -60,7 +61,8 @@ export default function Sidebar() {
     { path: "/ask", label: "Ask AI", icon: Sparkles },
     { path: "/knowledge-hub", label: "Knowledge Hub", icon: BookOpen },
     { path: "/knowledge-graph", label: "Knowledge Graph", icon: Network },
-    { path: "/agent-control", label: "Agent Control", icon: Zap },
+    { path: "/agents", label: "Agents", icon: Bot },
+    { path: "/agent-control", label: "Integrations", icon: Zap },
     { path: "/members", label: "Members", icon: Users },
     { path: "/reports", label: "Reports", icon: FileText },
   ];
