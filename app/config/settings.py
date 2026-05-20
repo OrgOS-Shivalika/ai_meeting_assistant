@@ -185,6 +185,18 @@ class Settings:
     )
 
     # ---------------------------------------------------------------------
+    # Phase 8B — Template auto-provisioning on new-org signup
+    # ---------------------------------------------------------------------
+    # Bundle slug installed when a new Organization is created via
+    # /auth/register. Empty string disables auto-provisioning entirely
+    # (useful for tests + ops where you don't want fresh orgs to
+    # auto-populate). Set to a different bundle for industry-specific
+    # rollouts (e.g. 'sales-starter' for a sales-focused tenant).
+    TEMPLATE_AUTO_PROVISION_BUNDLE = os.getenv(
+        "TEMPLATE_AUTO_PROVISION_BUNDLE", "all-in-starter",
+    )
+
+    # ---------------------------------------------------------------------
     # Phase 6D — Consolidation (continued)
     # ---------------------------------------------------------------------
     CONSOLIDATION_MERGE_MAX_PAIRS_PER_RUN = int(

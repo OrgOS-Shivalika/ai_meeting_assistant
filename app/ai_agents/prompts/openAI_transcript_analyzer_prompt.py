@@ -6,6 +6,13 @@ prompt = """
     <objective>Transform raw meeting transcripts into structured, actionable insights.</objective>
   </system>
 
+  <!-- Phase 9.2 — workspace AI behavior context. Populated from the
+       resolved BehaviorProfile (Workspace > Category > Team layers).
+       The pipeline injects content here; the LLM applies these rules
+       on top of the generic instructions below. Empty when the meeting
+       has no scope (zero regression vs filesystem behavior). -->
+  <behavior_context>{behavior_context}</behavior_context>
+
   <task>
     <step sequence="1">
       <name>Clean and Structure</name>

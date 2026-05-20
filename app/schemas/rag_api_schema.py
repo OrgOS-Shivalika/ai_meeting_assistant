@@ -34,6 +34,13 @@ class AskRequest(BaseModel):
     # `SearchRequest` — required for team/category, forbidden otherwise.
     scope: RequestedScope = "auto"
     scope_id: Optional[int] = None
+    # Phase 9.1 — when the question is asked from a meeting context,
+    # callers pass the meeting's id. The router resolves the meeting's
+    # category_id + team_id and applies them as the runtime scope so
+    # the BehaviorProfile resolver gets the right inputs without the
+    # frontend having to know about scope mechanics. Coexists with
+    # explicit scope/scope_id: when both are set, explicit wins.
+    meeting_id: Optional[UUID] = None
     conversation_id: Optional[UUID] = None
     sources: SourcesFilter = "all"
     top_k: int = Field(default=10, ge=1, le=50)

@@ -49,6 +49,16 @@ from app.services.agents.publish import (
 )
 from app.utils.logger import setup_logger
 
+
+def _recompute_lineage_for_config(
+    db: Session, *, organization_id: UUID, agent_prompt_config_id: UUID,
+) -> None:
+    """Phase 8F: divergence service was removed (replaced by sparse
+    overrides). Old call sites left in place but reduced to a no-op
+    so we don't have to rewire every PATCH/publish path in this
+    cleanup slice. Phase 9 will remove the call sites entirely."""
+    return None
+
 logger = setup_logger(__name__)
 
 router = APIRouter(prefix="/prompt-configs", tags=["Prompt Configs"])
@@ -468,6 +478,11 @@ def patch_prompt_version(
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
+    # Phase 8C — refresh template lineage. Fire-and-forget.
+    _recompute_lineage_for_config(
+        db, organization_id=user.organization_id,
+        agent_prompt_config_id=row.agent_prompt_config_id,
+    )
     return row
 
 
@@ -503,6 +518,11 @@ def publish_prompt_version(
         )
     except PublishError as exc:
         raise _publish_error_to_http(exc) from exc
+    # Phase 8C — refresh template lineage post-publish.
+    _recompute_lineage_for_config(
+        db, organization_id=user.organization_id,
+        agent_prompt_config_id=row.agent_prompt_config_id,
+    )
     return row
 
 

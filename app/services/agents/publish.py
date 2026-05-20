@@ -360,9 +360,16 @@ def publish_version(
     # Failure produces a PublishGateFailed with the score; success
     # returns the eval_run row so we can stamp `version.eval_score` +
     # `eval_run_id`.
+    #
+    # Phase 8B: `seeded_from_filesystem` versions also skip the eval
+    # gate. Same rationale as the validator bypass — seeded content
+    # comes from a trusted catalog source; gating it on the canonical
+    # eval fixture (which doesn't exist for a freshly-provisioned
+    # workspace) would block every provisioning that touches a
+    # gate-required template.
     eval_score: Optional[float] = None
     eval_run_id: Optional[UUID] = None
-    if profile.eval_gate_required:
+    if profile.eval_gate_required and not version.seeded_from_filesystem:
         from app.services.agents.eval_gate import (
             EvalGateFailed as _EvalGateFailed,
             run_if_required as _run_gate,

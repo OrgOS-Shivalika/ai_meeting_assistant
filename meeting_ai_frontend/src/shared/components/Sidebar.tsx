@@ -14,6 +14,7 @@ import {
   Network,
   Sparkles,
   Bot,
+  Package,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
@@ -61,8 +62,16 @@ export default function Sidebar() {
     { path: "/ask", label: "Ask AI", icon: Sparkles },
     { path: "/knowledge-hub", label: "Knowledge Hub", icon: BookOpen },
     { path: "/knowledge-graph", label: "Knowledge Graph", icon: Network },
-    { path: "/agents", label: "Agents", icon: Bot },
-    { path: "/agent-control", label: "Integrations", icon: Zap },
+
+    // Agents = Agent Control. The behavior dashboard IS the agent
+    // configuration surface; the old standalone agent-profiles list
+    // is folded into this entry. Legacy /agents and /agents/:id
+    // routes still exist but aren't surfaced in nav.
+    { path: "/agent-control", label: "Agents", icon: Bot },
+
+    // Templates remains as the install drawer for Agent Control's
+    // catalog browsing flow.
+    { path: "/templates", label: "Templates", icon: Package },
     { path: "/members", label: "Members", icon: Users },
     { path: "/reports", label: "Reports", icon: FileText },
   ];

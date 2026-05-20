@@ -15,6 +15,10 @@ import KnowledgeHubPage from "../features/knowledge/pages/KnowledgeHubPage";
 import KnowledgeGraphPage from "../features/knowledge/pages/KnowledgeGraphPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AskPage from "../features/ask/pages/AskPage";
+import TemplatesLandingPage from "../features/templates/pages/TemplatesLandingPage";
+import TemplatesBrowsePage from "../features/templates/pages/TemplatesBrowsePage";
+import BundlePreviewPage from "../features/templates/pages/BundlePreviewPage";
+import TemplatesInstalledPage from "../features/templates/pages/TemplatesInstalledPage";
 
 export const router = createBrowserRouter([
   {
@@ -79,6 +83,22 @@ export const router = createBrowserRouter([
       {
         path: "/auth/google/callback",
         element: <GoogleCallbackPage />,
+      },
+      {
+        path: "/templates",
+        element: <TemplatesLandingPage />,
+      },
+      {
+        path: "/templates/browse",
+        element: <TemplatesBrowsePage />,
+      },
+      {
+        path: "/templates/browse/:slug",
+        element: <BundlePreviewPage />,
+      },
+      {
+        path: "/templates/installed",
+        element: <TemplatesInstalledPage />,
       },
     ],
   },

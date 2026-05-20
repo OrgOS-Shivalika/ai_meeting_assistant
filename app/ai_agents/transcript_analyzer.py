@@ -19,13 +19,21 @@ logger = setup_logger(__name__)
 
 class TranscriptAnalyzer:
     @staticmethod
-    def analyze(transcript: str) -> str:
+    def analyze(transcript: str, behavior_context: str = "") -> str:
+        """Run the transcript analyzer with optional behavior_context.
+
+        `behavior_context` is the workspace-resolved BehaviorProfile
+        preamble built by `app.services.behavior.meeting_context.
+        build_meeting_behavior_context`. Empty string = analyzer runs
+        with its hardcoded default behavior (zero regression vs prior
+        runs). The same string is passed through to whichever LLM
+        provider handles the call."""
         openai_available = bool(settings.OPEN_API_KEY)
         gemini_available = bool(settings.GEMINI_API_KEY)
 
         if openai_available:
             try:
-                return OpenAITranscriptAnalyzer.analyze(transcript)
+                return OpenAITranscriptAnalyzer.analyze(transcript, behavior_context)
             except Exception as primary_err:
                 if not gemini_available:
                     logger.error(
@@ -36,7 +44,7 @@ class TranscriptAnalyzer:
                     "OpenAI analysis failed (%s); falling back to Gemini.", str(primary_err)
                 )
                 try:
-                    return GeminiTranscriptAnalyzer.analyze(transcript)
+                    return GeminiTranscriptAnalyzer.analyze(transcript, behavior_context)
                 except Exception as fallback_err:
                     logger.error(
                         "Both OpenAI and Gemini failed. OpenAI error: %s; Gemini error: %s",
@@ -46,7 +54,7 @@ class TranscriptAnalyzer:
 
         if gemini_available:
             logger.info("OPEN_API_KEY not set — using Gemini directly.")
-            return GeminiTranscriptAnalyzer.analyze(transcript)
+            return GeminiTranscriptAnalyzer.analyze(transcript, behavior_context)
 
         raise RuntimeError(
             "No transcript analyzer available: set OPEN_API_KEY and/or GEMINI_API_KEY."

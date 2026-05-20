@@ -25,16 +25,48 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     db.add(org)
     db.flush()
 
+    # First user of a new workspace is its admin. They own provisioning,
+    # behavior overrides, and any other org-admin gated actions. Future
+    # invited users default to lower roles; that's a separate flow.
     user = User(
         name=data.name,
         email=data.email,
         password=hash_password(data.password),
         organization_id=org.id,
+        role="org_admin",
     )
     db.add(user)
     db.commit()
     db.refresh(user)
     _ = email_prefix  # reserved for future slug derivation
+
+    # Phase 8B (refactored) — link-only auto-install of the starter
+    # bundle. Creates `workspace_template_links` rows pointing at
+    # `template_behavior_profiles`. NO prompt_version cloning. The
+    # runtime resolver (Phase 8D) merges template defaults with any
+    # workspace overrides at query time.
+    #
+    # Fire-and-forget: failures log + record a failed job row but do
+    # NOT block signup. Admins can re-run via /templates/provision.
+    from app.config.settings import settings as _settings
+    if _settings.TEMPLATE_AUTO_PROVISION_BUNDLE:
+        try:
+            from app.services.behavior.provisioning import (
+                auto_install_starter,
+            )
+            auto_install_starter(
+                db,
+                organization_id=org.id,
+                user_id=user.id,
+                bundle_slug=_settings.TEMPLATE_AUTO_PROVISION_BUNDLE,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "auto-install crashed for new org=%s; signup proceeds",
+                org.id, exc_info=True,
+            )
+
     return {"message": "User created", "user_id": str(user.id), "organization_id": str(org.id)}
 
 @router.post("/login", response_model=Token)

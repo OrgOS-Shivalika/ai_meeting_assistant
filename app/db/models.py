@@ -2172,3 +2172,521 @@ class AgentEvalRun(Base):
     triggered_by_user = relationship(
         "User", foreign_keys=[triggered_by_user_id],
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8A — Global template registry (platform-owned, immutable assets)
+#
+# Five tables. All platform-owned: no `organization_id`. Read by the
+# provisioning service when materializing workspace rows; never read
+# by the runtime.
+#
+# Versioning is application-managed — a new version is a NEW row with
+# the same slug + bumped `version`. Lookups happen by slug+version
+# (or slug+'latest' which the service resolves).
+# ---------------------------------------------------------------------------
+
+
+class TemplateBundle(Base):
+    """A starter pack — the unit a workspace installs. Carries
+    metadata (slug, version, category) and links to a set of
+    `template_bundle_items` rows describing what's inside.
+
+    `is_recommended_on_signup` flags bundles that auto-provision on
+    new-org signup. The auth_router hook picks ONE by env var.
+    """
+    __tablename__ = "template_bundles"
+    __table_args__ = (
+        UniqueConstraint(
+            "slug", "version", name="uq_template_bundles_slug_version",
+        ),
+        CheckConstraint(
+            "state IN ('draft','published','deprecated')",
+            name="ck_template_bundles_state",
+        ),
+        CheckConstraint(
+            r"version ~ '^\d+\.\d+\.\d+$'",
+            name="ck_template_bundles_version_semver",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    slug = Column(String(64), nullable=False)
+    display_name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(32), nullable=True)
+    version = Column(String(32), nullable=False)
+    state = Column(
+        String(16), nullable=False, default="draft", server_default="draft",
+    )
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    published_by = Column(UUID(as_uuid=True), nullable=True)
+    signature = Column(Text, nullable=True)
+    manifest_hash = Column(String(64), nullable=True)
+    is_recommended_on_signup = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    items = relationship(
+        "TemplateBundleItem", back_populates="bundle",
+        cascade="all, delete-orphan",
+    )
+
+
+class TemplateBundleItem(Base):
+    """Join row — bundle ↔ (team|category|agent) definition.
+    `item_version` null means "latest"; the registry resolves the
+    actual version at provisioning time."""
+    __tablename__ = "template_bundle_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "bundle_id", "item_type", "item_slug",
+            name="uq_template_bundle_items_bundle_type_slug",
+        ),
+        CheckConstraint(
+            "item_type IN ('team','category','agent')",
+            name="ck_template_bundle_items_type",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("template_bundles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_type = Column(String(16), nullable=False)
+    item_slug = Column(String(64), nullable=False)
+    item_version = Column(String(32), nullable=True)
+    provisioning_hints_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    ordering = Column(Integer, nullable=False, default=0, server_default="0")
+
+    bundle = relationship("TemplateBundle", back_populates="items")
+
+
+# ---------------------------------------------------------------------------
+# Phase 8B — Workspace provisioning + lineage
+#
+# `template_provisioning_jobs` — append-only audit of every
+# provisioning invocation. One row per call to
+# `provision_bundle_for_org()` or `provision_items_for_org()`.
+#
+# `workspace_template_links` — the lineage join table. One row per
+# provisioned workspace entity (Category, AgentProfile,
+# AgentPromptConfig, PromptVersion). Carries the source template's
+# kind + slug + version + bundle, and the lineage_state (8C
+# populates this).
+# ---------------------------------------------------------------------------
+
+
+class TemplateProvisioningJob(Base):
+    """One row per provisioning invocation. Append-only.
+
+    `triggered_by` enumerates: 'auto_signup' (from auth_router:register),
+    'manual' (admin UI), 'admin_api' (platform-staff bulk invocation),
+    'celery' (background backfill task).
+    """
+    __tablename__ = "template_provisioning_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','in_progress','completed','partial','failed')",
+            name="ck_template_provisioning_jobs_status",
+        ),
+        CheckConstraint(
+            "mode IN ('bundle','item_list','auto_signup')",
+            name="ck_template_provisioning_jobs_mode",
+        ),
+        CheckConstraint(
+            "triggered_by IN ('auto_signup','manual','admin_api','celery')",
+            name="ck_template_provisioning_jobs_trigger",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("template_bundles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    bundle_slug = Column(String(64), nullable=True)
+    bundle_version = Column(String(32), nullable=True)
+    mode = Column(String(24), nullable=False)
+    requested_items_json = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    status = Column(String(16), nullable=False)
+    items_created = Column(Integer, nullable=False, default=0, server_default="0")
+    items_skipped = Column(Integer, nullable=False, default=0, server_default="0")
+    items_failed = Column(Integer, nullable=False, default=0, server_default="0")
+    failure_details_json = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    duration_ms = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    triggered_by = Column(String(24), nullable=False)
+    triggered_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    triggered_by_user = relationship(
+        "User", foreign_keys=[triggered_by_user_id],
+    )
+
+
+class WorkspaceTemplateLink(Base):
+    """One row per provisioned workspace entity. The runtime never
+    reads this — it's a side-table for the UI + the upgrade detector.
+
+    `entity_type` is the workspace-side row kind. `source_template_kind`
+    is the template-side kind. They may differ: Phase 8B materializes
+    both `team` and `category` templates as Category workspace rows
+    (the existing schema couples them; a future slice may split
+    workspace-level teams into a separate table)."""
+    __tablename__ = "workspace_template_links"
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ("
+            "'category','agent_profile','prompt_config','prompt_version'"
+            ")",
+            name="ck_workspace_template_links_entity_type",
+        ),
+        CheckConstraint(
+            "source_template_kind IN ('team','category','agent')",
+            name="ck_workspace_template_links_source_kind",
+        ),
+        CheckConstraint(
+            "lineage_state IN ('pristine','modified','heavily_modified','forked')",
+            name="ck_workspace_template_links_lineage_state",
+        ),
+        CheckConstraint(
+            "(entity_id_uuid IS NOT NULL AND entity_id_int IS NULL) "
+            "OR (entity_id_uuid IS NULL AND entity_id_int IS NOT NULL)",
+            name="ck_workspace_template_links_entity_id_exclusive",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    entity_type = Column(String(32), nullable=False)
+    entity_id_uuid = Column(UUID(as_uuid=True), nullable=True)
+    entity_id_int = Column(BigInteger, nullable=True)
+    source_template_kind = Column(String(16), nullable=False)
+    source_template_slug = Column(String(64), nullable=False)
+    source_template_version = Column(String(32), nullable=False)
+    source_bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("template_bundles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_bundle_version = Column(String(32), nullable=True)
+    provisioning_job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("template_provisioning_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    provisioned_at = Column(DateTime(timezone=True), nullable=False)
+    lineage_state = Column(
+        String(24), nullable=False, default="pristine",
+        server_default="pristine",
+    )
+    diff_summary_json = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    last_diverged_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+
+
+# ---------------------------------------------------------------------------
+# Phase 8D — Upgrade proposals + publish events
+#
+# Two tables:
+#
+#   `template_publish_events` — append-only global audit; one row per
+#   template version publish. Drives the Celery upgrade detector.
+#
+#   `template_upgrade_proposals` — per-(link, version-transition).
+#   The admin's inbox of pending upgrades. Acceptance creates a new
+#   prompt_version via Phase 7B; rejection leaves the workspace
+#   on the current version. Supersession happens when a newer
+#   version arrives before the admin decides.
+# ---------------------------------------------------------------------------
+
+
+class TemplatePublishEvent(Base):
+    """Append-only global audit. The Celery detector scans this
+    table for events whose proposals haven't been generated yet."""
+    __tablename__ = "template_publish_events"
+    __table_args__ = (
+        CheckConstraint(
+            "template_kind IN ('bundle','team','category','agent')",
+            name="ck_template_publish_events_kind",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    template_kind = Column(String(16), nullable=False)
+    template_slug = Column(String(64), nullable=False)
+    from_version = Column(String(32), nullable=True)
+    to_version = Column(String(32), nullable=False)
+    published_by = Column(UUID(as_uuid=True), nullable=True)
+    manifest_hash_before = Column(String(64), nullable=True)
+    manifest_hash_after = Column(String(64), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+
+
+
+class WorkspaceBehaviorOverride(Base):
+    """Phase 8C — sparse override row for a scoped BehaviorProfile
+    dimension.field. Zero rows for a scope means the workspace uses
+    template defaults. The runtime resolver (8D) merges these on top
+    of catalog defaults at query time.
+
+    Natural key: (organization_id, scope_type, scope_id, dimension,
+    field). Enforced by two partial unique indexes (one per scope_id
+    shape — workspace scope has no id, category/team scopes use int).
+
+    Cascade rules:
+      - delete org      → wipe all overrides
+      - delete link     → wipe link-scoped overrides (workspace-level
+                          rows have NULL link_id and survive)
+    """
+    __tablename__ = "workspace_behavior_overrides"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('workspace','category','team')",
+            name="behov_scope_type_chk",
+        ),
+        CheckConstraint(
+            "dimension IN ("
+            "'master_prompt','enabled_agents','retrieval_config',"
+            "'memory_config','output_config','extraction_rules',"
+            "'automation_rules','evaluation_rules',"
+            "'tone_and_personality','compliance_and_guardrails',"
+            "'tools_and_integrations'"
+            ")",
+            name="behov_dimension_chk",
+        ),
+        CheckConstraint(
+            "(scope_type = 'workspace' "
+            "  AND scope_id_uuid IS NULL AND scope_id_int IS NULL) "
+            "OR (scope_type IN ('category','team') "
+            "    AND scope_id_int IS NOT NULL "
+            "    AND scope_id_uuid IS NULL)",
+            name="behov_scope_id_chk",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_template_link_id = Column(
+        BigInteger,
+        ForeignKey("workspace_template_links.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    scope_type = Column(String(16), nullable=False)
+    scope_id_uuid = Column(UUID(as_uuid=True), nullable=True)
+    scope_id_int = Column(Integer, nullable=True)
+    dimension = Column(String(40), nullable=False)
+    field = Column(String(80), nullable=False, default="", server_default="")
+    value_json = Column(
+        JSONB, nullable=False, default=lambda: None,
+        server_default=text("'null'::jsonb"),
+    )
+    created_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    link = relationship("WorkspaceTemplateLink")
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
+
+
+class TemplateBehaviorProfile(Base):
+    """Phase 8A (revised) — the canonical AI cognition object.
+
+    One table, three scope_kinds:
+      - 'global'   — platform-wide default. Exactly one published row.
+      - 'category' — installed by a workspace as a category template
+      - 'team'     — installed by a workspace as a team template
+
+    Each row carries 11 dimensions (master_prompt, enabled_agents,
+    retrieval_config, memory_config, output_config, extraction_rules,
+    automation_rules, evaluation_rules, tone_and_personality,
+    compliance_and_guardrails, tools_and_integrations) as named JSONB
+    columns. The resolver (8D) merges these top-down at runtime to
+    produce a single `ResolvedBehaviorProfile`.
+
+    Replaces: TemplateAgentDefinition + TemplateCategoryDefinition +
+              TemplateTeamDefinition (those tables drop in 8F)."""
+    __tablename__ = "template_behavior_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_kind IN ('global','category','team')",
+            name="bp_scope_kind_chk",
+        ),
+        CheckConstraint(
+            "state IN ('draft','published','deprecated')",
+            name="bp_state_chk",
+        ),
+        CheckConstraint(
+            "version ~ '^\\d+\\.\\d+\\.\\d+$'",
+            name="bp_version_fmt_chk",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    scope_kind = Column(String(16), nullable=False)
+    slug = Column(String(64), nullable=False)
+    version = Column(String(32), nullable=False)
+    display_name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    state = Column(
+        String(16), nullable=False, default="published",
+        server_default="published",
+    )
+
+    # The 11 BehaviorProfile dimensions.
+    master_prompt = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    enabled_agents = Column(
+        JSONB, nullable=False, default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    retrieval_config = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    memory_config = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    output_config = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    extraction_rules = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    automation_rules = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    evaluation_rules = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    tone_and_personality = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    compliance_and_guardrails = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    tools_and_integrations = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    # Phase 8G — set for scope_kind='team' profiles; references the
+    # category profile's slug they nest under. NULL for category/global.
+    parent_category_slug = Column(String(64), nullable=True)
+
+    manifest_hash = Column(String(64), nullable=False)
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )

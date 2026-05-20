@@ -22,7 +22,10 @@ def _get_client() -> OpenAI:
 class OpenAITranscriptAnalyzer:
 
     @staticmethod
-    def analyze(transcript: str) -> str:
+    def analyze(transcript: str, behavior_context: str = "") -> str:
+        """Run analysis. `behavior_context` is the workspace-resolved
+        BehaviorProfile preamble (Phase 9.2). Empty string = analyzer
+        runs with its default hardcoded behavior."""
         client = _get_client()
 
         # logger.info("original transcript length: %d characters", len(transcript))
@@ -45,7 +48,11 @@ class OpenAITranscriptAnalyzer:
         # if not formatted_transcript.strip():
         #     raise ValueError("Transcript is empty, skipping analysis")
 
-        formatted_prompt = analyzer_prompt.replace("{transcript}", transcript)
+        formatted_prompt = (
+            analyzer_prompt
+            .replace("{behavior_context}", behavior_context or "")
+            .replace("{transcript}", transcript)
+        )
 
         print("FORMATTED TRANSCRIPT:\n", transcript)
 

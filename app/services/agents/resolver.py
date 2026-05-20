@@ -511,19 +511,145 @@ def resolve_agent_runtime_config(
     agent_profile_slug: Optional[str] = None,
     team_id: Optional[int] = None,
     category_id: Optional[int] = None,
-    current_user_id: Optional[UUID] = None,  # reserved for Phase 8 user scope
+    current_user_id: Optional[UUID] = None,
 ) -> ResolvedAgentConfig:
-    """Resolve the runtime config for a single agent invocation.
+    """Phase 8F compatibility façade.
 
-    Never raises. Always returns a `ResolvedAgentConfig`. On total
-    failure (no profile, no configs, no filesystem) the result has
-    `is_default_fallback=True` and warnings explaining why.
+    This signature is preserved verbatim so every RAG-pipeline caller
+    continues to work without changes. Internally we delegate to the
+    new behavior resolver (`resolve_behavior_profile`) and map its
+    11-dimension output onto the legacy ResolvedAgentConfig shape.
 
-    See plan §6 for the design contract.
+    Phase 9 will migrate callers to the new resolver directly and
+    delete this façade. Until then, this is the single bridge between
+    the new BehaviorProfile world and the legacy RAG runtime.
+
+    Mapping:
+        new.master_prompt           → modular_prompts (same shape)
+        new.retrieval_config        → RetrievalConfig(**filtered)
+        new.tools_and_integrations  → ToolPermissions(allowed/denied)
+        (no model_config dim yet)   → ModelConfig() defaults
+        new.trace                   → resolution_path
+
+    `agent_type`, `agent_profile_id/slug` are accepted for signature
+    compatibility but no longer drive resolution — the new model is
+    scope-centric (org, category, team), not agent-centric.
     """
+    from app.services.behavior.resolver import resolve_behavior_profile
+
     started = time.monotonic()
 
-    # 1. Resolve the profile — needed for cache key + epoch.
+    bp = resolve_behavior_profile(
+        db,
+        organization_id=organization_id,
+        category_id=category_id,
+        team_id=team_id,
+    )
+
+    # Map the new profile onto the legacy shape ---------------------------
+
+    modular = dict(bp.master_prompt or {})
+
+    # RetrievalConfig accepts only its declared fields. The new
+    # retrieval_config dict may carry extra/future keys; filter to
+    # what the legacy dataclass knows about.
+    ret_dict = dict(bp.retrieval_config or {})
+    rc_fields = {
+        "top_k_vector", "top_k_final", "max_graph_depth",
+        "tier_widen_threshold", "rerank_strategy", "sources_filter",
+        "include_archived", "citation_strictness",
+        "entity_expansion_enabled", "embedding_model",
+        "importance_weight_overrides",
+    }
+    rc_kwargs = {k: v for k, v in ret_dict.items() if k in rc_fields}
+    # importance_weight_overrides must be a dict
+    if "importance_weight_overrides" in rc_kwargs and rc_kwargs[
+        "importance_weight_overrides"
+    ] is None:
+        rc_kwargs["importance_weight_overrides"] = {}
+    retrieval = RetrievalConfig(**rc_kwargs)
+
+    # model_config — no native dimension yet; honor any model-related
+    # values that callers stuck under tools_and_integrations.model.
+    tooling = dict(bp.tools_and_integrations or {})
+    model_kwargs: dict = {}
+    for k in ("model", "temperature", "max_tokens", "response_format"):
+        if k in tooling:
+            model_kwargs[k] = tooling[k]
+    model = ModelConfig(**model_kwargs)
+
+    # tool_permissions — map from tools_and_integrations.allowed_tools
+    # / denied_tools (the catalog naming).
+    tools = ToolPermissions(
+        allowed=list(tooling.get("allowed_tools", []) or []),
+        denied=list(tooling.get("denied_tools", []) or []),
+    )
+
+    # Resolution path — map trace entries
+    resolution_path = [
+        ResolutionStep(
+            layer=t.layer,
+            scope_type=None,
+            scope_id=None,
+            prompt_version_id=t.source_id,
+            fields_contributed=[],  # not tracked at dim level in new resolver
+        )
+        for t in bp.trace
+    ]
+
+    # config_hash — stable hash over the merged content
+    payload = {
+        "modular": modular,
+        "retrieval": asdict(retrieval),
+        "model": asdict(model),
+        "tools": asdict(tools),
+    }
+    config_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    # `is_default_fallback` previously meant "couldn't find anything
+    # workspace-specific, returned filesystem defaults." Under the new
+    # model the global default profile IS the bedrock, so we set False
+    # whenever a global layer contributed; True only if nothing did.
+    is_fallback = not bool(resolution_path)
+
+    return ResolvedAgentConfig(
+        agent_profile_id=None,
+        agent_type=agent_type,
+        prompt_version_id=None,
+        version_number=None,
+        label=None,
+        modular_prompts=modular,
+        variables_used=[],
+        retrieval_config=retrieval,
+        model_config=model,
+        tool_permissions=tools,
+        resolution_path=resolution_path,
+        config_hash=config_hash,
+        is_default_fallback=is_fallback,
+        warnings=[],
+    )
+
+
+def _legacy_resolve_agent_runtime_config(
+    db: Session,
+    *,
+    organization_id: UUID,
+    agent_type: str,
+    agent_profile_id: Optional[UUID] = None,
+    agent_profile_slug: Optional[str] = None,
+    team_id: Optional[int] = None,
+    category_id: Optional[int] = None,
+    current_user_id: Optional[UUID] = None,
+) -> ResolvedAgentConfig:
+    """Phase 7C original — kept under `_legacy_` for emergency rollback
+    only. Will be deleted in Phase 9 along with the rest of this file.
+
+    Do not call from new code. The supported entry point is
+    `resolve_agent_runtime_config` (Phase 8F façade above)."""
+    started = time.monotonic()
+
     profile = _resolve_profile(
         db,
         organization_id=organization_id,
@@ -532,8 +658,6 @@ def resolve_agent_runtime_config(
         agent_profile_slug=agent_profile_slug,
     )
 
-    # 2. Cache lookup. Cache key uses the *resolved* profile id when
-    # available so slug + id variants share an entry.
     key = _cache_key(
         organization_id=organization_id,
         agent_type=agent_type,
@@ -551,20 +675,13 @@ def resolve_agent_runtime_config(
         if cached is not None:
             snap_epoch, value = cached
             if snap_epoch >= live_epoch:
-                # Stamp cache_hit + duration on the returned copy so
-                # the caller's log row reflects "this was served from
-                # cache". We don't mutate the cached object — copy
-                # what we need.
                 value = _copy_with_meta(
                     value, cache_hit=True,
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
                 return value
 
-        # Cache miss — serialize on the per-key lock so concurrent
-        # misses on the same key don't all hammer the DB.
         with resolver_cache.locked(key):
-            # Double-check after acquiring the lock.
             cached = resolver_cache.get(key)
             if cached is not None:
                 snap_epoch, value = cached

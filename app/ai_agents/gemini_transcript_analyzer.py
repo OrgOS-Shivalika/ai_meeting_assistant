@@ -7,10 +7,10 @@ logger = setup_logger(__name__)
 
 class GeminiTranscriptAnalyzer:
     """Gemini-backed analyzer with the same contract as OpenAITranscriptAnalyzer:
-    `analyze(transcript) -> str` returning a JSON-formatted string."""
+    `analyze(transcript, behavior_context='') -> str` returning JSON."""
 
     @staticmethod
-    def analyze(transcript: str) -> str:
+    def analyze(transcript: str, behavior_context: str = "") -> str:
         if not settings.GEMINI_API_KEY:
             raise RuntimeError("GEMINI_API_KEY is not set; Gemini fallback unavailable")
 
@@ -20,7 +20,11 @@ class GeminiTranscriptAnalyzer:
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
 
-        formatted_prompt = analyzer_prompt.replace("{transcript}", transcript)
+        formatted_prompt = (
+            analyzer_prompt
+            .replace("{behavior_context}", behavior_context or "")
+            .replace("{transcript}", transcript)
+        )
 
         logger.info("Starting analysis of transcript with Gemini (%s)...", settings.GEMINI_MODEL)
 

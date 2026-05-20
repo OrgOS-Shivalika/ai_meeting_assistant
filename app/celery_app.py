@@ -41,6 +41,9 @@ celery = Celery(
         # Phase 7F — registers `meeting_ai.aggregate_agent_performance_daily`
         # and `meeting_ai.aggregate_agent_performance_for_date`.
         "app.celery_tasks.agent_tasks",
+        # Phase 8D template_tasks (upgrade detector) removed in Phase 8F
+        # cleanup — the new sparse-override model has no equivalent of
+        # the 3-way-diff upgrade proposal flow.
     ],
 )
 

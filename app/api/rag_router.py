@@ -83,6 +83,32 @@ def _resolve_scope_for_pipeline(payload: AskRequest):
     return payload.scope, payload.scope_id
 
 
+def _scope_from_meeting(
+    db: Session, *, organization_id, meeting_id,
+) -> tuple[Optional[str], Optional[int]]:
+    """Phase 9.1 — when the caller passes `meeting_id` and no explicit
+    scope, resolve the meeting's (category_id, team_id) and translate
+    to a pipeline scope. team_id wins (more specific); falls back to
+    category_id; falls back to (None, None) if the meeting has neither
+    set. Cross-org meetings return (None, None) silently."""
+    from app.db.models import Meeting
+    m = (
+        db.query(Meeting)
+        .filter(
+            Meeting.id == meeting_id,
+            Meeting.organization_id == organization_id,
+        )
+        .first()
+    )
+    if m is None:
+        return None, None
+    if m.team_id is not None:
+        return "team", m.team_id
+    if m.category_id is not None:
+        return "category", m.category_id
+    return None, None
+
+
 @router.post("/ask")
 def ask(
     payload: AskRequest,
@@ -106,6 +132,16 @@ def ask(
             raise HTTPException(status_code=404, detail="Conversation not found")
 
     req_scope, req_scope_id = _resolve_scope_for_pipeline(payload)
+    # Phase 9.1 — when scope='auto' but a meeting_id is supplied, pin
+    # the pipeline to that meeting's category/team. Explicit scope
+    # (set above) wins; this only kicks in when scope was 'auto'.
+    if req_scope is None and payload.meeting_id is not None:
+        m_scope, m_scope_id = _scope_from_meeting(
+            db, organization_id=user.organization_id,
+            meeting_id=payload.meeting_id,
+        )
+        if m_scope is not None:
+            req_scope, req_scope_id = m_scope, m_scope_id
 
     def _generate():
         # Re-acquire the DB session inside the generator. StreamingResponse

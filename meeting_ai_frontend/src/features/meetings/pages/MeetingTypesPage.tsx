@@ -10,6 +10,7 @@ import {
   Users,
   ArrowLeft,
   Calendar,
+  Cpu,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import CategoryModal from "../components/CategoryModal";
@@ -19,6 +20,8 @@ import OrgDocumentsPanel from "../components/OrgDocumentsPanel";
 import { useCategories } from "../hooks/useCategories";
 import { fetchTeamMeetings } from "../api";
 import type { Category, Meeting, Team } from "../types";
+import BehaviorControlsModal from "../../agent-control/components/BehaviorControlsModal";
+import type { ActiveScope } from "../../agent-control/types";
 
 const ICON_GLYPH: Record<string, string> = {
   tag: "🏷️",
@@ -76,6 +79,13 @@ export default function MeetingTypesPage() {
   const [teamModalCategory, setTeamModalCategory] = useState<Category | null>(null);
   const [teamModalTeam, setTeamModalTeam] = useState<Team | null>(null);
   const [search, setSearch] = useState("");
+
+  // Agent-controls modal. Single dedicated button in the page header;
+  // its target scope is computed from the current navigation level:
+  //   types-level    → workspace defaults (no category/team selected)
+  //   teams-level    → the selected category
+  //   meetings-level → the selected team (parent_id = selected category)
+  const [behaviorScope, setBehaviorScope] = useState<ActiveScope | null>(null);
 
   // Reset the search box every time we change levels.
   useEffect(() => {
@@ -503,6 +513,52 @@ export default function MeetingTypesPage() {
       ? `Search teams in ${selectedType!.name}...`
       : `Search meetings in ${selectedTeam!.name}...`;
 
+  // Dedicated Agent Controls button. The scope it opens depends on
+  // which level the user is currently viewing.
+  const openBehaviorControlsForLevel = () => {
+    if (level === "types") {
+      setBehaviorScope({
+        type: "workspace", id: null,
+        display_name: "Workspace Defaults",
+      });
+    } else if (level === "teams" && selectedType) {
+      setBehaviorScope({
+        type: "category", id: selectedType.id,
+        display_name: selectedType.name,
+      });
+    } else if (level === "meetings" && selectedTeam && selectedType) {
+      setBehaviorScope({
+        type: "team", id: selectedTeam.id,
+        parent_id: selectedType.id,
+        display_name: selectedTeam.name,
+      });
+    }
+  };
+
+  const behaviorButtonLabel =
+    level === "types"
+      ? "Workspace Controls"
+      : level === "teams"
+      ? "Category Controls"
+      : "Team Controls";
+
+  const behaviorButton = (
+    <button
+      onClick={openBehaviorControlsForLevel}
+      className="flex items-center gap-2 px-3 py-2.5 border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm font-bold transition-all"
+      title={`Agent Controls for ${
+        level === "types"
+          ? "the entire workspace"
+          : level === "teams"
+          ? selectedType!.name
+          : selectedTeam!.name
+      }`}
+    >
+      <Cpu className="w-4 h-4" />
+      {behaviorButtonLabel}
+    </button>
+  );
+
   const primaryAction =
     level === "types" ? (
       <button
@@ -609,6 +665,7 @@ export default function MeetingTypesPage() {
             <p className="text-sm text-slate-500 mt-1">{headerSubtitle}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {behaviorButton}
             {level === "teams" && (
               <button
                 onClick={() => openEdit(selectedType!)}
@@ -689,6 +746,12 @@ export default function MeetingTypesPage() {
           team={teamModalTeam}
         />
       )}
+
+      <BehaviorControlsModal
+        isOpen={behaviorScope !== null}
+        onClose={() => setBehaviorScope(null)}
+        scope={behaviorScope}
+      />
     </Layout>
   );
 }

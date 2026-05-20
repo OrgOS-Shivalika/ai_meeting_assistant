@@ -197,8 +197,31 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
+            # Phase 9.2 — resolve the meeting's BehaviorProfile and
+            # build a preamble that the transcript analyzer injects
+            # into its prompt. Failure here returns "" → analyzer runs
+            # with its hardcoded behavior, so this is non-blocking.
+            try:
+                from app.services.behavior.meeting_context import (
+                    build_meeting_behavior_context,
+                )
+                behavior_context = build_meeting_behavior_context(
+                    db, meeting=meeting,
+                )
+                if behavior_context:
+                    logger.info(
+                        "🎛️  Applying workspace AI behavior context (%d chars) "
+                        "for category=%s team=%s",
+                        len(behavior_context), meeting.category_id, meeting.team_id,
+                    )
+            except Exception as bc_err:
+                logger.warning(
+                    "behavior_context build failed (non-fatal): %s", bc_err,
+                )
+                behavior_context = ""
+
             logger.info("🧠 Running AI analysis...")
-            result = TranscriptAnalyzer.analyze(formatted)
+            result = TranscriptAnalyzer.analyze(formatted, behavior_context)
 
             result_json = json.loads(result)
 
