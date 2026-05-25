@@ -125,7 +125,7 @@ export default function BundlePreviewPage() {
         <section className="grid grid-cols-3 gap-3 mb-6">
           <CountTile label="Teams" value={data.counts.team || 0} />
           <CountTile label="Categories" value={data.counts.category || 0} />
-          <CountTile label="Agents" value={data.counts.agent || 0} />
+          {/* <CountTile label="Agents" value={data.counts.agent || 0} /> */}
         </section>
 
         <section className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">

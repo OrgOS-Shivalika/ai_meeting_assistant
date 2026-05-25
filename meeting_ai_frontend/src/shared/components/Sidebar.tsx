@@ -16,11 +16,10 @@ import {
   Bot,
   Package,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
 import CategoryModal from "../../features/meetings/components/CategoryModal";
 import { authService } from "../../services/authService";
-import { apiClient } from "../../services/apiClient";
 import { useCategories } from "../../features/meetings/hooks/useCategories";
 import { useCurrentUser } from "../../features/auth/hooks/useCurrentUser";
 import type { Category } from "../../features/meetings/types";
@@ -29,23 +28,12 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [editingCategory] = useState<Category | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   useCategories();
   const { user } = useCurrentUser();
 
-  useEffect(() => {
-    const checkGoogleStatus = async () => {
-      try {
-        const data = await apiClient("/auth/google/status");
-        setIsGoogleConnected(data.is_connected);
-      } catch (err) {
-        console.error("Failed to check Google status", err);
-      }
-    };
-    checkGoogleStatus();
-  }, []);
+
 
   const handleLogout = () => {
     authService.logout();
@@ -72,6 +60,7 @@ export default function Sidebar() {
     // Templates remains as the install drawer for Agent Control's
     // catalog browsing flow.
     { path: "/templates", label: "Templates", icon: Package },
+    { path: "/integrations", label: "Integrations", icon: Zap },
     { path: "/members", label: "Members", icon: Users },
     { path: "/reports", label: "Reports", icon: FileText },
   ];
@@ -119,9 +108,7 @@ export default function Sidebar() {
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 <span>{label}</span>
-                {label === "Meetings" && isGoogleConnected && (
-                  <div className="ml-auto w-1.5 h-1.5 bg-green-500 rounded-full" />
-                )}
+                
               </Link>
             );
           })}
