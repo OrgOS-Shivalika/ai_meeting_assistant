@@ -197,40 +197,38 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
-            # Phase 9.2 — resolve the meeting's BehaviorProfile and
-            # build a preamble that the transcript analyzer injects
-            # into its prompt. Failure here returns "" → analyzer runs
-            # with its hardcoded behavior, so this is non-blocking.
-            try:
-                from app.services.behavior.meeting_context import (
-                    build_meeting_behavior_context,
-                )
-                behavior_context = build_meeting_behavior_context(
-                    db, meeting=meeting,
-                )
-                if behavior_context:
-                    logger.info(
-                        "🎛️  Applying workspace AI behavior context (%d chars) "
-                        "for category=%s team=%s",
-                        len(behavior_context), meeting.category_id, meeting.team_id,
-                    )
-            except Exception as bc_err:
-                logger.warning(
-                    "behavior_context build failed (non-fatal): %s", bc_err,
-                )
-                behavior_context = ""
+            # Phase 9.6 — Agent Graph Orchestration.
+            # Use the orchestrator to run capability-based analysis.
+            # The orchestrator handles BehaviorProfile resolution internally
+            # or we can pass it in if we already have it. 
+            logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
+            from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
+            from app.services.behavior.resolver import resolve_behavior_profile
+            
+            # 1. Resolve the profile once for the entire runtime execution
+            prof = resolve_behavior_profile(
+                db,
+                organization_id=meeting.organization_id,
+                category_id=meeting.category_id,
+                team_id=meeting.team_id
+            )
 
-            logger.info("🧠 Running AI analysis...")
-            result = TranscriptAnalyzer.analyze(formatted, behavior_context)
+            # 2. Execute the Agent Graph
+            result_obj = AgentGraphOrchestrator.run_meeting_analysis(
+                db, 
+                formatted, 
+                prof
+            )
 
-            result_json = json.loads(result)
+            # result_obj is a typed ExtractionSummary instance
+            result_json = result_obj.model_dump()
 
             # save title
-            title = result_json.get("title", f"Meeting {meeting.id}")
+            title = result_obj.title or f"Meeting {meeting.id}"
             meeting.title = title
 
             # Save summary
-            summary = result_json.get("summary")
+            summary = result_obj.summary
             meeting.summary = summary
             logger.info(f"Summary generated: {summary[:50]}...")
 
@@ -241,6 +239,42 @@ class MeetingPipeline:
             # complete picture (transcript_raw, summary, tasks) on the first
             # round-trip instead of needing a manual page refresh.
             self.save_tasks(db, meeting.id, result_json.get("action_items", []))
+
+            # Phase 9.3 — Compliance Runtime Gating & 9.5 Automation.
+            try:
+                from app.services.compliance.runtime import ComplianceRuntime
+                from app.services.automation.bus import AutomationBus, AutomationEvent
+                
+                # Apply redaction gated by the same ResolvedBehaviorProfile
+                ComplianceRuntime.apply_to_meeting(db, meeting, prof)
+                db.commit() # Save the redacted version
+                logger.info("🛡️ Compliance policies applied (redaction gated).")
+
+                # Emit normalized events for authorized subscribers.
+                AutomationBus.emit(
+                    db, 
+                    AutomationEvent(
+                        "meeting.summary.completed", 
+                        meeting.organization_id, 
+                        meeting.id, 
+                        {"title": meeting.title, "summary": meeting.summary}
+                    ),
+                    prof
+                )
+                if result_json.get("action_items"):
+                    AutomationBus.emit(
+                        db,
+                        AutomationEvent(
+                            "meeting.tasks.extracted",
+                            meeting.organization_id,
+                            meeting.id,
+                            result_json["action_items"]
+                        ),
+                        prof
+                    )
+
+            except Exception as comp_err:
+                logger.error("Compliance or Automation gating failed: %s", comp_err)
 
             # Broadcast status update via WebSocket
             try:

@@ -78,13 +78,17 @@ class RecallService:
         response.raise_for_status()
         return response.json()
     
-    def wait_for_transcript(self, bot_id: str, timeout: int = 1200):
+    def wait_for_transcript(self, bot_id: str, timeout: Optional[int] = None):
+        """Wait for the transcript to be ready. 
+        If timeout is None, it will wait indefinitely until the bot call ends and the transcript is processed.
+        """
         start_time = time.time()
-        logger.info(f"Waiting for transcript for bot {bot_id}...")
+        logger.info(f"Waiting for transcript for bot {bot_id} (Timeout: {timeout or 'None'})...")
 
         while True:
             bot_data = self.get_bot(bot_id)
             recordings = bot_data.get("recordings", [])
+            bot_status = bot_data.get("status_changes", [])[-1].get("code") if bot_data.get("status_changes") else "unknown"
 
             if recordings:
                 rec = next(
@@ -93,7 +97,7 @@ class RecallService:
                 )
 
                 if not rec:
-                    logger.info("⏳ No completed recording yet...")
+                    logger.info(f"⏳ No completed recording yet (Bot Status: {bot_status})...")
                 else:
                     transcript = rec.get("media_shortcuts", {}).get("transcript", {})
                     status = transcript.get("status", {}).get("code")
@@ -110,11 +114,17 @@ class RecallService:
                         return download_url
 
             else:
-                logger.info("⏳ No recordings yet...")
+                logger.info(f"⏳ No recordings yet (Bot Status: {bot_status})...")
 
-            if time.time() - start_time > timeout:
+            # Check for timeout if one is provided
+            if timeout and (time.time() - start_time > timeout):
                 logger.error(f"Timeout waiting for transcript for bot {bot_id}")
                 raise TimeoutError("Transcript not ready in time")
+            
+            # If the bot has left the call and still no recordings after a grace period, we should probably stop.
+            if bot_status in ["done", "call_ended"] and not recordings and (time.time() - start_time > 300):
+                 logger.error(f"Bot {bot_id} ended call but no recording appeared after 5 minutes.")
+                 raise Exception("Bot ended call without recording.")
 
             sleep_time = min(10 + int((time.time() - start_time) / 60), 30)
             logger.debug(f"Sleeping for {sleep_time} seconds...")
