@@ -2521,7 +2521,7 @@ class WorkspaceBehaviorOverride(Base):
             "'memory_config','output_config','extraction_rules',"
             "'automation_rules','evaluation_rules',"
             "'tone_and_personality','compliance_and_guardrails',"
-            "'tools_and_integrations'"
+            "'tools_and_integrations','intent'"
             ")",
             name="behov_dimension_chk",
         ),
@@ -2669,6 +2669,10 @@ class TemplateBehaviorProfile(Base):
         server_default=text("'{}'::jsonb"),
     )
     tools_and_integrations = Column(
+        JSONB, nullable=False, default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    intent = Column(
         JSONB, nullable=False, default=dict,
         server_default=text("'{}'::jsonb"),
     )

@@ -95,6 +95,7 @@ class ResolvedBehaviorProfile:
     tone_and_personality: dict = field(default_factory=dict)
     compliance_and_guardrails: dict = field(default_factory=dict)
     tools_and_integrations: dict = field(default_factory=dict)
+    intent: dict = field(default_factory=dict)
 
     # Audit trail of which layers contributed. Per-dimension is
     # noisy; we record per-layer instead.
@@ -154,15 +155,48 @@ def _merge_list_union(base: list, overlay: list) -> list:
 
 
 def _apply_layer(
-    profile: ResolvedBehaviorProfile, layer_data: dict[str, Any],
+    db: Session,
+    organization_id: UUID,
+    profile: ResolvedBehaviorProfile, 
+    layer_data: dict[str, Any],
 ) -> None:
     """In-place merge of one layer's dimensions onto the profile.
-    Mutates the profile."""
+    
+    Phase 10 Hybrid Logic:
+    1. If the layer has an 'intent', resolve it to technical dimensions first.
+    2. Apply intent-derived dimensions as a baseline.
+    3. Apply explicit technical dimensions from the layer (they win over intent).
+    """
+    # 1. Process Intent if present in this layer
+    if "intent" in layer_data and layer_data["intent"]:
+        try:
+            from app.schemas.intent_schema import IntentProfile
+            from app.services.behavior.policy_resolver import PolicyResolver
+            
+            intent_obj = IntentProfile.model_validate(layer_data["intent"])
+            intent_derived = PolicyResolver.map_intent_to_resolved_profile(
+                organization_id=organization_id,
+                intent=intent_obj
+            )
+            # Apply intent-derived values as the baseline for this layer
+            _apply_technical_dimensions(profile, intent_derived.to_dict())
+            
+            # Explicitly save the intent in the profile for visibility
+            profile.intent = _merge_dict(profile.intent, layer_data["intent"])
+        except Exception as e:
+            logger.error("Failed to resolve intent in layer: %s", e)
+
+    # 2. Apply explicit dimensions (Explicit wins over Intent)
+    _apply_technical_dimensions(profile, layer_data)
+
+
+def _apply_technical_dimensions(profile: ResolvedBehaviorProfile, dimensions: dict[str, Any]) -> None:
+    """Helper to apply the 11 technical dimensions to a profile."""
     for dim in BEHAVIOR_DIMENSIONS:
-        if dim not in layer_data:
+        if dim == "intent" or dim not in dimensions:
             continue
         existing = getattr(profile, dim)
-        incoming = layer_data[dim]
+        incoming = dimensions[dim]
         if dim == "enabled_agents":
             merged = _merge_list_union(existing or [], incoming or [])
         else:
@@ -330,7 +364,7 @@ def resolve_behavior_profile(
     # Layer 1 — global default.
     layer = _load_global_layer(db)
     if layer is not None:
-        _apply_layer(profile, layer["dimensions"])
+        _apply_layer(db, organization_id, profile, layer["dimensions"])
         profile.trace.append(layer["trace"])
     else:
         logger.warning(
@@ -340,17 +374,12 @@ def resolve_behavior_profile(
         )
 
     # Layer 1.5 — workspace-scope overrides ("Workspace Defaults").
-    # Workspace policy applies to every resolution regardless of which
-    # category/team the meeting is in. Lives between global and the
-    # per-scope template layers so categories can still override
-    # workspace policy where the user explicitly sets a category-level
-    # value, but unset category fields pick up workspace defaults.
     layer = _load_override_layer(
         overrides_by_scope, scope_type="workspace",
         scope_id=None, layer_name="workspace_override",
     )
     if layer is not None:
-        _apply_layer(profile, layer["dimensions"])
+        _apply_layer(db, organization_id, profile, layer["dimensions"])
         profile.trace.append(layer["trace"])
 
     # Layer 2 — category template.
@@ -360,7 +389,7 @@ def resolve_behavior_profile(
             entity_id_int=category_id, layer_name="category_template",
         )
         if layer is not None:
-            _apply_layer(profile, layer["dimensions"])
+            _apply_layer(db, organization_id, profile, layer["dimensions"])
             profile.trace.append(layer["trace"])
 
     # Layer 3 — team template.
@@ -370,7 +399,7 @@ def resolve_behavior_profile(
             entity_id_int=team_id, layer_name="team_template",
         )
         if layer is not None:
-            _apply_layer(profile, layer["dimensions"])
+            _apply_layer(db, organization_id, profile, layer["dimensions"])
             profile.trace.append(layer["trace"])
 
     # Layer 4 — category overrides.
@@ -380,7 +409,7 @@ def resolve_behavior_profile(
             scope_id=category_id, layer_name="category_override",
         )
         if layer is not None:
-            _apply_layer(profile, layer["dimensions"])
+            _apply_layer(db, organization_id, profile, layer["dimensions"])
             profile.trace.append(layer["trace"])
 
     # Layer 5 — team overrides.
@@ -390,7 +419,7 @@ def resolve_behavior_profile(
             scope_id=team_id, layer_name="team_override",
         )
         if layer is not None:
-            _apply_layer(profile, layer["dimensions"])
+            _apply_layer(db, organization_id, profile, layer["dimensions"])
             profile.trace.append(layer["trace"])
 
     return profile

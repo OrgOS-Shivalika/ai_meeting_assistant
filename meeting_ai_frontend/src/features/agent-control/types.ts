@@ -14,6 +14,7 @@ export const DIMENSIONS = [
   "tone_and_personality",
   "compliance_and_guardrails",
   "tools_and_integrations",
+  "intent",
 ] as const;
 
 export type Dimension = typeof DIMENSIONS[number];
@@ -47,6 +48,51 @@ export interface TraceEntry {
   source_version: string | null;
 }
 
+export interface IntentProfile {
+  behavior: {
+    role_focus: string;
+    custom_instructions: string | null;
+    communication_style: "professional" | "casual" | "concise" | "detailed" | "empathetic";
+    response_depth: "brief" | "standard" | "comprehensive";
+  };
+  capabilities: {
+    summaries: boolean;
+    action_items: boolean;
+    decisions: boolean;
+    risk_detection: boolean;
+    technical_analysis: boolean;
+    architecture_review: boolean;
+    incident_detection: boolean;
+    follow_ups: boolean;
+  };
+  automations: {
+    slack_summary: boolean;
+    jira_tasks: boolean;
+    high_risk_escalation: boolean;
+    stakeholder_notification: boolean;
+  };
+  knowledge_access: {
+    meeting_history: boolean;
+    team_documents: boolean;
+    past_decisions: boolean;
+    architecture_docs: boolean;
+    incidents_outages: boolean;
+  };
+  privacy_safety: {
+    redact_pii: boolean;
+    restrict_external_sharing: boolean;
+    require_approval_before_escalation: boolean;
+    data_residency: "default" | "restricted";
+  };
+  connected_tools: {
+    slack_enabled: boolean;
+    jira_enabled: boolean;
+    github_enabled: boolean;
+    notion_enabled: boolean;
+    crm_enabled: boolean;
+  };
+}
+
 export interface ResolvedBehavior {
   organization_id: string;
   category_id: number | null;
@@ -62,6 +108,7 @@ export interface ResolvedBehavior {
   tone_and_personality: Record<string, unknown>;
   compliance_and_guardrails: Record<string, unknown>;
   tools_and_integrations: Record<string, unknown>;
+  intent: Record<string, unknown>;
   trace: TraceEntry[];
 }
 

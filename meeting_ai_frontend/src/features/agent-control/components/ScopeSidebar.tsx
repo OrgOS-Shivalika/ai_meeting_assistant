@@ -36,59 +36,65 @@ export default function ScopeSidebar({
   onSelect: (scope: ActiveScope) => void;
 }) {
   return (
-    <aside className="w-72 h-full bg-white border-r border-gray-200 overflow-y-auto">
-      <div className="px-4 py-4 border-b border-gray-100">
+    <aside className="w-80 h-full bg-[#fbfbfb] border-r border-gray-200 overflow-y-auto">
+      <div className="px-6 py-8 border-b border-gray-100 bg-white">
         <Link
           to="/"
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-900"
+          className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 hover:text-indigo-600 transition-colors"
           title="Back to app"
         >
-          <ArrowLeft className="w-3 h-3" />
-          Exit Agent Control
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Exit OS Control
         </Link>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mt-3">
-          Agent Control
-        </p>
-        <h2 className="text-sm font-bold text-gray-900 mt-0.5">
-          Behavior scopes
-        </h2>
+        <div className="mt-8">
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600/50">
+            Runtime Policy
+          </p>
+          <h2 className="text-xl font-black text-gray-900 mt-1 tracking-tight">
+            Scope Tree
+          </h2>
+        </div>
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-10 text-gray-400">
-          <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading…
+        <div className="flex items-center justify-center py-20 text-gray-300">
+          <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       )}
 
       {!loading && data && (
-        <div className="py-2">
+        <div className="py-6">
           {/* Workspace defaults — always at the top */}
-          <ScopeRow
-            label="Workspace Defaults"
-            sublabel="Organization-wide AI policy"
-            icon={Building2}
-            active={active.type === "workspace"}
-            badgeCount={data.workspace_overrides_count}
-            onClick={() =>
-              onSelect({
-                type: "workspace", id: null,
-                display_name: "Workspace Defaults",
-              })
-            }
-          />
-
-          <SectionHeader label="Categories" />
-
-          {data.categories.length === 0 && data.teams.length === 0 ? (
-            <EmptyHint text="Install a bundle from Templates to populate this list." />
-          ) : (
-            <CategoryTree
-              categories={data.categories}
-              teams={data.teams}
-              active={active}
-              onSelect={onSelect}
+          <div className="px-3 mb-8">
+            <ScopeRow
+              label="Workspace Defaults"
+              sublabel="Global org-wide policy"
+              icon={Building2}
+              active={active.type === "workspace"}
+              badgeCount={data.workspace_overrides_count}
+              onClick={() =>
+                onSelect({
+                  type: "workspace", id: null,
+                  display_name: "Workspace Defaults",
+                })
+              }
             />
-          )}
+          </div>
+
+          <div className="px-3">
+            <SectionHeader label="Organization Categories" />
+
+            {data.categories.length === 0 && data.teams.length === 0 ? (
+              <EmptyHint text="Install a department bundle to populate the hierarchy." />
+            ) : (
+              <CategoryTree
+                categories={data.categories}
+                teams={data.teams}
+                active={active}
+                onSelect={onSelect}
+              />
+            )}
+          </div>
         </div>
       )}
     </aside>
@@ -118,7 +124,7 @@ function CategoryTree({
   }
 
   return (
-    <>
+    <div className="space-y-6">
       {categories.map((cat) => (
         <CategoryNode
           key={cat.id}
@@ -129,7 +135,7 @@ function CategoryTree({
         />
       ))}
       {orphans.length > 0 && (
-        <>
+        <div className="pt-4 border-t border-gray-100">
           <SectionHeader label="Standalone Teams" />
           {orphans.map((t) => (
             <ScopeRow
@@ -149,9 +155,9 @@ function CategoryTree({
               }
             />
           ))}
-        </>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -165,7 +171,7 @@ function CategoryNode({
   onSelect: (scope: ActiveScope) => void;
 }) {
   return (
-    <>
+    <div className="space-y-1">
       <ScopeRow
         label={category.name}
         sublabel={category.template_slug || undefined}
@@ -179,33 +185,35 @@ function CategoryNode({
           })
         }
       />
-      {teams.map((t) => (
-        <ScopeRow
-          key={`team-${t.id}`}
-          label={t.name}
-          sublabel={t.template_slug || undefined}
-          icon={Users}
-          indent={1}
-          active={active.type === "team" && active.id === t.id}
-          badgeCount={t.override_count}
-          onClick={() =>
-            onSelect({
-              type: "team", id: t.id,
-              parent_id: t.parent_id ?? null,
-              display_name: t.name,
-            })
-          }
-        />
-      ))}
-    </>
+      <div className="space-y-1 mt-1">
+        {teams.map((t) => (
+          <ScopeRow
+            key={`team-${t.id}`}
+            label={t.name}
+            sublabel={t.template_slug || undefined}
+            icon={Users}
+            indent={1}
+            active={active.type === "team" && active.id === t.id}
+            badgeCount={t.override_count}
+            onClick={() =>
+              onSelect({
+                type: "team", id: t.id,
+                parent_id: t.parent_id ?? null,
+                display_name: t.name,
+              })
+            }
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
 
 function SectionHeader({ label }: { label: string }) {
   return (
-    <div className="mt-4 mb-1 px-4">
-      <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">
+    <div className="mb-3 px-3">
+      <span className="text-[9px] font-black uppercase tracking-[0.25em] text-gray-400">
         {label}
       </span>
     </div>
@@ -214,7 +222,7 @@ function SectionHeader({ label }: { label: string }) {
 
 function EmptyHint({ text }: { text: string }) {
   return (
-    <p className="px-4 py-2 text-xs text-gray-400 italic">{text}</p>
+    <p className="px-3 py-2 text-xs text-gray-400 font-medium italic">{text}</p>
   );
 }
 
@@ -238,28 +246,32 @@ function ScopeRow({
   return (
     <button
       onClick={onClick}
-      style={{ paddingLeft: 16 + indent * 16 }}
-      className={`w-full text-left flex items-start gap-2 pr-4 py-2 transition ${
+      style={{ paddingLeft: 12 + indent * 16 }}
+      className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
         active
-          ? "bg-indigo-50 border-l-2 border-indigo-600"
-          : "border-l-2 border-transparent hover:bg-gray-50"
+          ? "bg-white shadow-md shadow-indigo-500/10 ring-1 ring-black/5"
+          : "hover:bg-gray-100/50"
       }`}
     >
-      <Icon
-        className={`w-4 h-4 mt-0.5 shrink-0 ${active ? "text-indigo-600" : "text-gray-400"}`}
-      />
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium truncate ${active ? "text-indigo-900" : "text-gray-800"}`}>
+      <div className={`p-1.5 rounded-lg shrink-0 ${active ? "bg-indigo-600 text-white shadow-sm" : "bg-gray-100 text-gray-400"}`}>
+        <Icon className="w-3.5 h-3.5" />
+      </div>
+      <div className="flex-1 min-w-0 py-0.5">
+        <p className={`text-xs font-bold truncate ${active ? "text-gray-900" : "text-gray-600"}`}>
           {label}
         </p>
         {sublabel && (
-          <p className="text-[11px] text-gray-500 truncate">{sublabel}</p>
+          <p className={`text-[10px] font-bold uppercase tracking-tighter truncate ${active ? "text-indigo-400" : "text-gray-400"}`}>
+            {sublabel}
+          </p>
         )}
       </div>
       {badgeCount > 0 && (
         <span
-          className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold mt-0.5"
-          title={`${badgeCount} override${badgeCount === 1 ? "" : "s"}`}
+          className={`inline-flex items-center justify-center min-w-[18px] h-4.5 px-1.5 rounded-full text-[9px] font-black mt-1 ${
+            active ? "bg-indigo-100 text-indigo-600" : "bg-gray-200 text-gray-500"
+          }`}
+          title={`${badgeCount} active overrides`}
         >
           {badgeCount}
         </span>

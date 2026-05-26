@@ -69,6 +69,7 @@ BEHAVIOR_DIMENSIONS: tuple[str, ...] = (
     "tone_and_personality",
     "compliance_and_guardrails",
     "tools_and_integrations",
+    "intent",
 )
 
 # Scope types — same as the migration CHECK.

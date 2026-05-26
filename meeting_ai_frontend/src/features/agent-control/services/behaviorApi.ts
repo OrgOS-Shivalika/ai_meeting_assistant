@@ -1,6 +1,7 @@
 import { apiClient } from "../../../services/apiClient";
 import type {
   Dimension,
+  IntentProfile,
   OverridesResponse,
   ResolvedBehavior,
   ScopeKind,
@@ -51,6 +52,23 @@ export const behaviorApi = {
     if (args.scope_id) qs.set("scope_id", String(args.scope_id));
     return apiClient(`/behavior/overrides?${qs.toString()}`, { method: "DELETE" });
   },
+
+  getIntent: (scope_type: ScopeKind, scope_id: number | null): Promise<IntentProfile> => {
+    const qs = new URLSearchParams({ scope_type });
+    if (scope_id) qs.set("scope_id", String(scope_id));
+    return apiClient(`/behavior/intent?${qs.toString()}`);
+  },
+
+  putIntent: (args: {
+    scope_type: ScopeKind;
+    scope_id: number | null;
+    intent: IntentProfile;
+  }): Promise<unknown> =>
+    apiClient(`/behavior/intent?scope_type=${args.scope_type}${args.scope_id ? `&scope_id=${args.scope_id}` : ""}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args.intent),
+    }),
 
   resetScope: (scope_type: ScopeKind, scope_id: number | null): Promise<{ deleted_count: number }> => {
     const qs = new URLSearchParams({ scope_type });

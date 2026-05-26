@@ -45,7 +45,7 @@ export default function AgentControlPage() {
   useEffect(() => { loadScopes(); }, [loadScopes]);
 
   return (
-    <div className="flex h-screen w-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen w-screen bg-[#fafafa] overflow-hidden">
       <ScopeSidebar
         data={scopes}
         loading={scopesLoading}

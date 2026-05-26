@@ -41,7 +41,7 @@ class BehaviorProfileDef:
     slug: str
     display_name: str
     description: str
-    version: str = "1.0.0"
+    version: str = "2.0.0"
     parent_category_slug: Optional[str] = None
 
     master_prompt: dict = field(default_factory=dict)
@@ -55,6 +55,7 @@ class BehaviorProfileDef:
     tone_and_personality: dict = field(default_factory=dict)
     compliance_and_guardrails: dict = field(default_factory=dict)
     tools_and_integrations: dict = field(default_factory=dict)
+    intent: dict = field(default_factory=dict)
 
 
 # ===========================================================================
@@ -87,169 +88,136 @@ _GUARDRAILS = (
 
 
 def _dept_defaults(cls: str) -> dict:
-    """Returns a complete 11-dimension default dict for a category of
-    the given class. Caller merges category-specific overrides on top
-    via `dict | overrides`.
-
-    All seven classes set every dimension so a fresh-install profile
-    is fully usable out of the box (the user's "engineered defaults"
-    requirement)."""
-    base = {
-        "master_prompt": {
-            "system": (
-                "You are the AI meeting assistant for {{org_name}}.\n"
-                "You analyze meetings grounded in transcripts and "
-                "documents."
-            ),
-            "behavior": (
-                "Lead with the answer. Surface decisions, blockers, "
-                "and open questions explicitly."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": "Use plain markdown. Bullet lists for enumerations.",
+    """Returns the intent-driven defaults for a department class.
+    
+    Technical internals (retrieval weights, graph depth, etc.) are 
+    now automatically derived from these intents by the PolicyResolver 
+    at runtime.
+    """
+    # 1. Platform-wide baseline intent
+    intent = {
+        "behavior": {
+            "role_focus": "AI Meeting Assistant",
+            "custom_instructions": "Lead with the answer. Surface decisions and blockers.",
+            "communication_style": "professional",
+            "response_depth": "standard"
         },
-        "enabled_agents": ["action-item-manager"],
-        "retrieval_config": {
-            "top_k_vector": 20, "top_k_final": 12,
-            "max_graph_depth": 1, "rerank_strategy": "default",
-            "sources_filter": "both", "include_archived": False,
+        "capabilities": {
+            "summaries": True,
+            "action_items": True,
+            "decisions": True,
+            "risk_detection": False,
+            "technical_analysis": False,
+            "architecture_review": False,
+            "incident_detection": False,
+            "follow_ups": True
         },
-        "memory_config": {
-            "consolidation_enabled": True,
-            "recency_weight": 0.5, "importance_threshold": 0.3,
+        "automations": {
+            "slack_summary": True,
+            "jira_tasks": False,
+            "high_risk_escalation": False,
+            "stakeholder_notification": False
         },
-        "output_config": {
-            "format": "markdown", "max_length_tokens": 1500,
-            "sections": ["summary", "decisions", "action_items"],
+        "knowledge_access": {
+            "meeting_history": True,
+            "team_documents": True,
+            "past_decisions": True,
+            "architecture_docs": False,
+            "incidents_outages": False
         },
-        "extraction_rules": {
-            "entities": ["person", "decision", "action_item", "risk"],
-            "extract_action_items": True, "extract_decisions": True,
-            "extract_timeline": False, "extract_crm_fields": False,
+        "privacy_safety": {
+            "redact_pii": True,
+            "restrict_external_sharing": True,
+            "require_approval_before_escalation": False,
+            "data_residency": "default"
         },
-        "automation_rules": {
-            "post_meeting_summary": True,
-            "sync_to_crm": False, "escalation_alert": False,
-        },
-        "evaluation_rules": {
-            "eval_gate_enabled": False, "min_pass_rate": 0.0,
-        },
-        "tone_and_personality": {
-            "formality": "professional", "verbosity": "concise",
-        },
-        "compliance_and_guardrails": {
-            "redact_pii": True, "audit_trail_required": False,
-            "bias_check_enabled": False, "data_residency": "default",
-            "refused_topics": [],
-        },
-        "tools_and_integrations": {
-            "allowed_tools": ["search_knowledge_base", "lookup_entity", "fetch_meeting"],
-            "denied_tools": [], "model": "", "temperature": 0.3,
-        },
+        "connected_tools": {
+            "slack_enabled": True,
+            "jira_enabled": False,
+            "github_enabled": False,
+            "notion_enabled": False,
+            "crm_enabled": False
+        }
     }
 
+    # 2. Apply class-specific intent overrides
     if cls == "technical":
-        base["retrieval_config"].update({
-            "top_k_final": 14, "max_graph_depth": 2,
-            "rerank_strategy": "importance_aware",
+        intent["behavior"].update({
+            "role_focus": "Technical Engineering Analyst",
+            "communication_style": "concise",
+            "response_depth": "comprehensive"
         })
-        base["extraction_rules"]["entities"] = [
-            "system", "service", "decision", "blocker", "risk", "owner",
-        ]
-        base["output_config"]["sections"] = [
-            "decisions", "blockers", "risks", "action_items",
-        ]
-        base["tone_and_personality"] = {
-            "formality": "professional", "verbosity": "precise",
-        }
-        base["tools_and_integrations"]["temperature"] = 0.25
+        intent["capabilities"].update({
+            "risk_detection": True,
+            "technical_analysis": True,
+            "architecture_review": True,
+            "incident_detection": True
+        })
+        intent["knowledge_access"].update({
+            "architecture_docs": True,
+            "incidents_outages": True
+        })
     elif cls == "revenue":
-        base["enabled_agents"] = ["sales-coach", "crm-extractor"]
-        base["extraction_rules"]["entities"] = [
-            "company", "buyer", "pain_point", "objection",
-            "competitor", "action_item",
-        ]
-        base["extraction_rules"]["extract_crm_fields"] = True
-        base["automation_rules"]["sync_to_crm"] = True
-        base["tone_and_personality"] = {
-            "formality": "casual", "verbosity": "concise",
-        }
-        base["output_config"]["sections"] = [
-            "buying_signals", "objections", "next_steps",
-        ]
-        base["tools_and_integrations"]["temperature"] = 0.4
+        intent["behavior"].update({
+            "role_focus": "Revenue & Sales Analyst",
+            "communication_style": "casual"
+        })
+        intent["capabilities"].update({
+            "follow_ups": True
+        })
+        intent["automations"].update({
+            "jira_tasks": True # Mapped to CRM in this context
+        })
+        intent["connected_tools"].update({
+            "crm_enabled": True
+        })
     elif cls == "people":
-        base["enabled_agents"] = ["compliance-auditor", "action-item-manager"]
-        base["extraction_rules"]["entities"] = [
-            "person", "competency", "feedback", "decision",
-        ]
-        base["compliance_and_guardrails"].update({
-            "redact_pii": True, "audit_trail_required": True,
-            "bias_check_enabled": True,
-            "refused_topics": [
-                "protected_class_inferences", "salary_disclosure",
-            ],
+        intent["behavior"].update({
+            "role_focus": "HR Operations Assistant",
+            "communication_style": "empathetic"
         })
-        base["tone_and_personality"] = {
-            "formality": "professional", "verbosity": "precise",
-        }
-        base["tools_and_integrations"]["temperature"] = 0.2
+        intent["privacy_safety"].update({
+            "require_approval_before_escalation": True
+        })
     elif cls == "executive":
-        base["enabled_agents"] = ["executive-summarizer", "compliance-auditor"]
-        base["retrieval_config"].update({
-            "top_k_final": 15, "rerank_strategy": "importance_aware",
+        intent["behavior"].update({
+            "role_focus": "Executive Summarizer",
+            "communication_style": "concise",
+            "response_depth": "brief"
         })
-        base["compliance_and_guardrails"].update({
-            "audit_trail_required": True, "data_residency": "restricted",
+        intent["automations"].update({
+            "high_risk_escalation": True,
+            "stakeholder_notification": True
         })
-        base["tone_and_personality"] = {
-            "formality": "formal", "verbosity": "very-concise",
-        }
-        base["output_config"]["sections"] = [
-            "decisions_made", "open_questions", "asks_of_leadership",
-        ]
-        base["output_config"]["max_length_tokens"] = 1000
-        base["tools_and_integrations"]["temperature"] = 0.2
+        intent["privacy_safety"].update({
+            "data_residency": "restricted"
+        })
     elif cls == "compliance_heavy":
-        base["enabled_agents"] = ["compliance-auditor"]
-        base["retrieval_config"].update({
-            "top_k_final": 18, "max_graph_depth": 2,
+        intent["behavior"].update({
+            "role_focus": "Legal & Compliance Analyst",
+            "communication_style": "professional"
         })
-        base["compliance_and_guardrails"].update({
-            "redact_pii": True, "audit_trail_required": True,
-            "data_residency": "restricted",
-            "refused_topics": [
-                "legal_advice", "non_attorney_interpretation",
-            ],
+        intent["knowledge_access"].update({
+            "past_decisions": True
         })
-        base["tone_and_personality"] = {
-            "formality": "formal", "verbosity": "precise",
-        }
-        base["tools_and_integrations"]["temperature"] = 0.15
+        intent["privacy_safety"].update({
+            "data_residency": "restricted"
+        })
     elif cls == "creative":
-        base["extraction_rules"]["entities"] = [
-            "asset", "decision", "rationale", "iteration",
-        ]
-        base["tone_and_personality"] = {
-            "formality": "casual", "verbosity": "narrative",
-        }
-        base["output_config"]["sections"] = [
-            "creative_direction", "decisions", "iterations", "follow_ups",
-        ]
-        base["tools_and_integrations"]["temperature"] = 0.55
+        intent["behavior"].update({
+            "role_focus": "Creative Direction Assistant",
+            "communication_style": "detailed"
+        })
     elif cls == "operations":
-        base["extraction_rules"]["entities"] = [
-            "process", "vendor", "sla", "kpi", "bottleneck", "action_item",
-        ]
-        base["output_config"]["sections"] = [
-            "process_changes", "bottlenecks", "metrics", "action_items",
-        ]
-        base["tone_and_personality"] = {
-            "formality": "professional", "verbosity": "precise",
-        }
-    return base
+        intent["behavior"].update({
+            "role_focus": "Operations Analyst",
+            "communication_style": "concise"
+        })
+
+    # Return only the 'intent' dimension. 
+    # The technical dimensions will be resolution-empty in the template rows,
+    # forcing the PolicyResolver to fill them based on the intent.
+    return {"intent": intent}
 
 
 def _merge_dims(base: dict, overrides: dict) -> dict:
@@ -316,55 +284,50 @@ GLOBAL_DEFAULT = BehaviorProfileDef(
     description="The baseline AI cognition profile applied to every "
                 "workspace before category + team templates and "
                 "overrides layer on top.",
-    master_prompt={
-        "system": (
-            "You are the AI meeting assistant for {{org_name}}.\n"
-            "You answer questions grounded in meeting transcripts and "
-            "documents. You are precise, neutral, and concise."
-        ),
-        "behavior": (
-            "Lead with the answer. Surface decisions, blockers, and "
-            "open questions explicitly when they appear in context."
-        ),
-        "retrieval": "Use ONLY the numbered context blocks.",
-        "citation": _CITATION_RULES,
-        "guardrails": _GUARDRAILS,
-        "output": "Use plain markdown. Bullet lists for enumerations.",
-    },
-    enabled_agents=["action-item-manager"],
-    retrieval_config={
-        "top_k_vector": 20, "top_k_final": 10,
-        "max_graph_depth": 1, "rerank_strategy": "default",
-        "sources_filter": "both", "include_archived": False,
-    },
-    memory_config={
-        "consolidation_enabled": True,
-        "recency_weight": 0.5, "importance_threshold": 0.3,
-    },
-    output_config={
-        "format": "markdown", "max_length_tokens": 1500,
-        "sections": ["summary", "action_items"],
-    },
-    extraction_rules={
-        "entities": ["person", "decision", "action_item", "risk"],
-        "extract_action_items": True, "extract_decisions": True,
-        "extract_timeline": False, "extract_crm_fields": False,
-    },
-    automation_rules={
-        "post_meeting_summary": True,
-        "sync_to_crm": False, "escalation_alert": False,
-    },
-    evaluation_rules={"eval_gate_enabled": False, "min_pass_rate": 0.0},
-    tone_and_personality={"formality": "professional", "verbosity": "concise"},
-    compliance_and_guardrails={
-        "redact_pii": True, "audit_trail_required": False,
-        "bias_check_enabled": False, "data_residency": "default",
-        "refused_topics": [],
-    },
-    tools_and_integrations={
-        "allowed_tools": ["search_knowledge_base", "lookup_entity", "fetch_meeting"],
-        "denied_tools": [], "model": "", "temperature": 0.3,
-    },
+    intent={
+        "behavior": {
+            "role_focus": "AI Meeting Assistant",
+            "custom_instructions": "Lead with the answer. Surface decisions and blockers.",
+            "communication_style": "professional",
+            "response_depth": "standard"
+        },
+        "capabilities": {
+            "summaries": True,
+            "action_items": True,
+            "decisions": True,
+            "risk_detection": False,
+            "technical_analysis": False,
+            "architecture_review": False,
+            "incident_detection": False,
+            "follow_ups": True
+        },
+        "automations": {
+            "slack_summary": True,
+            "jira_tasks": False,
+            "high_risk_escalation": False,
+            "stakeholder_notification": False
+        },
+        "knowledge_access": {
+            "meeting_history": True,
+            "team_documents": True,
+            "past_decisions": True,
+            "architecture_docs": False,
+            "incidents_outages": False
+        },
+        "privacy_safety": {
+            "redact_pii": True,
+            "restrict_external_sharing": True,
+            "require_approval_before_escalation": False,
+            "data_residency": "default"
+        },
+        "connected_tools": {
+            "slack_enabled": True,
+            "jira_enabled": False,
+            "github_enabled": False,
+            "notion_enabled": False,
+            "crm_enabled": False
+        }
+    }
 )
 
 
@@ -379,457 +342,76 @@ _CATEGORY_PROFILES = (
         description="Software engineering. Technical depth, architecture, "
                     "blockers, system risks.",
         dept_class="technical",
-        master_prompt={
-            "system": (
-                "You are the Engineering Analyst for {{org_name}}.\n"
-                "You analyze engineering meetings — architecture, sprint "
-                "work, incidents, design — grounded in transcripts and "
-                "technical documents."
-            ),
-            "behavior": (
-                "Be precise with technical language. Surface decisions, "
-                "blockers, dependencies, and unresolved risks. "
-                "Distinguish what was decided from what was discussed."
-            ),
-            "retrieval": (
-                "Prefer DOCUMENT chunks (architecture/design docs) for "
-                "definitional facts; prefer MEETING chunks for "
-                "decisions + discussion."
-            ),
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Lead with the answer. Then list relevant decisions, "
-                "blockers, and risks as bullets, citing each."
-            ),
-        },
-        enabled_agents=["technical-analyst"],
     ),
     _category(
         slug="product", display_name="Product",
         description="Product management — strategy, roadmap, user research, metrics.",
         dept_class="operations",
-        master_prompt={
-            "system": (
-                "You are the Product Analyst for {{org_name}}.\n"
-                "You analyze product meetings — roadmap, research, "
-                "metrics review — surfacing user-impacting decisions."
-            ),
-            "behavior": (
-                "Distinguish committed scope from explorations. "
-                "Capture user feedback verbatim. Tie features to outcomes."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": "Sections: Decisions, User Feedback, Metrics, Follow-ups.",
-        },
-        enabled_agents=["technical-analyst", "action-item-manager"],
-        extraction_rules={
-            "entities": [
-                "feature", "user_feedback", "decision", "metric",
-                "experiment", "action_item",
-            ],
-        },
     ),
     _category(
         slug="sales", display_name="Sales",
         description="Revenue: discovery, demo, pipeline, deal mechanics.",
         dept_class="revenue",
-        master_prompt={
-            "system": (
-                "You are the Sales Analyst for {{org_name}}.\n"
-                "You analyze sales conversations to surface buying "
-                "signals, objections, deal mechanics, and recommended "
-                "next steps."
-            ),
-            "behavior": (
-                "Identify buying signals (verbalized pain, budget, "
-                "timeline, decision-maker references). Surface "
-                "objections with the buyer's verbatim phrasing."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Buying Signals, Objections, Pain Points, "
-                "CRM Fields, Recommended Next Steps."
-            ),
-        },
     ),
     _category(
         slug="customer-success", display_name="Customer Success",
         description="Post-sale: onboarding, QBRs, escalations, renewals.",
         dept_class="revenue",
-        master_prompt={
-            "system": (
-                "You are the Customer Success Analyst for {{org_name}}.\n"
-                "You analyze post-sale conversations to surface "
-                "sentiment, retention risk, blockers, and required "
-                "follow-ups."
-            ),
-            "behavior": (
-                "Capture sentiment turning points verbatim. Flag "
-                "retention risk explicitly. Distinguish the customer's "
-                "stated issue from the inferred root cause."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Sentiment, Stated Issue, Inferred Root "
-                "Cause, Retention Risk, Required Follow-ups."
-            ),
-        },
-        enabled_agents=["customer-sentiment-analyzer", "action-item-manager"],
-        tone_and_personality={"formality": "empathetic", "verbosity": "concise"},
-        automation_rules={
-            "post_meeting_summary": True, "sync_to_crm": True,
-            "escalation_alert": True,
-        },
-        output_config={
-            "sections": ["sentiment", "issue", "root_cause",
-                         "retention_risk", "follow_ups"],
-        },
     ),
     _category(
         slug="marketing", display_name="Marketing",
         description="Demand generation, content, brand, campaigns.",
         dept_class="creative",
-        master_prompt={
-            "system": (
-                "You are the Marketing Analyst for {{org_name}}.\n"
-                "You analyze marketing meetings — campaigns, content, "
-                "positioning — to surface decisions and creative briefs."
-            ),
-            "behavior": (
-                "Capture creative direction + campaign decisions clearly. "
-                "Distinguish committed direction from exploration."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Creative Direction, Campaign Decisions, "
-                "Brand Notes, Action Items."
-            ),
-        },
-        extraction_rules={
-            "entities": [
-                "campaign", "asset", "channel", "decision", "action_item",
-            ],
-        },
     ),
     _category(
         slug="hr", display_name="HR",
         description="People operations: hiring, performance, compliance.",
         dept_class="people",
-        master_prompt={
-            "system": (
-                "You are the HR Analyst for {{org_name}}.\n"
-                "You analyze people-ops meetings — performance, hiring, "
-                "employee relations — with strict bias awareness."
-            ),
-            "behavior": (
-                "Distinguish observable behavior from inference. Quote "
-                "feedback verbatim. Avoid speculation about employees. "
-                "Do not infer protected-class attributes."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": (
-                _GUARDRAILS + "\n\n"
-                "Decline to compare employees on protected-class "
-                "attributes (race, gender, age, religion, disability, "
-                "national origin)."
-            ),
-            "output": (
-                "Sections: Competency Ratings, Feedback Given, "
-                "Employee Response, Action Items."
-            ),
-        },
-        output_config={
-            "sections": ["ratings", "feedback", "response", "action_items"],
-        },
     ),
     _category(
         slug="finance", display_name="Finance",
         description="Accounting, FP&A, budget reviews, financial planning.",
         dept_class="executive",
-        master_prompt={
-            "system": (
-                "You are the Finance Analyst for {{org_name}}.\n"
-                "You analyze finance meetings with precision — numbers "
-                "are quoted exactly, units always explicit."
-            ),
-            "behavior": (
-                "Never round numbers without flagging it. Always state "
-                "the unit + period. Cite source documents for figures."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Key Figures, Variance, Decisions, "
-                "Forecasts, Action Items."
-            ),
-        },
-        retrieval_config={"top_k_final": 16},
-        extraction_rules={
-            "entities": [
-                "figure", "metric", "budget_line", "decision",
-                "forecast", "owner",
-            ],
-        },
-        output_config={
-            "sections": ["figures", "variance", "decisions",
-                         "forecasts", "action_items"],
-        },
     ),
     _category(
         slug="executive", display_name="Executive",
         description="C-suite + board: governance, strategy, leadership.",
         dept_class="executive",
-        master_prompt={
-            "system": (
-                "You are the Executive Summarizer for {{org_name}}.\n"
-                "You produce board-ready summaries from leadership "
-                "meetings."
-            ),
-            "behavior": (
-                "Lead with the bottom line. Group by Decisions Made, "
-                "Open Questions, Asks of Leadership. Aggressive "
-                "concision — every bullet ≤ 20 words."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Decisions Made, Open Questions, Asks of "
-                "Leadership. 0–5 bullets per section."
-            ),
-        },
-        enabled_agents=["executive-summarizer"],
     ),
     _category(
         slug="security", display_name="Security",
         description="InfoSec, incident response, vulnerability reviews, compliance.",
         dept_class="compliance_heavy",
-        master_prompt={
-            "system": (
-                "You are the Security Analyst for {{org_name}}.\n"
-                "You analyze security meetings — incidents, vuln "
-                "reviews, compliance — with audit-grade precision."
-            ),
-            "behavior": (
-                "Capture severity, scope, mitigation, residual risk. "
-                "Quote attack vectors verbatim. Flag unresolved threats."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Severity, Scope, Timeline, Mitigations, "
-                "Residual Risk, Action Items."
-            ),
-        },
-        enabled_agents=["compliance-auditor", "incident-investigator"],
-        extraction_rules={
-            "entities": [
-                "incident", "vulnerability", "system", "severity",
-                "mitigation", "owner",
-            ],
-            "extract_timeline": True,
-        },
-        output_config={
-            "sections": ["severity", "scope", "timeline",
-                         "mitigations", "residual_risk", "action_items"],
-        },
     ),
     _category(
         slug="legal", display_name="Legal",
         description="Contracts, IP, regulatory, litigation, compliance counsel.",
         dept_class="compliance_heavy",
-        master_prompt={
-            "system": (
-                "You are the Legal Analyst for {{org_name}}.\n"
-                "You analyze legal meetings — contract review, IP, "
-                "regulatory — with precise terminology."
-            ),
-            "behavior": (
-                "Quote clauses verbatim. Distinguish opinion from "
-                "precedent. Flag material risks + unsigned "
-                "commitments. Never give legal advice."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Material Terms, Risks, Open Items, "
-                "Owners, Next Steps."
-            ),
-        },
-        extraction_rules={
-            "entities": [
-                "contract", "clause", "party", "risk",
-                "obligation", "deadline",
-            ],
-        },
-        output_config={
-            "sections": ["material_terms", "risks", "open_items",
-                         "owners", "next_steps"],
-        },
     ),
     _category(
         slug="operations", display_name="Operations",
         description="Business ops, supply chain, facilities, process improvement.",
         dept_class="operations",
-        master_prompt={
-            "system": (
-                "You are the Operations Analyst for {{org_name}}.\n"
-                "You analyze ops meetings — process, capacity, supply "
-                "chain, facilities — surfacing bottlenecks + KPI "
-                "movement."
-            ),
-            "behavior": (
-                "Quantify everything that's quantifiable. Surface SLA "
-                "breaches + capacity constraints. Track action items "
-                "back to owners."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Process Changes, Bottlenecks, KPIs, "
-                "Action Items."
-            ),
-        },
     ),
     _category(
         slug="it", display_name="IT",
         description="Internal IT, helpdesk, endpoint management, corporate infrastructure.",
         dept_class="technical",
-        master_prompt={
-            "system": (
-                "You are the IT Analyst for {{org_name}}.\n"
-                "You analyze internal IT meetings — service tickets, "
-                "endpoint management, system rollouts."
-            ),
-            "behavior": (
-                "Capture incident timelines + remediation steps. Track "
-                "ticket-to-resolution patterns. Flag recurring root "
-                "causes."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Open Tickets, Resolutions, Recurring Issues, "
-                "Rollouts, Action Items."
-            ),
-        },
-        enabled_agents=["incident-investigator", "action-item-manager"],
-        extraction_rules={
-            "entities": [
-                "system", "ticket", "endpoint", "owner", "sla",
-            ],
-            "extract_timeline": True,
-        },
-        output_config={
-            "sections": ["tickets", "resolutions", "recurring",
-                         "rollouts", "action_items"],
-        },
     ),
     _category(
         slug="partnerships", display_name="Partnerships",
         description="Business development, channel partners, alliances, integrations.",
         dept_class="revenue",
-        master_prompt={
-            "system": (
-                "You are the Partnerships Analyst for {{org_name}}.\n"
-                "You analyze BD + partner conversations to surface "
-                "deal mechanics, integration commitments, and joint "
-                "go-to-market."
-            ),
-            "behavior": (
-                "Capture mutual commitments verbatim. Identify "
-                "decision owners on both sides. Surface unresolved "
-                "scope or timeline risks."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Mutual Commitments, Decision Owners, "
-                "Integration Scope, Risks, Next Steps."
-            ),
-        },
-        extraction_rules={
-            "entities": [
-                "partner", "commitment", "integration", "deal_stage",
-                "owner",
-            ],
-        },
-        output_config={
-            "sections": ["commitments", "owners", "integration_scope",
-                         "risks", "next_steps"],
-        },
     ),
     _category(
         slug="design", display_name="Design",
         description="Brand design, visual identity, creative reviews.",
         dept_class="creative",
-        master_prompt={
-            "system": (
-                "You are the Design Analyst for {{org_name}}.\n"
-                "You analyze design critiques + brand reviews — "
-                "surface creative direction + decisions made."
-            ),
-            "behavior": (
-                "Capture rationale behind design decisions verbatim. "
-                "Distinguish committed direction from exploration."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Direction, Decisions, Iterations, Follow-ups."
-            ),
-        },
     ),
     _category(
         slug="data-science", display_name="Data Science",
         description="Analytics, experimentation, statistical modeling, insights.",
         dept_class="technical",
-        master_prompt={
-            "system": (
-                "You are the Data Science Analyst for {{org_name}}.\n"
-                "You analyze data-science meetings — experiment "
-                "reviews, model evaluations, insights presentations."
-            ),
-            "behavior": (
-                "Capture experiment hypotheses + outcomes. Quote "
-                "confidence intervals + sample sizes when stated. Flag "
-                "inconclusive results explicitly."
-            ),
-            "retrieval": "Use ONLY the numbered context blocks.",
-            "citation": _CITATION_RULES,
-            "guardrails": _GUARDRAILS,
-            "output": (
-                "Sections: Hypotheses, Outcomes, Confidence, "
-                "Decisions, Follow-ups."
-            ),
-        },
-        retrieval_config={"top_k_final": 15, "max_graph_depth": 2},
-        extraction_rules={
-            "entities": [
-                "experiment", "metric", "hypothesis", "model", "owner",
-            ],
-        },
-        output_config={
-            "sections": ["hypotheses", "outcomes", "confidence",
-                         "decisions", "follow_ups"],
-        },
     ),
 )
 
@@ -849,76 +431,63 @@ _TEAM_PROFILES = (
         slug="backend", parent_category_slug="engineering",
         display_name="Backend",
         description="Server-side systems: APIs, services, data plane.",
-        extraction_rules={
-            "entities": ["service", "api", "endpoint", "datastore", "owner", "incident"],
-        },
-        tone_and_personality={"verbosity": "precise"},
+        intent={
+            "behavior": {
+                "role_focus": "Backend Engineering Analyst",
+                "custom_instructions": "Focus on APIs, data integrity, and service scalability."
+            }
+        }
     ),
     _team(
         slug="frontend", parent_category_slug="engineering",
         display_name="Frontend",
         description="Web + mobile UI: design system, performance, UX.",
-        extraction_rules={
-            "entities": ["component", "page", "ux_decision", "performance_metric"],
-        },
+        intent={
+            "behavior": {
+                "role_focus": "Frontend Engineering Analyst",
+                "custom_instructions": "Focus on UI/UX consistency, performance, and accessibility."
+            }
+        }
     ),
     _team(
         slug="devops", parent_category_slug="engineering",
         display_name="DevOps / SRE",
         description="Deploy pipeline, infra, reliability, incidents.",
-        enabled_agents=["incident-investigator", "technical-analyst"],
-        retrieval_config={"top_k_final": 18, "max_graph_depth": 2},
-        extraction_rules={
-            "entities": ["incident", "service", "severity", "owner", "runbook"],
-            "extract_timeline": True,
-        },
-        automation_rules={"escalation_alert": True, "post_meeting_summary": True},
-        output_config={
-            "sections": ["incident", "severity", "timeline",
-                         "mitigations", "runbook_updates", "action_items"],
-        },
+        intent={
+            "behavior": {
+                "role_focus": "Site Reliability Engineer",
+                "custom_instructions": "Prioritize infrastructure risks and incident root causes."
+            },
+            "capabilities": {
+                "incident_detection": True,
+                "risk_detection": True
+            }
+        }
     ),
     _team(
         slug="data", parent_category_slug="engineering",
         display_name="Data Engineering",
         description="Pipelines, warehousing, analytics infrastructure.",
-        extraction_rules={
-            "entities": ["pipeline", "dataset", "schema", "sla", "owner"],
-        },
     ),
     _team(
         slug="ml-engineering", parent_category_slug="engineering",
         display_name="ML Engineering",
         description="Model training, serving, evaluation infrastructure.",
-        retrieval_config={"top_k_final": 16},
-        extraction_rules={
-            "entities": ["model", "dataset", "metric", "experiment", "owner"],
-        },
     ),
     _team(
         slug="qa", parent_category_slug="engineering",
         display_name="QA / Quality Engineering",
         description="Test strategy, automation, release verification.",
-        extraction_rules={
-            "entities": ["test_case", "regression", "defect", "release", "owner"],
-        },
     ),
     _team(
         slug="mobile", parent_category_slug="engineering",
         display_name="Mobile",
         description="iOS, Android, React Native — app delivery + store releases.",
-        extraction_rules={
-            "entities": ["platform", "build", "crash", "release", "store_review"],
-        },
     ),
     _team(
         slug="infra-platform", parent_category_slug="engineering",
         display_name="Platform / Infrastructure",
         description="Cloud platform, networking, shared services.",
-        retrieval_config={"top_k_final": 18, "max_graph_depth": 3},
-        extraction_rules={
-            "entities": ["service", "region", "deployment", "owner", "sla"],
-        },
     ),
 
     # ── Product ────────────────────────────────────────────────────────────
@@ -931,19 +500,11 @@ _TEAM_PROFILES = (
         slug="product-design", parent_category_slug="product",
         display_name="Product Design",
         description="UX, IA, interaction design, prototyping.",
-        extraction_rules={
-            "entities": ["component", "user_flow", "design_decision", "iteration"],
-        },
-        tone_and_personality={"verbosity": "narrative"},
     ),
     _team(
         slug="user-research", parent_category_slug="product",
         display_name="User Research",
         description="Interviews, usability tests, synthesis.",
-        extraction_rules={
-            "entities": ["user", "insight", "quote", "behavior", "theme"],
-        },
-        tone_and_personality={"verbosity": "narrative"},
     ),
 
     # ── Sales ──────────────────────────────────────────────────────────────
@@ -951,52 +512,36 @@ _TEAM_PROFILES = (
         slug="sdr", parent_category_slug="sales",
         display_name="SDR / BDR",
         description="Outbound prospecting + qualification.",
-        extraction_rules={
-            "entities": ["prospect", "company", "trigger", "objection", "next_step"],
-        },
     ),
     _team(
         slug="account-executive", parent_category_slug="sales",
         display_name="Account Executive",
         description="Mid-funnel: discovery, demo, negotiation.",
-        retrieval_config={"top_k_final": 15},
     ),
     _team(
         slug="enterprise-sales", parent_category_slug="sales",
         display_name="Enterprise Sales",
         description="Strategic accounts: long cycles, multi-stakeholder.",
-        retrieval_config={"top_k_final": 18, "max_graph_depth": 2},
-        compliance_and_guardrails={"audit_trail_required": True},
-        output_config={
-            "sections": ["stakeholders", "decision_criteria",
-                         "objections", "competitive", "next_steps"],
-        },
     ),
     _team(
         slug="sales-engineering", parent_category_slug="sales",
         display_name="Sales Engineering",
         description="Technical pre-sales: scoping, POCs, integrations.",
-        enabled_agents=["technical-analyst", "sales-coach"],
-        extraction_rules={
-            "entities": [
-                "technical_requirement", "integration", "blocker", "owner",
-            ],
-        },
+        intent={
+            "capabilities": {
+                "technical_analysis": True
+            }
+        }
     ),
     _team(
         slug="channel-sales", parent_category_slug="sales",
         display_name="Channel Sales",
         description="Reseller + distribution partner motion.",
-        automation_rules={"sync_to_crm": True, "post_meeting_summary": True},
     ),
     _team(
         slug="sales-ops", parent_category_slug="sales",
         display_name="Sales Operations",
         description="Pipeline analytics, comp, enablement infrastructure.",
-        retrieval_config={"top_k_final": 14},
-        extraction_rules={
-            "entities": ["metric", "process", "tool", "owner"],
-        },
     ),
 
     # ── Customer Success ───────────────────────────────────────────────────
@@ -1004,41 +549,32 @@ _TEAM_PROFILES = (
         slug="csm", parent_category_slug="customer-success",
         display_name="Customer Success Manager",
         description="Account health, adoption, expansion.",
-        enabled_agents=["customer-sentiment-analyzer", "sales-coach"],
-        automation_rules={"sync_to_crm": True, "post_meeting_summary": True},
     ),
     _team(
         slug="support-tier-1", parent_category_slug="customer-success",
         display_name="Support — Tier 1",
         description="Front-line case handling, triage.",
-        tone_and_personality={"formality": "empathetic", "verbosity": "concise"},
     ),
     _team(
         slug="support-tier-2", parent_category_slug="customer-success",
         display_name="Support — Tier 2",
         description="Escalations, deep technical investigations.",
-        enabled_agents=["technical-analyst", "incident-investigator"],
-        retrieval_config={"top_k_final": 16},
-        automation_rules={"escalation_alert": True},
+        intent={
+            "capabilities": {
+                "technical_analysis": True,
+                "incident_detection": True
+            }
+        }
     ),
     _team(
         slug="onboarding", parent_category_slug="customer-success",
         display_name="Onboarding",
         description="New-customer activation + time-to-value.",
-        automation_rules={"post_meeting_summary": True, "sync_to_crm": True},
-        extraction_rules={
-            "entities": [
-                "milestone", "blocker", "activation_metric", "owner",
-            ],
-        },
     ),
     _team(
         slug="customer-education", parent_category_slug="customer-success",
         display_name="Customer Education",
         description="Training, certifications, documentation programs.",
-        extraction_rules={
-            "entities": ["course", "asset", "feedback", "owner"],
-        },
     ),
 
     # ── Marketing ──────────────────────────────────────────────────────────
@@ -1046,37 +582,26 @@ _TEAM_PROFILES = (
         slug="growth", parent_category_slug="marketing",
         display_name="Growth",
         description="Funnel, experiments, activation, retention.",
-        extraction_rules={
-            "entities": ["experiment", "metric", "channel", "owner"],
-        },
     ),
     _team(
         slug="content", parent_category_slug="marketing",
         display_name="Content",
         description="Editorial, blog, video, thought leadership.",
-        tone_and_personality={"verbosity": "narrative"},
     ),
     _team(
         slug="brand", parent_category_slug="marketing",
         display_name="Brand",
         description="Positioning, voice, visual identity.",
-        tone_and_personality={"verbosity": "narrative"},
     ),
     _team(
         slug="product-marketing", parent_category_slug="marketing",
         display_name="Product Marketing",
         description="Positioning, launches, competitive intel.",
-        extraction_rules={
-            "entities": ["positioning", "competitor", "launch", "messaging"],
-        },
     ),
     _team(
         slug="demand-gen", parent_category_slug="marketing",
         display_name="Demand Generation",
         description="Paid, organic, lifecycle — top-of-funnel.",
-        extraction_rules={
-            "entities": ["campaign", "channel", "cac", "conversion_rate"],
-        },
     ),
 
     # ── HR ─────────────────────────────────────────────────────────────────
@@ -1084,27 +609,11 @@ _TEAM_PROFILES = (
         slug="recruiting", parent_category_slug="hr",
         display_name="Recruiting",
         description="Talent acquisition: sourcing, interviews, offers.",
-        enabled_agents=["interview-evaluator", "compliance-auditor"],
-        evaluation_rules={"eval_gate_enabled": True, "min_pass_rate": 0.8},
-        compliance_and_guardrails={
-            "redact_pii": True, "audit_trail_required": True,
-            "bias_check_enabled": True,
-            "refused_topics": [
-                "protected_class_inferences", "candidate_comparison_by_protected_class",
-            ],
-        },
-        output_config={
-            "sections": ["competencies", "evidence", "concerns",
-                         "recommendation"],
-        },
     ),
     _team(
         slug="people-ops", parent_category_slug="hr",
         display_name="People Operations",
         description="Performance, employee relations, comp reviews.",
-        compliance_and_guardrails={
-            "redact_pii": True, "audit_trail_required": True,
-        },
     ),
     _team(
         slug="learning-and-development", parent_category_slug="hr",
@@ -1115,10 +624,6 @@ _TEAM_PROFILES = (
         slug="dei", parent_category_slug="hr",
         display_name="DEI",
         description="Diversity, equity, inclusion programs + reporting.",
-        compliance_and_guardrails={
-            "audit_trail_required": True, "bias_check_enabled": True,
-        },
-        tone_and_personality={"formality": "professional", "verbosity": "precise"},
     ),
 
     # ── Finance ────────────────────────────────────────────────────────────
@@ -1126,27 +631,21 @@ _TEAM_PROFILES = (
         slug="accounting", parent_category_slug="finance",
         display_name="Accounting",
         description="Books, close, reconciliation.",
-        compliance_and_guardrails={"audit_trail_required": True},
     ),
     _team(
         slug="fp-and-a", parent_category_slug="finance",
         display_name="FP&A",
         description="Forecasting, budgeting, business reviews.",
-        retrieval_config={"top_k_final": 18, "rerank_strategy": "importance_aware"},
     ),
     _team(
         slug="tax", parent_category_slug="finance",
         display_name="Tax",
         description="Federal, state, international tax planning + filings.",
-        compliance_and_guardrails={
-            "audit_trail_required": True, "data_residency": "restricted",
-        },
     ),
     _team(
         slug="treasury", parent_category_slug="finance",
         display_name="Treasury",
         description="Cash management, banking, investments.",
-        compliance_and_guardrails={"data_residency": "restricted"},
     ),
 
     # ── Executive ──────────────────────────────────────────────────────────
@@ -1159,9 +658,6 @@ _TEAM_PROFILES = (
         slug="board-relations", parent_category_slug="executive",
         display_name="Board Relations",
         description="Board prep, investor updates, governance.",
-        compliance_and_guardrails={
-            "audit_trail_required": True, "data_residency": "restricted",
-        },
     ),
     _team(
         slug="chief-of-staff", parent_category_slug="executive",
@@ -1172,8 +668,6 @@ _TEAM_PROFILES = (
         slug="communications", parent_category_slug="executive",
         display_name="Communications",
         description="Internal comms, PR, IR talking points.",
-        compliance_and_guardrails={"audit_trail_required": True},
-        tone_and_personality={"verbosity": "concise"},
     ),
 
     # ── Security ───────────────────────────────────────────────────────────
@@ -1181,24 +675,16 @@ _TEAM_PROFILES = (
         slug="security-engineering", parent_category_slug="security",
         display_name="Security Engineering",
         description="Hardening, code reviews, vulnerability management.",
-        enabled_agents=["technical-analyst", "compliance-auditor"],
     ),
     _team(
         slug="compliance", parent_category_slug="security",
         display_name="Compliance",
         description="SOC2, ISO, regulatory frameworks, audits.",
-        compliance_and_guardrails={
-            "audit_trail_required": True, "redact_pii": True,
-        },
     ),
     _team(
         slug="appsec", parent_category_slug="security",
         display_name="Application Security",
         description="Code review, threat modeling, secure SDLC.",
-        enabled_agents=["technical-analyst", "compliance-auditor"],
-        extraction_rules={
-            "entities": ["vulnerability", "cve", "component", "owner", "severity"],
-        },
     ),
 
     # ── Legal ──────────────────────────────────────────────────────────────
@@ -1206,26 +692,16 @@ _TEAM_PROFILES = (
         slug="contracts", parent_category_slug="legal",
         display_name="Contracts",
         description="MSA, SOW, vendor agreements, redlines.",
-        retrieval_config={"top_k_final": 18, "max_graph_depth": 2},
-        extraction_rules={
-            "entities": [
-                "contract", "clause", "party", "obligation", "deadline",
-            ],
-        },
     ),
     _team(
         slug="ip", parent_category_slug="legal",
         display_name="IP & Trademark",
         description="Patents, trademarks, IP strategy.",
-        compliance_and_guardrails={"data_residency": "restricted"},
     ),
     _team(
         slug="regulatory", parent_category_slug="legal",
         display_name="Regulatory",
         description="Regulatory filings, government affairs, industry frameworks.",
-        compliance_and_guardrails={
-            "audit_trail_required": True, "data_residency": "restricted",
-        },
     ),
 
     # ── Operations ─────────────────────────────────────────────────────────
@@ -1233,17 +709,11 @@ _TEAM_PROFILES = (
         slug="business-ops", parent_category_slug="operations",
         display_name="Business Operations",
         description="Strategy execution, cross-team process, OKRs.",
-        extraction_rules={
-            "entities": ["okr", "milestone", "owner", "blocker", "metric"],
-        },
     ),
     _team(
         slug="supply-chain", parent_category_slug="operations",
         display_name="Supply Chain",
         description="Logistics, procurement, vendor management.",
-        extraction_rules={
-            "entities": ["vendor", "po", "delivery_date", "sla", "shipment"],
-        },
     ),
     _team(
         slug="facilities", parent_category_slug="operations",
@@ -1256,16 +726,11 @@ _TEAM_PROFILES = (
         slug="helpdesk", parent_category_slug="it",
         display_name="IT Helpdesk",
         description="Employee support, ticket triage, endpoint setup.",
-        enabled_agents=["customer-sentiment-analyzer", "incident-investigator"],
-        tone_and_personality={"formality": "empathetic"},
     ),
     _team(
         slug="endpoint-management", parent_category_slug="it",
         display_name="Endpoint Management",
         description="Device fleet, MDM, lifecycle.",
-        extraction_rules={
-            "entities": ["device", "user", "policy", "compliance_state"],
-        },
     ),
 
     # ── Partnerships ───────────────────────────────────────────────────────
@@ -1273,7 +738,6 @@ _TEAM_PROFILES = (
         slug="business-development", parent_category_slug="partnerships",
         display_name="Business Development",
         description="Strategic partnerships, alliances, exclusivity terms.",
-        retrieval_config={"top_k_final": 16},
     ),
     _team(
         slug="channel-partnerships", parent_category_slug="partnerships",
@@ -1286,18 +750,11 @@ _TEAM_PROFILES = (
         slug="experimentation", parent_category_slug="data-science",
         display_name="Experimentation",
         description="A/B tests, multivariate, holdout analysis.",
-        extraction_rules={
-            "entities": [
-                "experiment", "variant", "metric", "confidence", "owner",
-            ],
-        },
-        evaluation_rules={"eval_gate_enabled": True, "min_pass_rate": 0.7},
     ),
     _team(
         slug="analytics", parent_category_slug="data-science",
         display_name="Analytics",
         description="Reporting, dashboards, business intelligence.",
-        retrieval_config={"top_k_final": 14},
     ),
 )
 
@@ -1322,7 +779,7 @@ _DIMENSION_FIELDS = (
     "master_prompt", "enabled_agents", "retrieval_config", "memory_config",
     "output_config", "extraction_rules", "automation_rules",
     "evaluation_rules", "tone_and_personality",
-    "compliance_and_guardrails", "tools_and_integrations",
+    "compliance_and_guardrails", "tools_and_integrations", "intent",
 )
 
 

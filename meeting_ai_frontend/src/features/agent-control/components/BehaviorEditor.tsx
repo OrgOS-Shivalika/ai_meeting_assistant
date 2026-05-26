@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, RotateCcw, Save, Settings } from "lucide-react";
+import IntentEditor from "./IntentEditor";
 import DimensionAccordion from "./DimensionAccordion";
 import MasterPromptDimension from "./dimensions/MasterPromptDimension";
 import StringListDimension from "./dimensions/StringListDimension";
@@ -7,62 +8,58 @@ import KeyValueDimension from "./dimensions/KeyValueDimension";
 import type { FieldSchema } from "./dimensions/KeyValueDimension";
 import { behaviorApi } from "../services/behaviorApi";
 import type {
-  ActiveScope, Dimension, OverridesResponse, ResolvedBehavior,
+  ActiveScope, Dimension, IntentProfile, OverridesResponse, ResolvedBehavior,
 } from "../types";
-
-/**
- * The main scrollable editor pane. Loads resolved behavior + this
- * scope's overrides, then renders all 11 dimension accordions.
- *
- * Per spec: accordions, no tabs, dedicated master_prompt editor,
- * inheritance visibility on every field.
- */
 
 const DIMENSION_META: Record<Dimension, { label: string; description: string }> = {
   master_prompt: {
-    label: "Master Prompt",
-    description: "The transcript analyzer cognition prompt — six modular sections that drive how the AI reads + responds.",
+    label: "Prompt Engineering",
+    description: "The raw cognition prompt — six modular sections that drive how the AI reads + responds.",
   },
   enabled_agents: {
-    label: "Enabled Agents",
-    description: "Which agent runners fire at this scope. Inherited unions add agents from below.",
+    label: "Execution Graph",
+    description: "Which specialized agent runners fire at this scope.",
   },
   retrieval_config: {
-    label: "Retrieval",
-    description: "How context is fetched + ranked for AI synthesis.",
+    label: "Retrieval Internals",
+    description: "Fine-grained control over Top-K, ranking, and search strategy.",
   },
   memory_config: {
-    label: "Memory",
-    description: "Long-term memory: consolidation cadence + relevance weights.",
+    label: "Memory Systems",
+    description: "Consolidation cadence and semantic relevance weights.",
   },
   output_config: {
-    label: "Output",
-    description: "Response format, length norms, section structure.",
+    label: "Output Schema",
+    description: "Token limits, formatting, and section ordering.",
   },
   extraction_rules: {
-    label: "Extraction",
-    description: "What entities + structured data the AI pulls from transcripts.",
+    label: "Extraction Engine",
+    description: "Entity types and structured data schema definitions.",
   },
   automation_rules: {
-    label: "Automation",
-    description: "Post-meeting actions: summaries, webhooks, CRM sync, alerts.",
+    label: "Automation Routing",
+    description: "Post-meeting action triggers and webhook authorization.",
   },
   evaluation_rules: {
-    label: "Evaluation",
-    description: "Eval gate + minimum pass-rate before changes ship.",
+    label: "Evaluation Gating",
+    description: "Minimum pass-rates and ship-gates for behavioral changes.",
   },
   tone_and_personality: {
-    label: "Tone & Personality",
-    description: "Voice, formality, verbosity, empathy.",
+    label: "Stylistic Tuning",
+    description: "Low-level formality, verbosity, and empathy tuning.",
   },
   compliance_and_guardrails: {
-    label: "Compliance & Guardrails",
-    description: "PII handling, refused topics, audit requirements, data residency.",
+    label: "Compliance Policy",
+    description: "PII redaction rules and restricted entity handling.",
   },
   tools_and_integrations: {
-    label: "Tools & Integrations",
-    description: "Which external tools the AI may invoke + model selection.",
+    label: "Integrated Tools",
+    description: "Allowed/Denied tools and model-specific temperature.",
   },
+  intent: {
+    label: "Intent",
+    description: "High-level user-intent abstraction.",
+  }
 };
 
 const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
@@ -140,37 +137,28 @@ export default function BehaviorEditor({
   scope: ActiveScope;
   onSidebarRefresh?: () => void;
 }) {
+  const [intent, setIntent] = useState<IntentProfile | null>(null);
   const [resolved, setResolved] = useState<ResolvedBehavior | null>(null);
   const [overrides, setOverrides] = useState<OverridesResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    master_prompt: true, // master prompt expanded by default
-  });
   const [resetting, setResetting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  // Hold the latest sidebar-refresh callback in a ref so it can change
-  // freely without retriggering `load`'s identity (which would re-fire
-  // the useEffect and cause infinite fetch loops).
   const sidebarRefreshRef = useRef(onSidebarRefresh);
   useEffect(() => { sidebarRefreshRef.current = onSidebarRefresh; }, [onSidebarRefresh]);
 
-  // Request sequence counter. When the user rapidly clicks scopes
-  // (Engineering → Sales → Backend), multiple loads can be in flight
-  // simultaneously. Only the most-recently-issued one is allowed to
-  // setState; stale responses are discarded.
   const loadSeqRef = useRef(0);
 
-  // `load` depends ONLY on the active scope. Does NOT notify the
-  // sidebar — that would re-fetch /behavior/scopes on every click
-  // and cause the sidebar tree to flash a loading state. Sidebar
-  // refresh is reserved for actual mutations (see `reloadAfterMutation`).
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current;
     setLoading(true);
     setError("");
     try {
-      const [r, o] = await Promise.all([
+      const [i, r, o] = await Promise.all([
+        behaviorApi.getIntent(scope.type, scope.id),
         behaviorApi.resolve({
           category_id:
             scope.type === "category"
@@ -183,6 +171,7 @@ export default function BehaviorEditor({
         behaviorApi.getOverrides(scope.type, scope.id),
       ]);
       if (seq !== loadSeqRef.current) return;
+      setIntent(i);
       setResolved(r);
       setOverrides(o);
     } catch (e) {
@@ -193,8 +182,6 @@ export default function BehaviorEditor({
     }
   }, [scope.type, scope.id]);
 
-  // After a mutation (save / reset), re-fetch THIS scope's data AND
-  // refresh the sidebar so override-count badges update.
   const reloadAfterMutation = useCallback(async () => {
     await load();
     sidebarRefreshRef.current?.();
@@ -212,9 +199,8 @@ export default function BehaviorEditor({
   const inheritanceSummary = useCallback(
     (_dim: Dimension): string => {
       if (!resolved) return "";
-      // Layer-source pretty-name for the closest contributor to this dim
       const t = resolved.trace;
-      if (t.length === 0) return "Empty (no layer contributed)";
+      if (t.length === 0) return "Global baseline";
       const last = t[t.length - 1];
       const labels: Record<string, string> = {
         global: "Global Default",
@@ -224,14 +210,30 @@ export default function BehaviorEditor({
         category_override: "Category Override",
         team_override: "Team Override",
       };
-      return `Last touched: ${labels[last.layer] || last.layer}`;
+      return `Inherited: ${labels[last.layer] || last.layer}`;
     },
     [resolved],
   );
 
+  const handleSave = async () => {
+    if (!intent) return;
+    setSaving(true);
+    try {
+      await behaviorApi.putIntent({
+        scope_type: scope.type,
+        scope_id: scope.id,
+        intent
+      });
+      await reloadAfterMutation();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleResetScope = async () => {
-    if (!overrides?.count) return;
-    if (!window.confirm(`Reset all ${overrides.count} overrides for "${scope.display_name}"? This restores every dimension to its inherited value.`)) return;
+    if (!window.confirm(`Reset all configuration for "${scope.display_name}"? This restores everything to inherited defaults.`)) return;
     setResetting(true);
     try {
       await behaviorApi.resetScope(scope.type, scope.id);
@@ -241,18 +243,15 @@ export default function BehaviorEditor({
     }
   };
 
-  // Only block the UI on the FIRST load (when there's nothing to show).
-  // Subsequent scope changes keep stale data visible and surface a
-  // subtle "Loading…" pill in the header so the UI doesn't flash.
-  const initialLoading = loading && resolved === null;
+  const initialLoading = loading && intent === null;
   if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Resolving behavior…
+        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Resolving policy...
       </div>
     );
   }
-  if (error || !resolved || !overrides) {
+  if (error || !intent || !resolved || !overrides) {
     return (
       <div className="p-8">
         <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
@@ -263,115 +262,185 @@ export default function BehaviorEditor({
   }
 
   return (
-    <div className="flex-1 h-full overflow-y-auto">
-      <header className="px-8 py-6 border-b border-gray-200 bg-white sticky top-0 z-10">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 flex items-center gap-2">
-              {scope.type === "workspace"
-                ? "Workspace policy"
-                : scope.type === "category"
-                ? "Category behavior"
-                : "Team behavior"}
+    <div className="flex-1 h-full overflow-y-auto bg-[#fafafa]">
+      <header className="px-10 py-8 border-b border-gray-200 bg-white/80 backdrop-blur-md sticky top-0 z-20 shadow-sm">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3 mb-1">
+              <div className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-[0.2em] shadow-sm border ${
+                scope.type === 'workspace' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                scope.type === 'category' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                'bg-amber-50 text-amber-700 border-amber-100'
+              }`}>
+                {scope.type} policy
+              </div>
               {loading && (
-                <span className="inline-flex items-center gap-1 text-indigo-600 normal-case tracking-normal font-medium">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Loading…
-                </span>
+                <div className="flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-full border border-gray-100">
+                  <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Syncing...</span>
+                </div>
               )}
-            </p>
-            <h1 className="text-2xl font-bold text-gray-900 mt-1">
+              <button 
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider transition-all ${
+                  showAdvanced 
+                    ? "bg-gray-900 text-white border-gray-900 shadow-md" 
+                    : "bg-white text-gray-400 border-gray-200 hover:border-gray-400"
+                }`}
+              >
+                <Settings className="w-2.5 h-2.5" />
+                Advanced mode
+              </button>
+            </div>
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight">
               {scope.display_name}
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Resolved across {resolved.trace.length} layer{resolved.trace.length === 1 ? "" : "s"}.
-              {" "}
-              {overrides.count > 0 ? (
-                <span className="text-rose-700 font-medium">
-                  {overrides.count} override{overrides.count === 1 ? "" : "s"} at this scope.
-                </span>
-              ) : (
-                <span className="text-emerald-700">Fully inheriting from below.</span>
-              )}
-            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <p className="text-sm text-gray-500 font-medium">
+                Intent-Driven AI Runtime Control
+              </p>
+              <span className="text-gray-300">•</span>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                v2.0.0 (Hybrid Resolution)
+              </p>
+            </div>
           </div>
-          {overrides.count > 0 && (
+
+          <div className="flex items-center gap-4">
             <button
               onClick={handleResetScope}
               disabled={resetting}
-              className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg inline-flex items-center gap-2 disabled:opacity-50"
+              className="px-5 py-2.5 text-xs font-black uppercase tracking-widest text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-200 inline-flex items-center gap-2 disabled:opacity-50"
             >
               {resetting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <RotateCcw className="w-4 h-4" />
+                <RotateCcw className="w-3.5 h-3.5" />
               )}
-              Reset all
+              Reset to Defaults
             </button>
-          )}
+            <button
+              onClick={handleSave}
+              disabled={saving || !intent}
+              className="relative group overflow-hidden px-8 py-3 bg-gray-900 hover:bg-black rounded-xl shadow-xl shadow-gray-900/10 transition-all duration-300 disabled:opacity-50"
+            >
+              <div className="relative z-10 flex items-center gap-2">
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <Save className="w-4 h-4 text-white" />
+                )}
+                <span className="text-xs font-black uppercase tracking-[0.2em] text-white">
+                  Update Runtime
+                </span>
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-blue-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="px-8 py-6 max-w-4xl">
-        {/* Master prompt — dedicated editor */}
-        <DimensionAccordion
-          title={DIMENSION_META.master_prompt.label}
-          description={DIMENSION_META.master_prompt.description}
-          overrideCount={overrideCount("master_prompt")}
-          inheritanceSummary={inheritanceSummary("master_prompt")}
-          expanded={!!expanded.master_prompt}
-          onToggle={() => setExpanded((s) => ({ ...s, master_prompt: !s.master_prompt }))}
-        >
-          <MasterPromptDimension
-            scope={scope}
-            resolved={resolved}
-            scopeOverrides={overridesByDim}
-            onMutated={reloadAfterMutation}
+      <div className="px-10 py-16 max-w-5xl mx-auto">
+        <div className="mb-16">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="h-px flex-1 bg-gray-200" />
+            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-300">Simplified Intent Layer</span>
+            <div className="h-px flex-1 bg-gray-200" />
+          </div>
+          <IntentEditor 
+            intent={intent} 
+            onChange={setIntent}
+            loading={loading}
           />
-        </DimensionAccordion>
+        </div>
 
-        {/* Enabled agents — list editor */}
-        <DimensionAccordion
-          title={DIMENSION_META.enabled_agents.label}
-          description={DIMENSION_META.enabled_agents.description}
-          overrideCount={overrideCount("enabled_agents")}
-          inheritanceSummary={inheritanceSummary("enabled_agents")}
-          expanded={!!expanded.enabled_agents}
-          onToggle={() => setExpanded((s) => ({ ...s, enabled_agents: !s.enabled_agents }))}
-        >
-          <StringListDimension
-            scope={scope}
-            dimension="enabled_agents"
-            label="Active agents"
-            hint="Agent runners enabled for this scope. Resolves as a UNION across layers — adding here doesn't remove inherited ones."
-            placeholder="e.g. sales-coach, action-item-manager"
-            resolved={resolved}
-            scopeOverrides={overridesByDim}
-            onMutated={reloadAfterMutation}
-          />
-        </DimensionAccordion>
+        {showAdvanced && (
+          <div className="animate-in slide-in-from-bottom-10 duration-500">
+            <div className="flex items-center gap-4 mb-12">
+              <div className="h-px flex-1 bg-indigo-100" />
+              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-300">Technical Precision Layer</span>
+              <div className="h-px flex-1 bg-indigo-100" />
+            </div>
 
-        {/* Remaining dimensions — generic key-value editor */}
-        {(Object.keys(SCHEMAS) as Dimension[]).map((dim) => (
-          <DimensionAccordion
-            key={dim}
-            title={DIMENSION_META[dim].label}
-            description={DIMENSION_META[dim].description}
-            overrideCount={overrideCount(dim)}
-            inheritanceSummary={inheritanceSummary(dim)}
-            expanded={!!expanded[dim]}
-            onToggle={() => setExpanded((s) => ({ ...s, [dim]: !s[dim] }))}
-          >
-            <KeyValueDimension
-              scope={scope}
-              dimension={dim}
-              schema={SCHEMAS[dim] || []}
-              resolved={resolved}
-              scopeOverrides={overridesByDim}
-              onMutated={reloadAfterMutation}
-            />
-          </DimensionAccordion>
-        ))}
+            <div className="space-y-6">
+              {/* Master prompt — dedicated editor */}
+              <DimensionAccordion
+                title={DIMENSION_META.master_prompt.label}
+                description={DIMENSION_META.master_prompt.description}
+                overrideCount={overrideCount("master_prompt")}
+                inheritanceSummary={inheritanceSummary("master_prompt")}
+                expanded={!!expanded.master_prompt}
+                onToggle={() => setExpanded((s) => ({ ...s, master_prompt: !s.master_prompt }))}
+              >
+                <MasterPromptDimension
+                  scope={scope}
+                  resolved={resolved}
+                  scopeOverrides={overridesByDim}
+                  onMutated={reloadAfterMutation}
+                />
+              </DimensionAccordion>
+
+              {/* Enabled agents — list editor */}
+              <DimensionAccordion
+                title={DIMENSION_META.enabled_agents.label}
+                description={DIMENSION_META.enabled_agents.description}
+                overrideCount={overrideCount("enabled_agents")}
+                inheritanceSummary={inheritanceSummary("enabled_agents")}
+                expanded={!!expanded.enabled_agents}
+                onToggle={() => setExpanded((s) => ({ ...s, enabled_agents: !s.enabled_agents }))}
+              >
+                <StringListDimension
+                  scope={scope}
+                  dimension="enabled_agents"
+                  label="Active agents"
+                  hint="The capability-based execution graph. Overriding here allows manual agent selection."
+                  placeholder="e.g. sales-coach, risk-analyzer"
+                  resolved={resolved}
+                  scopeOverrides={overridesByDim}
+                  onMutated={reloadAfterMutation}
+                />
+              </DimensionAccordion>
+
+              {/* Remaining dimensions — generic key-value editor */}
+              {(Object.keys(SCHEMAS) as Dimension[]).map((dim) => (
+                <DimensionAccordion
+                  key={dim}
+                  title={DIMENSION_META[dim].label}
+                  description={DIMENSION_META[dim].description}
+                  overrideCount={overrideCount(dim)}
+                  inheritanceSummary={inheritanceSummary(dim)}
+                  expanded={!!expanded[dim]}
+                  onToggle={() => setExpanded((s) => ({ ...s, [dim]: !s[dim] }))}
+                >
+                  <KeyValueDimension
+                    scope={scope}
+                    dimension={dim}
+                    schema={SCHEMAS[dim] || []}
+                    resolved={resolved}
+                    scopeOverrides={overridesByDim}
+                    onMutated={reloadAfterMutation}
+                  />
+                </DimensionAccordion>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        <div className="mt-20 pt-10 border-t border-gray-200/60 flex flex-col items-center gap-4">
+          <div className="flex items-center gap-2">
+            {resolved.trace.map((t, i) => (
+              <Fragment key={i}>
+                <div className="px-3 py-1.5 rounded-lg bg-white border border-gray-100 shadow-sm text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                  {t.layer.replace('_', ' ')}
+                </div>
+                {i < resolved.trace.length - 1 && <span className="text-gray-300 text-xs font-black">→</span>}
+              </Fragment>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] text-center">
+            Hierarchical Resolution Chain • Secure Metadata
+          </p>
+        </div>
       </div>
     </div>
   );

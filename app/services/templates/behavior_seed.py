@@ -104,6 +104,7 @@ def seed_catalog(
             tone_and_personality=dict(prof.tone_and_personality),
             compliance_and_guardrails=dict(prof.compliance_and_guardrails),
             tools_and_integrations=dict(prof.tools_and_integrations),
+            intent=dict(prof.intent),
             manifest_hash=new_hash,
             published_at=now,
         )

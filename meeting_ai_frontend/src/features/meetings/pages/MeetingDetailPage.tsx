@@ -144,7 +144,12 @@ export default function MeetingDetailPage() {
   }, [id]);
 
   const { finals, partial, connected, seed } = useLiveTranscript(
-    meeting?.id ?? null,
+    // Only establish live WebSocket for meetings that are in progress.
+    // Skip for completed or failed meetings to avoid unnecessary reconnections
+    // after page refresh.
+    meeting?.status !== "completed" && meeting?.status !== "failed"
+      ? meeting?.id ?? null
+      : null,
     {
       onStatusUpdate: (status) => {
         // Any pipeline status flip is worth re-pulling — the meeting
