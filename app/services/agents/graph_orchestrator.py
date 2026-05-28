@@ -13,8 +13,11 @@ from app.services.behavior.resolver import ResolvedBehaviorProfile
 from app.services.cognition.contracts import ExtractionSummary
 from app.ai_agents.transcript_analyzer import TranscriptAnalyzer
 from app.services.agents.base import AGENT_REGISTRY, AgentOrchestrator
+from app.runtime.skill_executor import SkillExecutor
+from app.utils.logger import setup_logger
+from app.services.cognition.merger import UnifiedCognitionMerger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 class AgentGraphOrchestrator:
     """Orchestrates specialized agents and their modular skills."""
@@ -24,7 +27,8 @@ class AgentGraphOrchestrator:
         cls, 
         db, 
         transcript: str, 
-        profile: ResolvedBehaviorProfile
+        profile: ResolvedBehaviorProfile,
+        meeting_id: Optional[int] = None
     ) -> ExtractionSummary:
         """The main entry point for orchestrated meeting cognition."""
         
@@ -44,35 +48,57 @@ class AgentGraphOrchestrator:
         behavior_context = _format_dimensions(profile.to_dict())
 
         # 3. Master Execution (Phase 2 Hybrid)
-        # For now, we still rely on TranscriptAnalyzer as the primary runner.
-        # In Phase 3, this will be replaced by the SkillExecutor.
-        result: ExtractionSummary = TranscriptAnalyzer.analyze(
+        # We still rely on TranscriptAnalyzer as the primary runner for core schema
+        # to prevent regressions while we migrate entirely to skills.
+        master_result: ExtractionSummary = TranscriptAnalyzer.analyze(
             transcript, 
             behavior_context, 
             contract_model=ExtractionSummary
         )
 
-        # 4. Orchestrated Skill Execution (Placeholder for Phase 3)
+        # 4. Orchestrated Skill Execution
+        # We pass the transcript to the specialized agents
+        all_skill_results = {}
         for agent in enabled_agents:
-            cls._orchestrate_agent(agent, result, profile)
+            try:
+                agent_results = cls._orchestrate_agent(db, agent, transcript, master_result, profile, meeting_id)
+                if agent_results:
+                    all_skill_results.update(agent_results)
+            except Exception as e:
+                logger.error("Error executing agent %s: %s", agent.id, str(e), exc_info=True)
 
-        return result
+        # 5. Unified Cognition Synthesis (Phase 10)
+        final_result = UnifiedCognitionMerger.synthesize(master_result, all_skill_results)
+
+        return final_result
 
     @classmethod
     def _orchestrate_agent(
         cls, 
+        db,
         agent: AgentOrchestrator, 
+        transcript: str,
         extraction: ExtractionSummary, 
-        profile: ResolvedBehaviorProfile
-    ):
+        profile: ResolvedBehaviorProfile,
+        meeting_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Coordinates the skills for a specific agent orchestrator."""
         skills = agent.get_resolved_skills()
         if not skills:
-            return
+            return {}
 
         logger.info("🎯 Agent %s orchestrating skills: %s", agent.id, [s.id for s in skills])
         
-        # Phase 3 will implement actual skill execution here.
-        # For now, we log the intent.
+        skill_results = {}
         for skill in skills:
-            logger.info("🚀 Skill Ready for Execution: %s", skill.id)
+            try:
+                logger.info("🚀 Executing Skill: %s", skill.id)
+                # Pass the transcript to the executor (in Phase 6/7, context limits will apply)
+                output = SkillExecutor.execute_skill(db, skill, transcript, profile, meeting_id)
+                skill_results[skill.id] = output
+                
+                logger.debug("Skill %s output: %s", skill.id, output)
+            except Exception as e:
+                logger.error("Skill %s failed: %s", skill.id, str(e), exc_info=True)
+                
+        return skill_results

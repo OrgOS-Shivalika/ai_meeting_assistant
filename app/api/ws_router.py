@@ -2,6 +2,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, List
 import json
 import logging
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.db.models import Meeting
@@ -53,8 +54,8 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
     data_block = payload.get("data", {})
     
     # 1. Handle the deep WebSocket format: payload['data']['data']['transcript' or 'words']
-    inner_data = data_block.get("data", {})
-    if isinstance(inner_data, dict):
+    inner_data = data_block.get("data")
+    if inner_data and isinstance(inner_data, dict):
         source = inner_data.get("transcript") or inner_data
     else:
         source = data_block.get("transcript") or data_block
@@ -131,6 +132,28 @@ async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
 
                 # Push to all frontend viewers
                 await manager.broadcast(meeting_id, ws_message)
+
+                # --- NEW: Pipe to Live Cognitive Engine ---
+                if is_final:
+                    from app.services.live_stream.stream_manager import stream_manager
+                    from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
+                    import asyncio
+
+                    # 1. Ensure Session exists
+                    stream_manager.start_session(str(meeting_id))
+
+                    # 2. Ingest Chunk (Offload to thread to avoid blocking WS loop)
+                    # We use a simple sequence counter or timestamp
+                    chunk = LiveTranscriptChunk(
+                        speaker_id="recall_auto",
+                        speaker_name=speaker,
+                        text=text,
+                        is_final=True,
+                        sequence_number=int(datetime.now().timestamp())
+                    )
+                    
+                    # We use to_thread because ingest_chunk is currently synchronous and calls OpenAI
+                    asyncio.create_task(asyncio.to_thread(stream_manager.ingest_chunk, str(meeting_id), chunk))
 
                 # Save final chunks to DB so late joiners see history
                 if is_final:

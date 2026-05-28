@@ -41,7 +41,7 @@ class BehaviorProfileDef:
     slug: str
     display_name: str
     description: str
-    version: str = "2.0.0"
+    version: str = "2.0.3"
     parent_category_slug: Optional[str] = None
 
     master_prompt: dict = field(default_factory=dict)
@@ -382,6 +382,12 @@ _CATEGORY_PROFILES = (
         slug="security", display_name="Security",
         description="InfoSec, incident response, vulnerability reviews, compliance.",
         dept_class="compliance_heavy",
+        intent={
+            "capabilities": {
+                "incident_detection": True,
+                "risk_detection": True
+            }
+        }
     ),
     _category(
         slug="legal", display_name="Legal",

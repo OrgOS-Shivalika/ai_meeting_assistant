@@ -168,21 +168,23 @@ def _apply_layer(
     3. Apply explicit technical dimensions from the layer (they win over intent).
     """
     # 1. Process Intent if present in this layer
-    if "intent" in layer_data and layer_data["intent"]:
+    if "intent" in layer_data:
         try:
             from app.schemas.intent_schema import IntentProfile
             from app.services.behavior.policy_resolver import PolicyResolver
-            
-            intent_obj = IntentProfile.model_validate(layer_data["intent"])
+
+            # Treat empty dict as default intent
+            intent_dict = layer_data["intent"] or {}
+            intent_obj = IntentProfile.model_validate(intent_dict)
             intent_derived = PolicyResolver.map_intent_to_resolved_profile(
                 organization_id=organization_id,
                 intent=intent_obj
             )
             # Apply intent-derived values as the baseline for this layer
             _apply_technical_dimensions(profile, intent_derived.to_dict())
-            
+
             # Explicitly save the intent in the profile for visibility
-            profile.intent = _merge_dict(profile.intent, layer_data["intent"])
+            profile.intent = _merge_dict(profile.intent, intent_dict)
         except Exception as e:
             logger.error("Failed to resolve intent in layer: %s", e)
 

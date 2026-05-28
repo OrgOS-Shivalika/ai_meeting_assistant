@@ -4,6 +4,7 @@ import IntentEditor from "./IntentEditor";
 import DimensionAccordion from "./DimensionAccordion";
 import MasterPromptDimension from "./dimensions/MasterPromptDimension";
 import StringListDimension from "./dimensions/StringListDimension";
+import SkillsDimension from "./dimensions/SkillsDimension";
 import KeyValueDimension from "./dimensions/KeyValueDimension";
 import type { FieldSchema } from "./dimensions/KeyValueDimension";
 import { behaviorApi } from "../services/behaviorApi";
@@ -17,8 +18,8 @@ const DIMENSION_META: Record<Dimension, { label: string; description: string }> 
     description: "The raw cognition prompt — six modular sections that drive how the AI reads + responds.",
   },
   enabled_agents: {
-    label: "Execution Graph",
-    description: "Which specialized agent runners fire at this scope.",
+    label: "Modular Skills",
+    description: "Enable specific cognition modules. The AI will automatically orchestrate the active skill runtime.",
   },
   retrieval_config: {
     label: "Retrieval Internals",
@@ -389,12 +390,8 @@ export default function BehaviorEditor({
                 expanded={!!expanded.enabled_agents}
                 onToggle={() => setExpanded((s) => ({ ...s, enabled_agents: !s.enabled_agents }))}
               >
-                <StringListDimension
+                <SkillsDimension
                   scope={scope}
-                  dimension="enabled_agents"
-                  label="Active agents"
-                  hint="The capability-based execution graph. Overriding here allows manual agent selection."
-                  placeholder="e.g. sales-coach, risk-analyzer"
                   resolved={resolved}
                   scopeOverrides={overridesByDim}
                   onMutated={reloadAfterMutation}

@@ -23,9 +23,19 @@ export interface LiveFinal {
   timestamp: number;
 }
 
+export interface LiveCognitiveEvent {
+  event_type: "task.created" | "task.updated" | "task.completed" | "decision.created" | "risk.detected" | "blocker.detected";
+  meeting_id: string;
+  timestamp: string;
+  payload: any;
+  confidence: number;
+  trace_id: string;
+}
+
 export interface UseLiveTranscript {
   finals: LiveFinal[];
   partial: LivePartial | null;
+  liveEvents: LiveCognitiveEvent[];
   connected: boolean;
   /**
    * Seed the finals list with lines already saved on `meeting.transcript`
@@ -51,19 +61,26 @@ function buildWsUrl(meetingId: number): string {
 
 export function useLiveTranscript(
   meetingId: number | null,
-  opts: { onStatusUpdate?: (status: string) => void } = {},
+  opts: { 
+    onStatusUpdate?: (status: string) => void;
+    onCognitiveEvent?: (event: LiveCognitiveEvent) => void;
+  } = {},
 ): UseLiveTranscript {
   const [finals, setFinals] = useState<LiveFinal[]>([]);
   const [partial, setPartial] = useState<LivePartial | null>(null);
+  const [liveEvents, setLiveEvents] = useState<LiveCognitiveEvent[]>([]);
   const [connected, setConnected] = useState(false);
 
   // onStatusUpdate is a callback the caller will redefine on every
   // render — we don't want it as a useEffect dep (would tear down the
   // socket on every render). Stash the latest one in a ref instead.
   const statusCbRef = useRef(opts.onStatusUpdate);
+  const eventCbRef = useRef(opts.onCognitiveEvent);
+
   useEffect(() => {
     statusCbRef.current = opts.onStatusUpdate;
-  }, [opts.onStatusUpdate]);
+    eventCbRef.current = opts.onCognitiveEvent;
+  }, [opts.onStatusUpdate, opts.onCognitiveEvent]);
 
   useEffect(() => {
     if (meetingId == null) {
@@ -75,6 +92,7 @@ export function useLiveTranscript(
     // previous-meeting finals into the new view.
     setFinals([]);
     setPartial(null);
+    setLiveEvents([]);
 
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,6 +133,10 @@ export function useLiveTranscript(
             }
           } else if (msg.type === "status_update") {
             statusCbRef.current?.(msg.status);
+          } else if (msg.type === "cognitive_event") {
+            const event = msg as LiveCognitiveEvent;
+            setLiveEvents((prev) => [...prev, event]);
+            eventCbRef.current?.(event);
           }
         } catch {
           /* malformed payload — ignore */
@@ -177,5 +199,5 @@ export function useLiveTranscript(
     });
   }, []);
 
-  return { finals, partial, connected, seed };
+  return { finals, partial, liveEvents, connected, seed };
 }

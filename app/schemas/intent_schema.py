@@ -51,7 +51,7 @@ class ConnectedToolsIntent(BaseModel):
 
 class IntentProfile(BaseModel):
     """The high-level intent profile presented to the user."""
-    behavior: AIBehaviorIntent = Field(default_factory=lambda: AIBehaviorIntent(role_focus="General Assistant"))
+    behavior: AIBehaviorIntent = Field(default_factory=lambda: AIBehaviorIntent(role_focus="AI meeting assistant"))
     capabilities: CapabilitiesIntent = Field(default_factory=CapabilitiesIntent)
     automations: AutomationsIntent = Field(default_factory=AutomationsIntent)
     knowledge_access: KnowledgeAccessIntent = Field(default_factory=KnowledgeAccessIntent)

@@ -115,5 +115,5 @@ def profile_to_dimensions_dict(
         "tone_and_personality": profile.tone_and_personality or {},
         "compliance_and_guardrails": profile.compliance_and_guardrails or {},
         "tools_and_integrations": profile.tools_and_integrations or {},
-        "intent": profile.intent or {},
+        "intent": getattr(profile, "intent", {}),
     }

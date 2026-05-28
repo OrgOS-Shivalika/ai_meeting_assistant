@@ -236,15 +236,15 @@ def test_manifest_hash_present_and_stable():
 
 def test_global_default_enables_action_item_manager():
     from app.services.templates.behavior_catalog import GLOBAL_DEFAULT
-    assert "action-item-manager" in GLOBAL_DEFAULT.enabled_agents, \
-        GLOBAL_DEFAULT.enabled_agents
+    assert GLOBAL_DEFAULT.intent["capabilities"]["action_items"] is True, \
+        GLOBAL_DEFAULT.intent
 
 
 def test_categories_have_master_prompt_system():
     from app.services.templates.behavior_catalog import all_category_profiles
     for cat in all_category_profiles():
-        sys_text = (cat.master_prompt or {}).get("system", "")
-        assert sys_text, f"{cat.slug} missing master_prompt.system"
+        role_focus = cat.intent.get("behavior", {}).get("role_focus", "")
+        assert role_focus, f"{cat.slug} missing intent.behavior.role_focus"
 
 
 # ---------------------------------------------------------------------------
@@ -370,11 +370,14 @@ def test_get_global_default():
     from app.services.templates.behavior_registry import get_global_default
     db = SessionLocal()
     try:
+        from app.schemas.intent_schema import IntentProfile
         row = get_global_default(db)
         assert row is not None
         assert row.scope_kind == "global"
         assert row.slug == "__default__"
-        assert "action-item-manager" in (row.enabled_agents or [])
+        
+        intent = IntentProfile.model_validate(row.intent or {})
+        assert intent.capabilities.action_items is True
     finally:
         db.close()
 

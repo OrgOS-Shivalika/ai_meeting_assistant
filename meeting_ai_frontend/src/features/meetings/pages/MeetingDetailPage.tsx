@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Inbox,
   Radio,
+  Bell,
+  Zap,
 } from "lucide-react";
 import type { Meeting, Participant, Task } from "../types";
 import MeetingAIMemorySection from "../components/MeetingAIMemorySection";
@@ -129,6 +131,11 @@ export default function MeetingDetailPage() {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
+  
+  // LIVE COGNITION STATE
+  const [activeNotification, setActiveNotification] = useState<any | null>(null);
+  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // Stable callback so the hook doesn't see a "new" reference each
@@ -143,7 +150,7 @@ export default function MeetingDetailPage() {
       .catch((err) => console.error("Refetch failed", err));
   }, [id]);
 
-  const { finals, partial, connected, seed } = useLiveTranscript(
+  const { finals, partial, liveEvents, connected, seed } = useLiveTranscript(
     // Only establish live WebSocket for meetings that are in progress.
     // Skip for completed or failed meetings to avoid unnecessary reconnections
     // after page refresh.
@@ -161,6 +168,16 @@ export default function MeetingDetailPage() {
           status === "processing"
         ) {
           refetchMeeting();
+        }
+      },
+      onCognitiveEvent: (event) => {
+        console.log("🧠 Live Cognitive Event:", event);
+        if (event.event_type === "task.created" || event.event_type === "task.updated") {
+           setActiveNotification(event);
+           if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
+           notificationTimerRef.current = setTimeout(() => {
+             setActiveNotification(null);
+           }, 6000);
         }
       },
     },
@@ -808,6 +825,51 @@ export default function MeetingDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* --- LIVE INTELLIGENCE POPUP --- */}
+        {activeNotification && (
+          <div className="fixed bottom-8 right-8 z-[100] animate-in slide-in-from-right-10 duration-500">
+            <div className="bg-[#0F1523] text-white p-5 rounded-[20px] shadow-2xl border border-white/10 w-[320px] relative overflow-hidden group">
+              {/* Background Glow */}
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-500/20 blur-[40px] rounded-full group-hover:bg-indigo-500/30 transition-all duration-700" />
+              
+              <div className="flex items-start gap-4 relative z-10">
+                <div className="shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <Zap className="w-5 h-5 text-white fill-white/20" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                      Live Task Detected
+                    </span>
+                    <button 
+                      onClick={() => setActiveNotification(null)}
+                      className="text-white/40 hover:text-white transition-colors"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <h5 className="text-[13px] font-bold leading-snug text-white line-clamp-2">
+                    {activeNotification.payload.task}
+                  </h5>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black shadow-xs ${colorFor(activeNotification.payload.owner || "?")}`}>
+                      {getInitials(activeNotification.payload.owner || "?")}
+                    </div>
+                    <span className="text-[10px] font-bold text-white/60">
+                      Owner: <span className="text-white">{activeNotification.payload.owner || "Unassigned"}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className="absolute bottom-0 left-0 h-1 bg-indigo-500 animate-progress" style={{ width: '100%' }} />
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

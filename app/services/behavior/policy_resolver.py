@@ -31,33 +31,49 @@ class PolicyResolver:
         }
         
         # Note: In a full implementation, this would use Jinja templates for prompts
+        # 1. Behavior -> master_prompt
         profile.master_prompt = {
             "system": f"You are the {intent.behavior.role_focus}.",
             "behavior": intent.behavior.custom_instructions or "Focus on accuracy and conciseness.",
-            "output": f"Depth: {intent.behavior.response_depth}"
+            "citation": "Every factual claim MUST be followed by one or more [N] tags pointing to the source block(s) that support it.",
+            "retrieval": "Use ONLY the numbered context blocks provided in the input.",
+            "output": f"Depth: {intent.behavior.response_depth}",
+            "guardrails": "Do NOT speculate, guess, or fall back to general knowledge. If the context is insufficient, state so clearly."
         }
-
         # 2. Capabilities -> enabled_agents, extraction_rules, output_config
-        agents = ["action-item-manager"]
+        agents = ["action-item-manager"] # Legacy default alias for backward compatibility
         extractions = ["person", "decision", "action_item"]
-        sections = ["summary"]
+        sections = []
 
-        if intent.capabilities.action_items:
-            sections.append("action_items")
-        if intent.capabilities.decisions:
-            sections.append("decisions")
-        if intent.capabilities.risk_detection:
-            agents.append("risk-analyzer")
+        if intent.capabilities.summaries or intent.capabilities.action_items or intent.capabilities.decisions:
+            agents.append("meeting-scrum-agent")
+            if intent.capabilities.summaries:
+                sections.append("summary")
+            if intent.capabilities.action_items:
+                sections.append("action_items")
+            if intent.capabilities.decisions:
+                sections.append("decisions")
+
+        if intent.capabilities.risk_detection or intent.capabilities.incident_detection:
+            agents.append("incident-agent")
             extractions.append("risk")
-            sections.append("risks")
-        if intent.capabilities.technical_analysis:
-            agents.append("technical-analyst")
-            extractions.append("technical_blocker")
-        if intent.capabilities.incident_detection:
-            agents.append("incident-investigator")
             extractions.append("incident")
+            sections.append("risks")
             sections.append("incidents")
+            # Legacy aliases
+            if intent.capabilities.risk_detection:
+                agents.append("risk-analyzer")
+            if intent.capabilities.incident_detection:
+                agents.append("incident-investigator")
 
+        if intent.capabilities.technical_analysis or intent.capabilities.architecture_review:
+            agents.append("engineering-agent")
+            extractions.append("technical_blocker")
+            # Legacy alias
+            if intent.capabilities.technical_analysis:
+                agents.append("technical-analyst")
+
+        # In Phase 5, the frontend's unified toggles now resolve to our modular Skill Orchestrators
         profile.enabled_agents = list(set(agents))
         profile.extraction_rules = {
             "entities": extractions,

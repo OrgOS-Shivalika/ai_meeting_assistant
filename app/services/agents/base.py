@@ -32,36 +32,78 @@ class AgentOrchestrator(BaseModel):
 # Core Agent Definitions (The Refactor)
 # ---------------------------------------------------------------------------
 
-# 1. Summary Agent: Focuses on recaps and highlights
+engineering_agent = AgentOrchestrator(
+    id="engineering-agent",
+    name="Engineering Orchestrator",
+    description="Coordinates architecture, code quality, dependency, and performance analysis.",
+    skills=["architecture_review", "code_review", "dependency_mapping", "api_review", "security_audit", "performance_profiling"]
+)
+
+incident_agent = AgentOrchestrator(
+    id="incident-agent",
+    name="Incident Orchestrator",
+    description="Coordinates incident detection, RCA, postmortems, and mitigation planning.",
+    skills=["incident_detection", "root_cause_analysis", "postmortem_generator", "impact_assessment", "mitigation_planning"]
+)
+
+meeting_scrum_agent = AgentOrchestrator(
+    id="meeting-scrum-agent",
+    name="Meeting Scrum Orchestrator",
+    description="Coordinates summaries, action items, decisions, and agenda tracking.",
+    skills=["summaries", "action_items", "decisions", "sentiment_analysis", "agenda_tracking"]
+)
+
+product_agent = AgentOrchestrator(
+    id="product-agent",
+    name="Product Orchestrator",
+    description="Coordinates feature extraction, pain points, competitor analysis, and success metrics.",
+    skills=["feature_extraction", "user_pain_points", "competitor_analysis", "roadmap_alignment", "success_metrics"]
+)
+
+executive_agent = AgentOrchestrator(
+    id="executive-agent",
+    name="Executive Orchestrator",
+    description="Coordinates strategic alignment, risk rollup, budget, and executive briefings.",
+    skills=["strategic_alignment", "risk_rollup", "investment_areas", "blocker_escalation", "key_takeaways"]
+)
+
+compliance_agent = AgentOrchestrator(
+    id="compliance-agent",
+    name="Compliance Orchestrator",
+    description="Coordinates PII detection, policy checks, regulatory audits, and access controls.",
+    skills=["pii_detection", "policy_violation", "regulatory_audit", "access_control", "data_retention"]
+)
+
+# Keep legacy IDs mapping to the new agents to preserve database entries or tests, or just replace them entirely.
+# Let's replace them entirely since this is a refactoring phase.
+
+# --- LEGACY AGENT ALIASES FOR BACKWARD COMPATIBILITY ---
 summary_agent = AgentOrchestrator(
     id="summary-agent",
     name="Summary Orchestrator",
-    description="Coordinates meeting summarization and highlight extraction.",
-    skills=["meeting_summary"]
+    description="Legacy alias for summaries.",
+    skills=["summaries"]
 )
 
-# 2. Risk Agent: Focuses on threats, outages, and blockers
 risk_agent = AgentOrchestrator(
     id="risk-analyzer",
     name="Risk Orchestrator",
-    description="Coordinates incident detection and technical risk analysis.",
-    skills=["incident_detection", "risk_analysis"]
+    description="Legacy alias for risk detection.",
+    skills=["incident_detection", "risk_rollup", "impact_assessment"]
 )
 
-# 3. Technical Analyst Agent: Focuses on engineering depth
 technical_analyst_agent = AgentOrchestrator(
     id="technical-analyst",
     name="Technical Engineering Orchestrator",
-    description="Coordinates architecture reviews and API analysis.",
+    description="Legacy alias for engineering.",
     skills=["architecture_review", "api_review", "dependency_mapping"]
 )
 
-# 4. Action Item Agent: Focuses on tasks and follow-ups
 action_item_agent = AgentOrchestrator(
     id="action-item-manager",
     name="Action Item Orchestrator",
-    description="Coordinates task extraction and owner assignment.",
-    skills=["task_extraction"]
+    description="Legacy alias for action items.",
+    skills=["action_items"]
 )
 
 # ---------------------------------------------------------------------------
@@ -70,9 +112,15 @@ action_item_agent = AgentOrchestrator(
 
 AGENT_REGISTRY: Dict[str, AgentOrchestrator] = {
     agent.id: agent for agent in [
-        summary_agent, 
-        risk_agent, 
-        technical_analyst_agent, 
+        engineering_agent,
+        incident_agent,
+        meeting_scrum_agent,
+        product_agent,
+        executive_agent,
+        compliance_agent,
+        summary_agent,
+        risk_agent,
+        technical_analyst_agent,
         action_item_agent
     ]
 }

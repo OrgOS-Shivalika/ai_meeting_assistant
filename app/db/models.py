@@ -2611,6 +2611,25 @@ class TemplateBehaviorProfile(Base):
             "version ~ '^\\d+\\.\\d+\\.\\d+$'",
             name="bp_version_fmt_chk",
         ),
+        UniqueConstraint(
+            "scope_kind", "slug", "version",
+            name="ux_bp_scope_slug_version"
+        ),
+        Index(
+            "ux_bp_global_published",
+            "scope_kind", "slug",
+            unique=True,
+            postgresql_where="(scope_kind = 'global' AND state = 'published')",
+        ),
+        Index(
+            "ix_bp_lookup",
+            "scope_kind", "slug", "state"
+        ),
+        Index(
+            "ix_bp_parent_category_slug",
+            "parent_category_slug",
+            postgresql_where="parent_category_slug IS NOT NULL"
+        ),
     )
 
     id = Column(

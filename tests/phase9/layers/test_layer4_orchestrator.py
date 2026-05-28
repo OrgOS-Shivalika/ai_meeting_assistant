@@ -22,65 +22,67 @@ def test_orchestrator_routes_capabilities(mock_analyze, org_id):
     """Layer 4.1: Verify correct agents are enabled/called."""
     profile = ResolvedBehaviorProfile(
         organization_id=org_id,
-        enabled_agents=["summary-agent", "crm-agent", "risk-analyzer"]
+        enabled_agents=["meeting-scrum-agent", "executive-agent"]
     )
     
     mock_analyze.return_value = ExtractionSummary(title="Test", summary="test")
     
     db = MagicMock()
-    with patch.object(AgentGraphOrchestrator, "_run_crm_agent") as mock_crm, \
-         patch.object(AgentGraphOrchestrator, "_run_risk_agent") as mock_risk:
+    with patch.object(AgentGraphOrchestrator, "_orchestrate_agent") as mock_orchestrate:
         
         AgentGraphOrchestrator.run_meeting_analysis(db, "transcript", profile)
         
         # Verify master analyzer ran
         mock_analyze.assert_called_once()
         # Verify specialized agents ran because they were in enabled_agents
-        mock_crm.assert_called_once()
-        mock_risk.assert_called_once()
+        assert mock_orchestrate.call_count == 2
+        called_agent_ids = [call.args[1].id for call in mock_orchestrate.call_args_list]
+        assert "meeting-scrum-agent" in called_agent_ids
+        assert "executive-agent" in called_agent_ids
 
 @patch("app.ai_agents.transcript_analyzer.TranscriptAnalyzer.analyze")
 def test_orchestrator_policy_restriction(mock_analyze, org_id):
     """Layer 4.2: Verify agents are skipped if NOT in enabled_agents."""
     profile = ResolvedBehaviorProfile(
         organization_id=org_id,
-        enabled_agents=["summary-agent"] # Only summary, NO crm-agent
+        enabled_agents=["meeting-scrum-agent"] # Only meeting-scrum, NO product-agent
     )
     
     mock_analyze.return_value = ExtractionSummary(title="Test", summary="test")
     
     db = MagicMock()
-    with patch.object(AgentGraphOrchestrator, "_run_crm_agent") as mock_crm:
+    with patch.object(AgentGraphOrchestrator, "_orchestrate_agent") as mock_orchestrate:
         AgentGraphOrchestrator.run_meeting_analysis(db, "transcript", profile)
         
         # Master analyzer still runs
         mock_analyze.assert_called_once()
-        # CRM agent should be skipped
-        mock_crm.assert_not_called()
+        # Only one agent should be orchestrated
+        assert mock_orchestrate.call_count == 1
+        assert mock_orchestrate.call_args[0][1].id == "meeting-scrum-agent"
 
 @patch("app.ai_agents.transcript_analyzer.TranscriptAnalyzer.analyze")
 def test_orchestrator_error_containment(mock_analyze, org_id):
     """Layer 4.3: Verify one agent crash doesn't kill the orchestrator."""
     profile = ResolvedBehaviorProfile(
         organization_id=org_id,
-        enabled_agents=["crm-agent", "risk-analyzer"]
+        enabled_agents=["product-agent", "incident-agent"]
     )
     
     mock_analyze.return_value = ExtractionSummary(title="Test", summary="test")
     
     db = MagicMock()
-    with patch.object(AgentGraphOrchestrator, "_run_crm_agent", side_effect=Exception("CRM Down")), \
-         patch.object(AgentGraphOrchestrator, "_run_risk_agent") as mock_risk:
+    
+    def side_effect(db, agent, transcript, ext, prof):
+        if agent.id == "product-agent":
+            raise Exception("Agent Down")
+            
+    with patch.object(AgentGraphOrchestrator, "_orchestrate_agent", side_effect=side_effect) as mock_orchestrate:
         
-        # Should not raise exception (orchestrator should handle agent failures)
-        # Note: In the current implementation 9.6, we haven't added explicit 
-        # try/except around individual agent calls in the placeholder. 
-        # Let's adjust the orchestrator if this fails.
         try:
-            AgentGraphOrchestrator.run_meeting_analysis(db, "transcript", profile)
+            result = AgentGraphOrchestrator.run_meeting_analysis(db, "transcript", profile)
         except Exception:
             pytest.fail("Orchestrator should contain agent errors")
         
-        # Risk agent should still have been called (if parallel or handled)
-        # In the current sequential placeholder, it might stop if not handled.
-        mock_risk.assert_called_once()
+        # Both agents should have been attempted
+        assert mock_orchestrate.call_count == 2
+        assert result.title == "Test"
