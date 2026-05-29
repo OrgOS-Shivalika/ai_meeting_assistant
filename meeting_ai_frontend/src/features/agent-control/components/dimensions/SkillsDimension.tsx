@@ -1,4 +1,4 @@
-import { Check, Shield, Terminal, Zap, Layers, MessageSquare, Briefcase, Lock } from "lucide-react";
+import { Check, Terminal, Zap, Layers, MessageSquare, Briefcase, Lock } from "lucide-react";
 import FieldRow from "../FieldRow";
 import { useDimensionEditor } from "./useDimensionEditor";
 import type { ActiveScope, Dimension, ResolvedBehavior } from "../../types";

@@ -47,15 +47,16 @@ export interface UseLiveTranscript {
 }
 
 function buildWsUrl(meetingId: number): string {
-  // VITE_API_URL is set when dev points at a non-local backend; otherwise
-  // we ride same-origin (Vite proxy upgrades the WS in dev; FastAPI
-  // serves WS directly in prod).
-  const apiUrl =
-    (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL;
-  if (apiUrl) {
+  // Use the standard Vite environment variable
+  const apiUrl = import.meta.env.VITE_API_URL;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  
+  if (apiUrl && apiUrl.startsWith("http")) {
+    // Transform http://host:port -> ws://host:port
     return `${apiUrl.replace(/^http/, "ws")}/ws/${meetingId}`;
   }
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+
+  // Fallback to same-origin (Vite proxy will handle this in dev)
   return `${protocol}://${window.location.host}/ws/${meetingId}`;
 }
 

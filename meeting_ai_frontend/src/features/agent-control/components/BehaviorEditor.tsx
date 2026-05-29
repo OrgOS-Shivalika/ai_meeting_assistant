@@ -3,7 +3,6 @@ import { Loader2, RotateCcw, Save, Settings } from "lucide-react";
 import IntentEditor from "./IntentEditor";
 import DimensionAccordion from "./DimensionAccordion";
 import MasterPromptDimension from "./dimensions/MasterPromptDimension";
-import StringListDimension from "./dimensions/StringListDimension";
 import SkillsDimension from "./dimensions/SkillsDimension";
 import KeyValueDimension from "./dimensions/KeyValueDimension";
 import type { FieldSchema } from "./dimensions/KeyValueDimension";

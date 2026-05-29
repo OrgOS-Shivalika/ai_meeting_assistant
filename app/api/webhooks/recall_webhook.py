@@ -68,6 +68,28 @@ async def process_transcript_event(meeting_id: int, payload: dict):
 
     await manager.broadcast(meeting_id, ws_message)
 
+    # --- NEW: Pipe to Live Cognitive Engine ---
+    if is_final:
+        from app.services.live_stream.stream_manager import stream_manager
+        from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
+        import asyncio
+        from datetime import datetime
+
+        # 1. Ensure Session exists
+        stream_manager.start_session(str(meeting_id))
+
+        # 2. Ingest Chunk (Offload to thread to avoid blocking webhook)
+        chunk = LiveTranscriptChunk(
+            speaker_id="recall_auto",
+            speaker_name=speaker,
+            text=text,
+            is_final=True,
+            sequence_number=int(datetime.now().timestamp())
+        )
+        
+        # Trigger background task for detection & stabilization
+        asyncio.create_task(asyncio.to_thread(stream_manager.ingest_chunk, str(meeting_id), chunk))
+
     if is_final:
         db = SessionLocal()
         try:

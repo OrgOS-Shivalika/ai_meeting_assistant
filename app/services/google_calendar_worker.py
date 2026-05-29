@@ -77,15 +77,31 @@ def process_calendar_events():
                         # changed since we created it.
                         existing.google_event_data = event
                         db.commit()
-                        thread = threading.Thread(
-                            target=run_pipeline_async, args=(existing.id,)
-                        )
-                        thread.start()
+
+                        # Broadcast status update via WebSocket so UI transitions from 'Scheduled' to 'Processing'
+                        try:
+                            from app.api.ws_router import manager
+                            import asyncio
+                            # We use asyncio.run because this is usually called from a sync thread
+                            asyncio.run(manager.broadcast(existing.id, {"type": "status_update", "status": "processing"}))
+                        except Exception as ws_err:
+                            logger.error(f"Failed to broadcast status update for meeting {existing.id}: {ws_err}")
+
+                        # Use Celery if enabled, otherwise fall back to thread (local dev)
+                        from app.config.settings import settings
+                        if settings.USE_CELERY:
+                            from app.celery_tasks.meeting_tasks import process_meeting
+                            process_meeting.delay(existing.id)
+                            logger.info(f"Dispatched pre-scheduled meeting {existing.id} to Celery")
+                        else:
+                            thread = threading.Thread(
+                                target=run_pipeline_async, args=(existing.id,)
+                            )
+                            thread.start()
                         continue
 
                     # New event discovered on the calendar — create a Meeting
-                    # row and dispatch. This requires a Meet link because we
-                    # have nowhere else to get one from.
+                    # row and dispatch.
                     if not meet_link:
                         continue
 
@@ -103,10 +119,16 @@ def process_calendar_events():
                     db.commit()
                     db.refresh(meeting)
 
-                    thread = threading.Thread(
-                        target=run_pipeline_async, args=(meeting.id,)
-                    )
-                    thread.start()
+                    # Use Celery if enabled
+                    if settings.USE_CELERY:
+                        from app.celery_tasks.meeting_tasks import process_meeting
+                        process_meeting.delay(meeting.id)
+                        logger.info(f"Dispatched new auto-joined meeting {meeting.id} to Celery")
+                    else:
+                        thread = threading.Thread(
+                            target=run_pipeline_async, args=(meeting.id,)
+                        )
+                        thread.start()
             except Exception as e:
                 logger.error(f"Error processing calendar for user {user.email}: {str(e)}")
 

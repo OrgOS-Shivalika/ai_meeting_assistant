@@ -38,14 +38,12 @@ class LiveEventBus:
         
         try:
             m_id = int(event.meeting_id)
+            
+            # Ensure the entire event is converted to a JSON-serializable dict
+            # event.model_dump(mode='json') will handle datetime conversion automatically
             payload = {
                 "type": "cognitive_event",
-                "event_type": event.event_type,
-                "meeting_id": event.meeting_id,
-                "timestamp": event.timestamp.isoformat(),
-                "payload": event.payload,
-                "confidence": event.confidence,
-                "trace_id": event.trace_id
+                **event.model_dump(mode='json')
             }
             
             # Since LiveEventBus might be called from synchronous threads (like Celery or sync routes)

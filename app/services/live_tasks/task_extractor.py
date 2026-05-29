@@ -19,33 +19,34 @@ class TaskExtractor:
         """Performs incremental task extraction."""
         
         prompt = f"""
-You are a real-time task detection engine for meetings.
-Analyze the CURRENT CHUNK relative to the ROLLING CONTEXT.
+You are an aggressive real-time task detection engine for meetings.
+Analyze the ROLLING CONTEXT to understand the discussion, then extract tasks from the CURRENT CHUNK.
 
-ROLLING CONTEXT (Last few segments):
+ROLLING CONTEXT (Past discussion for reference):
 {rolling_context}
 
-CURRENT CHUNK (Extract from here):
+CURRENT CHUNK (Extract tasks from here):
 Speaker: {chunk.speaker_name}
 Text: {chunk.text}
 
 Rules:
-1. Detect ONLY tasks mentioned in the CURRENT CHUNK.
-2. Identify the owner:
-   - "assigned_task": Someone is told to do something.
-   - "self_assigned_task": Speaker says "I will do X".
-   - "unassigned_task": "Someone should do X".
-3. Extract deadlines (e.g., EOD, tomorrow, Friday).
-4. Assign a confidence score (0.0 - 1.0).
+1. Extract any actionable commitment, assignment, requirement, or meeting governance action mentioned in the CURRENT CHUNK.
+2. INCLUDE procedural tasks such as: moving motions, seconding, confirming minutes, organizing future meetings, or inviting guests.
+3. Use the ROLLING CONTEXT to resolve pronouns (e.g., if CURRENT CHUNK says "I'll do it", find what "it" refers to in the context).
+4. Identify the owner:
+   - "assigned_task": A direct request to another person.
+   - "self_assigned_task": A verbal commitment like "I'll handle", "I can do", "I'm on it".
+   - "unassigned_task": General needs like "Someone should", "We need to", or procedural group tasks.
+5. Extract deadlines and assign a confidence score (0.0 - 1.0). Be liberal with extraction; if it sounds like a task or an administrative move, capture it.
 
 Response Format:
 {{
   "tasks": [
     {{
-      "task": "Fix login bug",
-      "owner": "Sarah",
-      "type": "assigned_task",
-      "deadline": "tomorrow",
+      "task": "Confirm February minutes",
+      "owner": "Meeting Chair",
+      "type": "unassigned_task",
+      "deadline": "today",
       "confidence": 0.95
     }}
   ]
@@ -55,8 +56,10 @@ Response Format:
             client = _get_client()
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "You are a real-time task extractor."}, 
-                          {"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a real-time task extractor. You must always respond with valid JSON."}, 
+                    {"role": "user", "content": prompt}
+                ],
                 response_format={"type": "json_object"},
                 timeout=10
             )
