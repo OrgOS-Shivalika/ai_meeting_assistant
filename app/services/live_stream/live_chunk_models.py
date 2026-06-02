@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class LiveTranscriptChunk(BaseModel):
     """A raw chunk of transcript arriving from the stream (Recall.ai or internal)."""
     speaker_id: str
-    speaker_name: str
+    speaker_name: str = "Unknown Speaker"
     text: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_final: bool = True
@@ -16,7 +16,7 @@ class LiveTranscriptChunk(BaseModel):
 class SpeakerContext(BaseModel):
     """Rolling memory of a specific speaker's activity."""
     speaker_id: str
-    speaker_name: str
+    speaker_name: str = "Unknown Speaker"
     recent_turns: List[str] = Field(default_factory=list)
     last_active: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     total_word_count: int = 0

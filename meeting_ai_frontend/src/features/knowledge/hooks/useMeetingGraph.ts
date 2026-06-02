@@ -22,6 +22,7 @@ export function useMeetingGraph(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     cancelled.current = false;
@@ -29,29 +30,43 @@ export function useMeetingGraph(
       setData(null);
       return;
     }
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
+      if (cancelled.current) return;
+      
       try {
         setLoading(true);
         const resp = await fetchMeetingGraph(meetingId);
         if (cancelled.current) return;
+        
         setData(resp);
         setError(null);
+        
         if (opts.autoPoll && NON_TERMINAL.has(resp.graph_status)) {
-          timer = setTimeout(tick, POLL_MS);
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(tick, POLL_MS);
         }
       } catch (e) {
         if (cancelled.current) return;
         setError(e instanceof Error ? e.message : "Failed to load graph");
+        // Retry even on error if polling is enabled
+        if (opts.autoPoll) {
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(tick, POLL_MS);
+        }
       } finally {
         if (!cancelled.current) setLoading(false);
       }
     };
+
     tick();
+
     return () => {
       cancelled.current = true;
-      if (timer) clearTimeout(timer);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [meetingId, opts.autoPoll]);
 

@@ -149,14 +149,33 @@ class MeetingPipeline:
 
     def save_tasks(self, db, meeting_id, tasks):
         for t in tasks:
-            task = Task(
-                meeting_id=meeting_id,
-                task=t.get("task"),
-                owner_name=t.get("owner"),
-                priority=t.get("priority", "medium"),
-                due_date=self.parse_iso_date(t.get("due_date")),
-            )
-            db.add(task)
+            task_text = t.get("task")
+            if not task_text:
+                continue
+
+            # Check if this task was already captured (e.g. by the Live Engine)
+            existing = db.query(Task).filter(
+                Task.meeting_id == meeting_id,
+                Task.task == task_text
+            ).first()
+
+            if existing:
+                # Update existing record with final analysis details
+                existing.owner_name = t.get("owner")
+                existing.priority = t.get("priority", "medium")
+                existing.due_date = self.parse_iso_date(t.get("due_date"))
+                logger.debug(f"Harmonized final task {existing.id} with live version")
+            else:
+                # Create new record
+                task = Task(
+                    meeting_id=meeting_id,
+                    task=task_text,
+                    owner_name=t.get("owner"),
+                    priority=t.get("priority", "medium"),
+                    due_date=self.parse_iso_date(t.get("due_date")),
+                )
+                db.add(task)
+                logger.debug(f"Saved new final task for meeting {meeting_id}")
 
         db.commit()
 
@@ -284,6 +303,16 @@ class MeetingPipeline:
                 asyncio.run(manager.broadcast(meeting.id, {"type": "status_update", "status": "completed"}))
             except Exception as ws_err:
                 logger.error(f"Failed to broadcast status update: {ws_err}")
+
+            # --- NEW: Session Cleanup ---
+            try:
+                from app.services.live_stream.stream_manager import stream_manager
+                from app.services.meeting_memory.meeting_state_store import state_store
+                stream_manager.end_session(str(meeting.id))
+                state_store.remove_state(str(meeting.id))
+                logger.info(f"🧹 Cleaned up live session and state for meeting {meeting.id}")
+            except Exception as clean_err:
+                logger.error(f"Failed to cleanup meeting session {meeting.id}: {clean_err}")
 
             # Phase 2: fan out to the embedding pipeline. Best-effort —
             # `dispatch_embed_meeting` swallows its own errors so a broken

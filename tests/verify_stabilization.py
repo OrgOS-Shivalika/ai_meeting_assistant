@@ -17,9 +17,10 @@ def test_cognitive_stabilization_lifecycle():
     stream_manager.start_session(meeting_id)
     
     # 1. First mention (Initial detection)
+    # Added "task" keyword to bypass word-count buffer in StreamManager
     chunk1 = LiveTranscriptChunk(
         speaker_id="u1", speaker_name="Alice",
-        text="Someone should fix the auth bug.",
+        text="Someone should fix the auth bug as a task.",
         sequence_number=1
     )
     
@@ -55,7 +56,7 @@ def test_cognitive_stabilization_lifecycle():
         # 2. Second mention (Confidence boost + Inferred ownership)
         chunk2 = LiveTranscriptChunk(
             speaker_id="u2", speaker_name="Bob",
-            text="I think John can handle the auth bug.",
+            text="I think John can handle the auth bug task.",
             sequence_number=2
         )
         
@@ -86,7 +87,7 @@ def test_cognitive_stabilization_lifecycle():
         # 3. Third mention (Confirmed state)
         chunk3 = LiveTranscriptChunk(
             speaker_id="u1", speaker_name="Alice",
-            text="Yes, John will definitely fix the auth bug by Friday.",
+            text="Yes, John will definitely fix the auth bug task by Friday.",
             sequence_number=3
         )
         

@@ -73,6 +73,29 @@ class CognitionNormalizer:
         return fragments
 
     @classmethod
+    def normalize_live_tasks(cls, tasks: List[Any]) -> List[CognitionFragment]:
+        """Normalizes stabilized LiveTask objects from temporal memory."""
+        fragments = []
+        source = "live_detection"
+        
+        for t in tasks:
+            # We only want to persist confirmed or assigned tasks in the final report
+            if hasattr(t, "status") and t.status in ["confirmed", "assigned", "completed"]:
+                fragments.append(CognitionFragment(
+                    type="action_item",
+                    content={
+                        "task": t.task,
+                        "owner": t.owner,
+                        "deadline": t.deadline,
+                        "status": t.status
+                    },
+                    source_skill=source,
+                    confidence=t.confidence,
+                    metadata={"live_id": t.id, "mention_count": t.mention_count}
+                ))
+        return fragments
+
+    @classmethod
     def normalize_master_result(cls, master_result: Any) -> List[CognitionFragment]:
         """Normalizes the result from the Master Analyzer (TranscriptAnalyzer)."""
         fragments = []

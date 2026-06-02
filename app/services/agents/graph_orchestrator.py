@@ -68,7 +68,11 @@ class AgentGraphOrchestrator:
                 logger.error("Error executing agent %s: %s", agent.id, str(e), exc_info=True)
 
         # 5. Unified Cognition Synthesis (Phase 10)
-        final_result = UnifiedCognitionMerger.synthesize(master_result, all_skill_results)
+        final_result = UnifiedCognitionMerger.synthesize(
+            master_result, 
+            all_skill_results,
+            meeting_id=meeting_id
+        )
 
         return final_result
 

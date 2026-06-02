@@ -519,6 +519,7 @@ export default function MeetingDetailPage() {
 
               <MeetingAIMemorySection
                 meetingId={meeting.id}
+                meetingStatus={meeting.status}
                 embeddingStatus={meeting.embedding_status}
                 embeddedAt={meeting.embedded_at}
                 graphStatus={meeting.graph_status}

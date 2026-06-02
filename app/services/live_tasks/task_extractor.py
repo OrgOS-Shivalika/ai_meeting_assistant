@@ -20,19 +20,19 @@ class TaskExtractor:
         
         prompt = f"""
 You are an aggressive real-time task detection engine for meetings.
-Analyze the ROLLING CONTEXT to understand the discussion, then extract tasks from the CURRENT CHUNK.
+Analyze the ROLLING CONTEXT to understand the discussion, then extract tasks ONLY from the CURRENT CHUNK.
 
-ROLLING CONTEXT (Past discussion for reference):
+ROLLING CONTEXT (Past discussion for reference ONLY):
 {rolling_context}
 
-CURRENT CHUNK (Extract tasks from here):
+CURRENT CHUNK (Extract tasks from here ONLY):
 Speaker: {chunk.speaker_name}
 Text: {chunk.text}
 
 Rules:
 1. Extract any actionable commitment, assignment, requirement, or meeting governance action mentioned in the CURRENT CHUNK.
-2. INCLUDE procedural tasks such as: moving motions, seconding, confirming minutes, organizing future meetings, or inviting guests.
-3. Use the ROLLING CONTEXT to resolve pronouns (e.g., if CURRENT CHUNK says "I'll do it", find what "it" refers to in the context).
+2. Use the ROLLING CONTEXT purely for background and to resolve pronouns (e.g., if CURRENT CHUNK says "I'll do it", find what "it" refers to in the context).
+3. DO NOT extract tasks that are ONLY mentioned in the ROLLING CONTEXT. They have already been processed.
 4. Identify the owner:
    - "assigned_task": A direct request to another person.
    - "self_assigned_task": A verbal commitment like "I'll handle", "I can do", "I'm on it".

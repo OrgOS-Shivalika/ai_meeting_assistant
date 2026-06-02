@@ -19,7 +19,8 @@ class UnifiedCognitionMerger:
     def synthesize(
         cls, 
         master_result: Any, 
-        skill_results: Dict[str, Any]
+        skill_results: Dict[str, Any],
+        meeting_id: Optional[int] = None
     ) -> ExtractionSummary:
         """
         Transforms distributed fragments into a single coherent ExtractionSummary.
@@ -29,6 +30,21 @@ class UnifiedCognitionMerger:
         # Layer 1: Normalization
         fragments = CognitionNormalizer.normalize_master_result(master_result)
         fragments.extend(CognitionNormalizer.normalize_skill_results(skill_results))
+        
+        # --- NEW: Inject Live Memory fragments ---
+        if meeting_id:
+            try:
+                from app.services.meeting_memory.meeting_state_store import state_store
+                live_state = state_store.get_state(str(meeting_id))
+                if live_state and live_state.active_tasks:
+                    live_fragments = CognitionNormalizer.normalize_live_tasks(
+                        list(live_state.active_tasks.values())
+                    )
+                    logger.info(f"Injecting {len(live_fragments)} live memory fragments into synthesis.")
+                    fragments.extend(live_fragments)
+            except Exception as e:
+                logger.error(f"Failed to inject live memory into synthesis: {e}")
+
         logger.debug(f"Normalized {len(fragments)} fragments.")
 
         # Layer 2: Conflict Resolution (Title Authority)

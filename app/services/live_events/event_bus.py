@@ -10,6 +10,10 @@ class LiveEventBus:
     
     def __init__(self):
         self._subscribers: List[Callable] = []
+        
+        # --- NEW: Register Default Persistence Subscriber ---
+        from app.services.live_tasks.persistence import LiveTaskPersistence
+        self.subscribe(LiveTaskPersistence.handle_event)
 
     def subscribe(self, callback: Callable[[LiveCognitiveEvent], None]) -> None:
         self._subscribers.append(callback)

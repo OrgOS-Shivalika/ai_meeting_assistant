@@ -4,6 +4,7 @@ from app.db.models import Meeting
 from app.api.ws_router import manager
 from app.utils.logger import setup_logger
 import json
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
@@ -16,25 +17,46 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
     """
     data_block = payload.get("data", {})
     
-    # 1. Handle the deep format: payload['data']['data']['transcript' or 'words']
+    # 1. Determine Source block (where transcript data lives)
+    # Check multiple locations for the data source
     inner_data = data_block.get("data", {})
+    source = None
     if isinstance(inner_data, dict):
         source = inner_data.get("transcript") or inner_data
-    else:
+        
+    if not source or not isinstance(source, dict):
         source = data_block.get("transcript") or data_block
+        
+    if not source or not isinstance(source, dict):
+        source = payload.get("transcript") or payload.get("data", {})
+        
+    if not isinstance(source, dict):
+        source = {}
 
     # 2. Extract Speaker
-    participant = source.get("participant", {})
-    if isinstance(participant, dict):
-        speaker = participant.get("name", "Unknown Speaker")
-    else:
-        speaker = source.get("speaker", "Unknown Speaker")
+    # Check all possible fields for a name or identifier
+    participant = source.get("participant") or data_block.get("participant") or {}
+    
+    speaker = None
+    if isinstance(participant, dict) and participant.get("name"):
+        speaker = participant.get("name")
+    
+    if not speaker:
+        speaker = source.get("speaker") or data_block.get("speaker")
+        
+    if not speaker and isinstance(participant, dict) and participant.get("id"):
+        # Fallback to ID if name is null but ID exists (common in some new accounts)
+        speaker = f"Participant {participant.get('id')}"
+        
+    if not speaker:
+        speaker = "Unknown Speaker"
 
     # 3. Determine if Final
     is_final = source.get("is_final", event == "transcript.data")
 
     # 4. Extract Text
-    text = source.get("text", "")
+    # Check multiple locations for the text
+    text = source.get("text") or data_block.get("text", "")
     if not text:
         # Check for 'words' list and join them
         words = source.get("words", [])
@@ -56,12 +78,15 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         logger.warning(f"[LIVE TRANSCRIPT] Empty text for meeting {meeting_id} | payload: {json.dumps(payload)}")
         return
 
-    formatted_line = f"{speaker}: {text}"
+    # Standardize speaker name for logs and UI
+    speaker_safe = speaker or "Unknown Speaker"
+
+    formatted_line = f"{speaker_safe}: {text}"
     logger.info(f"[LIVE TRANSCRIPT] Meeting {meeting_id} | {event} | Final: {is_final} | {formatted_line}")
 
     ws_message = {
         "type": "transcript_update",
-        "speaker": speaker,
+        "speaker": speaker_safe,
         "text": text,
         "is_final": is_final
     }
@@ -73,7 +98,6 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         from app.services.live_stream.stream_manager import stream_manager
         from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
         import asyncio
-        from datetime import datetime
 
         # 1. Ensure Session exists
         stream_manager.start_session(str(meeting_id))
@@ -81,7 +105,7 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         # 2. Ingest Chunk (Offload to thread to avoid blocking webhook)
         chunk = LiveTranscriptChunk(
             speaker_id="recall_auto",
-            speaker_name=speaker,
+            speaker_name=speaker_safe,
             text=text,
             is_final=True,
             sequence_number=int(datetime.now().timestamp())

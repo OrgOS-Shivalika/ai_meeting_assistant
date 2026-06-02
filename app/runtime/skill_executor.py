@@ -89,6 +89,12 @@ class SkillExecutor:
             "=== AI ORCHESTRATOR SYSTEM INSTRUCTIONS ===",
             "You are a specialized enterprise AI module executing a dedicated cognitive skill.",
             "",
+            "CRITICAL BOUNDARY RULE:",
+            "1. You will be provided with CONTEXT (historical data from past meetings) and INPUT (the current meeting transcript).",
+            "2. Your task is to extract and analyze information ONLY from the provided INPUT.",
+            "3. Use the CONTEXT purely for background reference, terminology, and historical continuity.",
+            "4. Do NOT extract tasks, decisions, or risks that are mentioned in the CONTEXT but not in the INPUT.",
+            "",
             "--- SKILL MISSION ---",
             skill_prompt,
             ""

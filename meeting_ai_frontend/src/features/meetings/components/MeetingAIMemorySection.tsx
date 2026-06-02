@@ -38,6 +38,7 @@ const ENTITY_ICON: Record<EntityType, string> = {
 
 interface Props {
   meetingId: number;
+  meetingStatus?: string;
   embeddingStatus?: MemoryLifecycleStatus;
   embeddedAt?: string | null;
   graphStatus?: MemoryLifecycleStatus;
@@ -83,6 +84,7 @@ const StatusLine = ({
 
 export default function MeetingAIMemorySection({
   meetingId,
+  meetingStatus,
   embeddingStatus,
   graphStatus,
   graphError,
@@ -92,10 +94,12 @@ export default function MeetingAIMemorySection({
   const [retryingGraph, setRetryingGraph] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
-  // Graph load drives the entity preview, AND keeps us in sync if the
-  // user lands on the page mid-processing.
+  // Graph extraction only happens AFTER the meeting is completed.
+  // Polling while the meeting is 'live' (pending/processing) is redundant load.
   const isGraphPending =
-    !graphStatus || graphStatus === "pending" || graphStatus === "processing";
+    meetingStatus === "completed" && 
+    (!graphStatus || graphStatus === "pending" || graphStatus === "processing");
+    
   const { data: graph, loading: graphLoading } = useMeetingGraph(meetingId, {
     autoPoll: isGraphPending,
   });
