@@ -20,6 +20,8 @@ import TemplatesLandingPage from "../features/templates/pages/TemplatesLandingPa
 import TemplatesBrowsePage from "../features/templates/pages/TemplatesBrowsePage";
 import BundlePreviewPage from "../features/templates/pages/BundlePreviewPage";
 import TemplatesInstalledPage from "../features/templates/pages/TemplatesInstalledPage";
+import MembersPage from "../features/members/pages/MembersPage";
+import ReportsPage from "../features/reports/pages/ReportsPage";
 
 export const router = createBrowserRouter([
   {
@@ -104,6 +106,14 @@ export const router = createBrowserRouter([
       {
         path: "/templates/installed",
         element: <TemplatesInstalledPage />,
+      },
+      {
+        path: "/members",
+        element: <MembersPage />,
+      },
+      {
+        path: "/reports",
+        element: <ReportsPage />,
       },
     ],
   },

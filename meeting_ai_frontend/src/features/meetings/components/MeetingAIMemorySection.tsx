@@ -96,12 +96,12 @@ export default function MeetingAIMemorySection({
 
   // Graph extraction only happens AFTER the meeting is completed.
   // Polling while the meeting is 'live' (pending/processing) is redundant load.
-  const isGraphPending =
-    meetingStatus === "completed" && 
-    (!graphStatus || graphStatus === "pending" || graphStatus === "processing");
+  const isMeetingDone = meetingStatus === "completed";
+  const needsPolling = isMeetingDone && (!graphStatus || graphStatus === "pending" || graphStatus === "processing");
     
   const { data: graph, loading: graphLoading } = useMeetingGraph(meetingId, {
-    autoPoll: isGraphPending,
+    enabled: isMeetingDone, // COMPLETELY stop any graph API calls while meeting is live
+    autoPoll: needsPolling,
   });
   const { data: chunks, loading: chunksLoading } = useMeetingChunks(
     meetingId,
