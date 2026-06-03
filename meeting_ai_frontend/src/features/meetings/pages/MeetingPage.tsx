@@ -9,11 +9,11 @@ import {
   ChevronRight,
   LayoutGrid,
   List,
-  Tag,
+  Calendar,
   Inbox,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import MeetingList from "../components/MeetingList";
 import { deleteMeeting } from "../api";
 import type { Category, Meeting } from "../types";
@@ -46,23 +46,23 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
     <div className="relative group/scroll">
       <button
         onClick={() => scrollBy(-360)}
-        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:border-indigo-200 opacity-0 group-hover/scroll:opacity-100 transition-opacity"
+        className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
         aria-label="Scroll left"
         type="button"
       >
-        <ChevronLeft className="w-4 h-4" />
+        <ChevronLeft className="w-5 h-5" />
       </button>
       <button
         onClick={() => scrollBy(360)}
-        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:border-indigo-200 opacity-0 group-hover/scroll:opacity-100 transition-opacity"
+        className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
         aria-label="Scroll right"
         type="button"
       >
-        <ChevronRight className="w-4 h-4" />
+        <ChevronRight className="w-5 h-5" />
       </button>
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto pb-3 -mx-1 px-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:thin]"
+        className="flex gap-4 overflow-x-auto pb-2 px-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.2)_transparent]"
       >
         {meetings.map((meeting) => (
           <div
@@ -96,12 +96,15 @@ function CategorySection({
 }: CategorySectionProps) {
   const color = category.color || "#4F46E5";
   return (
-    <section className="mb-10">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
+    <section className="mb-12">
+      <div className="flex items-end justify-between gap-4 mb-5">
+        <div className="flex items-center gap-4 min-w-0">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 shadow-sm"
-            style={{ backgroundColor: color + "20" }}
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-sm border border-opacity-20"
+            style={{ 
+              backgroundColor: color + "15",
+              borderColor: color
+            }}
           >
             <span>
               {category.icon ? ICON_GLYPH[category.icon] || "🏷️" : "🏷️"}
@@ -111,15 +114,15 @@ function CategorySection({
             <h2 className="text-lg font-bold text-slate-900 truncate">
               {category.name}
             </h2>
-            <p className="text-[11px] font-semibold text-slate-500">
+            <p className="text-xs font-semibold text-slate-500 mt-1">
               {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-              {category.description ? ` · ${category.description}` : ""}
+              {category.description ? ` • ${category.description}` : ""}
             </p>
           </div>
         </div>
         <Link
           to={`/?category_id=${category.id}`}
-          className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 transition-colors shrink-0"
+          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline transition-colors shrink-0 whitespace-nowrap"
         >
           View all →
         </Link>
@@ -146,18 +149,18 @@ function UncategorizedSection({
 }: UncategorizedSectionProps) {
   return (
     <section className="mt-12 pt-8 border-t border-dashed border-slate-200">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-            <Inbox className="w-5 h-5 text-slate-500" />
+      <div className="flex items-end justify-between gap-4 mb-5">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
+            <Inbox className="w-6 h-6 text-slate-500" />
           </div>
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900 truncate">
               Uncategorized
             </h2>
-            <p className="text-[11px] font-semibold text-slate-500">
-              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}{" "}
-              · not yet bound to a meeting type
+            <p className="text-xs font-semibold text-slate-500 mt-1">
+              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"} 
+              <span className="text-slate-400"> • not yet classified</span>
             </p>
           </div>
         </div>
@@ -189,6 +192,7 @@ export default function MeetingsPage() {
   const { data: categories } = useCategories();
   const [view, setView] = useState<"table" | "grid">("table");
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   const meetings = data ?? [];
 
@@ -265,9 +269,12 @@ export default function MeetingsPage() {
     return (
       <Layout>
         <div className="flex justify-center items-center h-[60vh]">
-          <div className="relative w-10 h-10">
-            <div className="absolute inset-0 rounded-full border-3 border-gray-200" />
-            <div className="absolute inset-0 rounded-full border-t-3 border-[#4F46E5] animate-spin" />
+          <div className="text-center">
+            <div className="relative w-10 h-10 mx-auto mb-3">
+              <div className="absolute inset-0 rounded-full border-3 border-slate-200" />
+              <div className="absolute inset-0 rounded-full border-t-3 border-indigo-600 animate-spin" />
+            </div>
+            <p className="text-sm text-slate-500">Loading meetings…</p>
           </div>
         </div>
       </Layout>
@@ -279,23 +286,21 @@ export default function MeetingsPage() {
       ? activeTeam
         ? `No meetings in ${activeTeam.name} yet.`
         : `No meetings in ${activeCategory.name} yet.`
-      : "You haven't added any meetings yet.";
+      : "You haven't scheduled any meetings yet.";
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-2 py-4">
+        <div className="max-w-6xl mx-auto px-4 py-8">
           <ScheduleMeetingForm
             defaultCategoryId={filter.category_id}
             defaultTeamId={filter.team_id}
             onScheduled={handleScheduled}
           />
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <div className="w-14 h-14 bg-[#EEF2FF] rounded-md flex items-center justify-center mx-auto mb-3">
-              <svg className="w-7 h-7 text-[#4F46E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-              </svg>
+          <div className="text-center py-16 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-2xl border border-slate-200/50 mt-8">
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-200/50">
+              <Calendar className="w-8 h-8 text-slate-400" />
             </div>
-            <h3 className="text-lg font-bold text-[#0F1523] mb-1">No meetings found</h3>
-            <p className="text-[#777681] max-w-xs mx-auto text-sm">{emptyMessage}</p>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">No meetings found</h3>
+            <p className="text-slate-600 max-w-sm mx-auto text-sm">{emptyMessage}</p>
           </div>
         </div>
       </Layout>
@@ -307,89 +312,89 @@ export default function MeetingsPage() {
   // experience so users can scan a long list inside a single scope.
   // -------------------------------------------------------------------------
   if (isFiltered) {
+    const handleClearFilter = () => navigate("/");
+    
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-2 py-4">
+        <div className="px-4 py-8">
           <ScheduleMeetingForm
             defaultCategoryId={filter.category_id}
             defaultTeamId={filter.team_id}
             onScheduled={handleScheduled}
           />
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <Link
-                to="/"
-                className="p-1.5 rounded-md hover:bg-slate-100 transition-colors"
-                style={{
-                  backgroundColor: activeCategory?.color
-                    ? `${activeCategory.color}1A`
-                    : "#EEF2FF",
-                }}
+          
+          {/* Header with breadcrumb and view toggle */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 mt-8">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={handleClearFilter}
+                className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
                 title="Back to all meetings"
               >
-                <ChevronLeft
-                  className="w-4 h-4"
-                  style={{ color: activeCategory?.color || "#4F46E5" }}
-                />
-              </Link>
-              <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
-                {headerTitle}
-              </h1>
-              <span className="text-xs font-medium text-[#777681] ml-2">
-                {meetings.length} sessions
-              </span>
+                <ChevronLeft className="w-5 h-5 text-slate-600" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                  {headerTitle}
+                </h1>
+                <span className="text-xs font-medium text-slate-500 mt-1 block">
+                  {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+                </span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg self-start">
+            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg shrink-0">
               <button
                 onClick={() => setView("table")}
-                className={`p-1.5 rounded transition-all ${
+                className={`p-2 rounded transition-all ${
                   view === "table"
-                    ? "bg-white text-[#4F46E5] shadow-sm"
-                    : "text-[#777681] hover:text-[#0F1523]"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
+                title="Table view"
               >
-                <List className="w-4 h-4" />
+                <List className="w-5 h-5" />
               </button>
               <button
                 onClick={() => setView("grid")}
-                className={`p-1.5 rounded transition-all ${
+                className={`p-2 rounded transition-all ${
                   view === "grid"
-                    ? "bg-white text-[#4F46E5] shadow-sm"
-                    : "text-[#777681] hover:text-[#0F1523]"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
+                title="Grid view"
               >
-                <LayoutGrid className="w-4 h-4" />
+                <LayoutGrid className="w-5 h-5" />
               </button>
             </div>
           </div>
 
           {view === "table" ? (
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-white border border-slate-200/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50/50 border-b border-gray-100">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Source
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Meeting Details
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Timestamp
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Participants
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-[#777681] uppercase tracking-wider">
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-100">
                   {meetings.map((meeting) => (
                     <MeetingRow
                       key={meeting.id}
@@ -419,27 +424,21 @@ export default function MeetingsPage() {
   // -------------------------------------------------------------------------
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-2 py-4">
+      <div className=" px-4 py-8">
         <ScheduleMeetingForm
           defaultCategoryId={filter.category_id}
           defaultTeamId={filter.team_id}
           onScheduled={handleScheduled}
         />
-        <div className="flex items-center justify-between gap-3 mb-6">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-[#EEF2FF]">
-              <Tag className="w-4 h-4 text-[#4F46E5]" />
-            </div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
+        
+        <div className="flex items-center justify-between gap-4 mb-8 mt-8">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
               Meetings
             </h1>
-            <span className="text-xs font-medium text-[#777681] ml-2">
-              {meetings.length} sessions across{" "}
-              {groupedByCategory.sections.length}{" "}
-              {groupedByCategory.sections.length === 1
-                ? "category"
-                : "categories"}
-            </span>
+            <p className="text-sm text-slate-600 mt-1">
+              {meetings.length} sessions across {groupedByCategory.sections.length} {groupedByCategory.sections.length === 1 ? "category" : "categories"}
+            </p>
           </div>
         </div>
 

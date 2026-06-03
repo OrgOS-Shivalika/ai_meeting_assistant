@@ -48,8 +48,19 @@ class TaskStabilizer:
     @classmethod
     def _generate_fingerprint(cls, text: str) -> str:
         """Creates a normalized semantic hash for a task."""
-        # Simple normalization for MVP; Phase 11.5 could upgrade this to semantic embeddings
-        normalized = text.lower().strip().replace(" ", "")
+        import re
+        # 1. Lowercase and strip
+        text = text.lower().strip()
+        
+        # 2. Remove common stop words and filler that cause duplicate hashes
+        stop_words = {"a", "an", "the", "is", "are", "to", "be", "for", "of", "and", "or", "in", "on", "at", "by"}
+        words = text.split()
+        filtered_words = [w for w in words if w not in stop_words]
+        
+        # 3. Remove all non-alphanumeric characters
+        normalized = "".join(filtered_words)
+        normalized = re.sub(r'[^a-z0-9]', '', normalized)
+        
         return hashlib.md5(normalized.encode()).hexdigest()
 
     @classmethod

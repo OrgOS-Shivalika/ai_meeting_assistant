@@ -588,7 +588,7 @@ export default function MeetingTypesPage() {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="px-4 py-6">
         {/* Breadcrumb */}
         {level !== "types" && (
           <nav className="flex items-center gap-1 text-xs font-semibold text-slate-500 mb-4">

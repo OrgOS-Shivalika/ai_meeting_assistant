@@ -65,8 +65,8 @@ class StreamSession:
         )
         
         # --- CONTEXT OVERLAP ---
-        # Keep the last 3 chunks to provide continuity for the NEXT batch
-        overlap_chunks = self.thought_buffer[-3:] if len(self.thought_buffer) > 3 else self.thought_buffer
+        # Keep the last 1 chunk to provide continuity for the NEXT batch
+        overlap_chunks = self.thought_buffer[-1:] if len(self.thought_buffer) > 1 else self.thought_buffer
         self.thought_buffer = list(overlap_chunks)
         self.accumulated_word_count = sum(len(c.text.split()) for c in self.thought_buffer)
         

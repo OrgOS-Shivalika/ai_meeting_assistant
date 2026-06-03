@@ -375,7 +375,7 @@ export default function DashboardPage() {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+      <div className="px-4 py-6 space-y-6">
         {/* ─────── Header ─────── */}
         <header>
           <div className="flex items-end justify-between gap-4 flex-wrap">

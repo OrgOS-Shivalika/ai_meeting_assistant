@@ -138,7 +138,7 @@ export default function ActionItemsPage() {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-2 py-4">
+      <div className=" px-2 py-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
             <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">Action Items</h1>

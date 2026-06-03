@@ -17,3 +17,7 @@ dev:
 	make frontend
 	make celery &
 	make backend
+
+res:
+	make frontend
+	make backend
