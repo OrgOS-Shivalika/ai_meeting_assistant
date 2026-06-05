@@ -1,8 +1,10 @@
-from apscheduler.schedulers.background import BackgroundScheduler
-from app.services.google_calendar_worker import process_calendar_events
+import logging
 
-scheduler = BackgroundScheduler()
+logger = logging.getLogger(__name__)
 
 def start_scheduler():
-    scheduler.add_job(process_calendar_events, "interval", minutes=2)
-    scheduler.start()
+    """
+    Deprecated: APScheduler has been removed to prevent blocking the FastAPI event loop.
+    Calendar sync is now handled exclusively by Celery Beat (app.celery_tasks.calendar_tasks).
+    """
+    logger.info("APScheduler disabled. Using Celery Beat for background tasks.")

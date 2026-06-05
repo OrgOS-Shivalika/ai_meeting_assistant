@@ -78,10 +78,15 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         logger.warning(f"[LIVE TRANSCRIPT] Empty text for meeting {meeting_id} | payload: {json.dumps(payload)}")
         return
 
+    # Extract detected language for logging (AssemblyAI Multilingual)
+    data_block = payload.get("data", {})
+    provider_data = data_block.get("provider_data", {})
+    lang_code = provider_data.get("language_code") or data_block.get("language") or "unknown"
+
     # Standardize speaker name for logs and UI
     speaker_safe = speaker or "Unknown Speaker"
 
-    formatted_line = f"{speaker_safe}: {text}"
+    formatted_line = f"[{lang_code.upper()}] {speaker_safe}: {text}"
     logger.info(f"[LIVE TRANSCRIPT] Meeting {meeting_id} | {event} | Final: {is_final} | {formatted_line}")
 
     ws_message = {

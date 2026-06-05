@@ -459,7 +459,7 @@ export default function MeetingDetailPage() {
               </div>
             </div>
 
-            <div className="space-y-3 overflow-y-auto pr-2 scrollbar-hide">
+            <div className="space-y-3 overflow-y-scroll pr-2 scrollbar-hide">
               {/* Meeting Summary Card */}
               <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm p-5 border-b-2 border-b-slate-100">
                 <div className="flex items-center gap-2 mb-3">
@@ -481,7 +481,7 @@ export default function MeetingDetailPage() {
               </div>
 
               {/* Assigned Tasks Card */}
-              <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm overflow-hidden border-b-2 border-b-slate-100">
+              <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm overflow-y-scroll border-b-2 border-b-slate-100">
                 <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Tasks</h3>
                   <span className="text-xs font-semibold text-slate-500">{completedTaskCount}/{taskCount}</span>

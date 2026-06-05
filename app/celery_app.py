@@ -28,22 +28,11 @@ celery = Celery(
         "app.celery_tasks.team_document_tasks",
         "app.celery_tasks.embedding_tasks",
         "app.celery_tasks.graph_tasks",
-        # Phase 4D — registers `meeting_ai.extract_document_graph`. Without
-        # this entry the worker logs "Received unregistered task of type
-        # 'meeting_ai.extract_document_graph'" and silently drops the
-        # message, leaving every doc stuck at graph_status='pending'.
         "app.celery_tasks.document_graph_tasks",
-        # Phase 6A — registers `meeting_ai.score_importance`. Same
-        # "must be in include OR worker drops the message" rule.
         "app.celery_tasks.importance_tasks",
-        # Phase 6D — registers `meeting_ai.consolidate_memory`.
         "app.celery_tasks.consolidation_tasks",
-        # Phase 7F — registers `meeting_ai.aggregate_agent_performance_daily`
-        # and `meeting_ai.aggregate_agent_performance_for_date`.
         "app.celery_tasks.agent_tasks",
-        # Phase 8D template_tasks (upgrade detector) removed in Phase 8F
-        # cleanup — the new sparse-override model has no equivalent of
-        # the 3-way-diff upgrade proposal flow.
+        "app.celery_tasks.calendar_tasks",
     ],
 )
 
@@ -86,5 +75,9 @@ celery.conf.beat_schedule = {
     "agent-performance-daily": {
         "task": "meeting_ai.aggregate_agent_performance_daily",
         "schedule": crontab(minute=0, hour=3),
+    },
+    "sync-google-calendar-frequent": {
+        "task": "meeting_ai.sync_google_calendar",
+        "schedule": crontab(minute="*/2"), # Every 2 minutes
     },
 }

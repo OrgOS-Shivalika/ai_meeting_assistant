@@ -25,17 +25,17 @@ class RecallService:
             "recording_config": {
                 "transcript": {
                     "provider": {
-                        "recallai_streaming": {
-                            "mode": "prioritize_low_latency",
-                            "language_code": "en",
-                            "diarization": {
-                                "use_separate_streams_when_available": True
-                            }
+                        "assembly_ai_v3_streaming": {
+                            "speech_model": "universal-streaming-multilingual",
+                            "language_detection": True,
+                            "format_turns": True
                         }
                     }
                 },
                 "participant_events": {},
-                "meeting_metadata": {}
+                "meeting_metadata": {
+                    "capture_participant_list": True
+                }
             }
         }
         
