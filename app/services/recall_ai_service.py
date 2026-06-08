@@ -1,10 +1,24 @@
 import requests
+from typing import Callable, Optional
 from app.config.settings import settings
 import time
 import json
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+# Phase 12A — bot status codes that matter for closing-briefing trigger.
+# `call_ended` is authoritative for MEETING_ENDED; `done` arrives AFTER
+# the bot has left and is too late to inject audio, so we only use it
+# for cleanup. `recording_permission_denied` and `fatal` short-circuit
+# the briefing to a 'failed' terminal state.
+RECALL_TERMINAL_STATUSES = {
+    "call_ended",
+    "done",
+    "recording_permission_denied",
+    "fatal",
+}
 
 
 class RecallService:
@@ -47,7 +61,19 @@ class RecallService:
                 {
                     "type": "webhook",
                     "url": webhook_url,
-                    "events": ["transcript.data", "transcript.partial_data"]
+                    # Phase 12A — only RECORDING-level events go in
+                    # `realtime_endpoints.events`. Recall.ai's API rejects
+                    # `bot.status_change` here ("not a valid choice") —
+                    # bot lifecycle events come through the separate
+                    # `webhook_url` field below, which posts to the same
+                    # `/webhook/recall/{id}` URL. Our dispatcher already
+                    # routes both event families.
+                    "events": [
+                        "transcript.data",
+                        "transcript.partial_data",
+                        "participant_events.join",
+                        "participant_events.leave",
+                    ]
                 }
             ]
         else:
@@ -80,6 +106,62 @@ class RecallService:
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         return response.json()
+
+    # Phase 12A — belt-and-suspenders status poll.
+    #
+    # The closing-briefing trigger is primarily driven by Recall's
+    # `bot.status_change` webhook. Webhooks can be lost (network blips,
+    # tunnel drops, server restart during a meeting). This method is the
+    # backup: an existing background job (`wait_for_transcript`, the
+    # post-meeting Celery task) can call this in parallel to detect
+    # `call_ended` even when the webhook never fires.
+    #
+    # `on_terminal_status` receives the raw status dict from Recall:
+    #   {"code": "call_ended", "sub_code": "scheduled_end", "created_at": "..."}
+    # The caller is expected to be idempotent (i.e. check
+    # `Meeting.closing_briefing_status` before acting) — this poll WILL
+    # fire on every poll cycle once the bot reaches a terminal state.
+    def poll_bot_status(
+        self,
+        bot_id: str,
+        on_terminal_status: Callable[[dict], None],
+        poll_interval_s: int = 15,
+        max_duration_s: int = 7200,  # 2 hours — longest plausible meeting
+    ) -> Optional[dict]:
+        """Poll the bot until it reaches a terminal status; invoke callback once.
+
+        Returns the terminal status dict, or None if max_duration_s elapsed
+        first (the callback is NOT invoked in that case)."""
+        deadline = time.time() + max_duration_s
+        fired = False
+        while time.time() < deadline:
+            try:
+                bot_data = self.get_bot(bot_id)
+            except Exception as exc:
+                logger.warning(f"[POLL] get_bot({bot_id}) failed: {exc}")
+                time.sleep(poll_interval_s)
+                continue
+
+            status_changes = bot_data.get("status_changes") or []
+            if status_changes:
+                latest = status_changes[-1] or {}
+                code = latest.get("code")
+                if not fired and code in RECALL_TERMINAL_STATUSES:
+                    logger.info(
+                        f"[POLL] Bot {bot_id} reached terminal status '{code}' "
+                        f"via fallback poll — invoking callback"
+                    )
+                    fired = True
+                    try:
+                        on_terminal_status(latest)
+                    except Exception as exc:
+                        logger.error(f"[POLL] on_terminal_status callback raised: {exc}", exc_info=True)
+                    return latest
+
+            time.sleep(poll_interval_s)
+
+        logger.info(f"[POLL] Bot {bot_id} did not reach terminal status within {max_duration_s}s")
+        return None
     
     def wait_for_transcript(self, bot_id: str, timeout: Optional[int] = None):
         """Wait for the transcript to be ready. 

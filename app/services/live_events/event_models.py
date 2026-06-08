@@ -6,12 +6,17 @@ from pydantic import BaseModel, Field
 class LiveCognitiveEvent(BaseModel):
     """Normalized event emitted during a meeting."""
     event_type: Literal[
-        "task.created", 
-        "task.updated", 
-        "task.completed", 
-        "decision.created", 
-        "risk.detected", 
-        "blocker.detected"
+        # Phase 11 — live cognition
+        "task.created",
+        "task.updated",
+        "task.completed",
+        "decision.created",
+        "risk.detected",
+        "blocker.detected",
+        # Phase 12A — meeting lifecycle (closing-briefing triggers)
+        "meeting.winding_down",
+        "meeting.ended",
+        "meeting.failed",
     ]
     meeting_id: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

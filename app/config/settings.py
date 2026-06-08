@@ -210,6 +210,28 @@ class Settings:
     RAG_RERANK_W_ENTITY_IMP = float(os.getenv("RAG_RERANK_W_ENTITY_IMP", "0.20"))
     RAG_RERANK_W_ACCESS = float(os.getenv("RAG_RERANK_W_ACCESS_RERANK", "0.10"))
 
+    # ---------------------------------------------------------------------
+    # Phase 12C — Closing briefing composer.
+    # ---------------------------------------------------------------------
+    # Model + prompt version are tagged onto the BriefingScript output for
+    # audit (Phase 12D writes them to the `closing_briefings` table). The
+    # prompt version follows the same string-tag convention as
+    # GRAPH_PROMPT_VERSION / RAG_*_PROMPT_VERSION — bump when the prompt
+    # template changes.
+    CLOSING_BRIEFING_MODEL = os.getenv("CLOSING_BRIEFING_MODEL", "gpt-4o-mini")
+    CLOSING_BRIEFING_PROMPT_VERSION = os.getenv("CLOSING_BRIEFING_PROMPT_VERSION", "v1")
+    # Hard ceiling on speaking time. Past this, the prompt will be re-run
+    # with a stricter word cap (Phase 12C does one retry; further overruns
+    # are truncated). 60s matches the spec's default max.
+    CLOSING_BRIEFING_MAX_SECONDS = int(os.getenv("CLOSING_BRIEFING_MAX_SECONDS", "60"))
+    # Floor below which we skip the briefing entirely — the resulting
+    # speech would be too short to be useful (and the composer returns
+    # None, which 12D maps to closing_briefing_status='skipped').
+    CLOSING_BRIEFING_MIN_SECONDS = int(os.getenv("CLOSING_BRIEFING_MIN_SECONDS", "8"))
+    # Estimated speaking rate. 150 wpm is a comfortable conversational
+    # pace; we use it to convert max_seconds -> max_words for the prompt.
+    CLOSING_BRIEFING_WPM = int(os.getenv("CLOSING_BRIEFING_WPM", "150"))
+
     def __init__(self):
         if not self.OPEN_API_KEY:
             logger.warning("OPEN_API_KEY is not set in environment variables.")

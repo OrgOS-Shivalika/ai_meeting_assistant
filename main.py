@@ -22,6 +22,9 @@ from app.api.prompt_configs_router import router as prompt_configs_router
 from app.api.playground_router import router as playground_router
 from app.api.templates_router import router as templates_router
 from app.api.behavior_router import router as behavior_router
+# Phase 12C — DEBUG-ONLY briefing composer surface. Remove when 12D
+# (orchestrator + persistence) lands.
+from app.api.debug_briefing_router import debug_briefing_router
 from app.utils.logger import setup_logger
 from app.config.settings import settings
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,6 +67,8 @@ app.include_router(templates_router)
 app.include_router(behavior_router)
 app.include_router(ws_router)
 app.include_router(recall_webhook_router)
+# Phase 12C debug surface — remove with 12D.
+app.include_router(debug_briefing_router)
 
 @app.on_event("startup")
 async def startup_event():

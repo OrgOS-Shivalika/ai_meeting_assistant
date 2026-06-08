@@ -72,6 +72,29 @@ class Meeting(Base):
     google_event_id = Column(String, unique=True)
     google_event_data = Column(JSON)      # Full event details including attendees
 
+    # Phase 12A — closing-briefing lifecycle.
+    # State machine for the AI's end-of-meeting verbal recap:
+    #   'pending'       — default; meeting has not ended yet (or briefing
+    #                     disabled at config time)
+    #   'winding_down'  — advisory signal received (participant drop OR
+    #                     wrap-up phrase detected). Phase 12D uses this to
+    #                     pre-compose + pre-TTS the briefing.
+    #   'ended'         — authoritative `call_ended` status received; the
+    #                     briefing orchestrator should fire NOW.
+    #   'spoken'        — briefing was successfully played to the meeting.
+    #   'skipped'       — briefing intentionally skipped (disabled, empty
+    #                     state, unsupported platform, no audio output, etc.).
+    #   'failed'        — briefing pipeline errored (TTS down, Recall play
+    #                     failed, etc.). The bot still leaves the call.
+    # Also acts as the idempotency guard: webhook handlers refuse to
+    # re-emit MEETING_ENDED when the row is already past 'pending'.
+    closing_briefing_status = Column(
+        String(24),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+
 class Participant(Base):
     __tablename__ = "participants"
 

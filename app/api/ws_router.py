@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.db.models import Meeting
+from app.services.transcript_persistence import schedule_transcript_save
 
 logger = logging.getLogger(__name__)
 
@@ -155,20 +156,13 @@ async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
                     # We use to_thread because ingest_chunk is currently synchronous and calls OpenAI
                     asyncio.create_task(asyncio.to_thread(stream_manager.ingest_chunk, str(meeting_id), chunk))
 
-                # Save final chunks to DB so late joiners see history
+                # Save final chunks to DB so late joiners see history.
+                # Fire-and-forget on a worker thread — see
+                # app/services/transcript_persistence.py for why
+                # the previous inline read-modify-write was an
+                # O(n^2) event-loop blocker.
                 if is_final:
-                    db = SessionLocal()
-                    try:
-                        meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-                        if meeting:
-                            current_transcript = meeting.transcript or ""
-                            meeting.transcript = current_transcript + ("\n" if current_transcript else "") + formatted_line
-                            db.commit()
-                    except Exception as e:
-                        db.rollback()
-                        logger.error(f"DB error saving transcript for meeting {meeting_id}: {e}")
-                    finally:
-                        db.close()
+                    schedule_transcript_save(meeting_id, formatted_line)
 
             except json.JSONDecodeError:
                 logger.error("Failed to decode JSON from Recall.ai WebSocket")
