@@ -22,9 +22,9 @@ from app.api.prompt_configs_router import router as prompt_configs_router
 from app.api.playground_router import router as playground_router
 from app.api.templates_router import router as templates_router
 from app.api.behavior_router import router as behavior_router
-# Phase 12C — DEBUG-ONLY briefing composer surface. Remove when 12D
-# (orchestrator + persistence) lands.
-from app.api.debug_briefing_router import debug_briefing_router
+# Phase 12E — closing-briefing endpoint + orchestrator startup hook.
+from app.api.closing_briefing_router import closing_briefing_router
+from app.services.briefing.closing_briefing_orchestrator import get_orchestrator
 from app.utils.logger import setup_logger
 from app.config.settings import settings
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,14 +67,34 @@ app.include_router(templates_router)
 app.include_router(behavior_router)
 app.include_router(ws_router)
 app.include_router(recall_webhook_router)
-# Phase 12C debug surface — remove with 12D.
-app.include_router(debug_briefing_router)
+# Phase 12E — closing briefing endpoint (replaces the Phase 12C debug router).
+app.include_router(closing_briefing_router)
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Agentic Meeting Assistant...")
     start_scheduler()
     logger.info("Scheduler started successfully.")
+
+    # Phase 12E — subscribe the closing-briefing orchestrator to the
+    # LiveEventBus so it reacts to meeting.winding_down / meeting.ended
+    # events emitted by the Phase 12A lifecycle detectors.
+    try:
+        logger.info("Initializing closing-briefing orchestrator...")
+        orch = get_orchestrator()
+        orch.start()
+        # Belt-and-suspenders: log via setup_logger (always visible) so
+        # the boot log unambiguously confirms subscription.
+        from app.services.live_events.event_bus import live_event_bus
+        logger.info(
+            "Closing-briefing orchestrator: started=%s, bus_subscribers=%d",
+            orch._started, len(live_event_bus._subscribers),
+        )
+    except Exception as exc:
+        # Never let an orchestrator-init failure block app boot — the
+        # rest of the system (transcripts, RAG, dashboard) stays usable
+        # even when the closing-briefing pipeline is degraded.
+        logger.error("Closing-briefing orchestrator failed to start: %s", exc, exc_info=True)
 
     # Ensure the document storage bucket exists. No-op when storage isn't
     # configured — the app stays usable for non-storage features.

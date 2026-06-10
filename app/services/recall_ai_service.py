@@ -1,6 +1,8 @@
 import requests
+from requests.exceptions import HTTPError  # bound at import time, survives mock.patch
 from typing import Callable, Optional
 from app.config.settings import settings
+import base64
 import time
 import json
 from app.utils.logger import setup_logger
@@ -30,8 +32,30 @@ class RecallService:
         }
 
     # 1. Create bot (join meeting)
-    def create_bot(self, meeting_url: str, meeting_id: int, bot_name: str = "AI Note Taker"):
+    def create_bot(
+        self,
+        meeting_url: str,
+        meeting_id: int,
+        bot_name: str = "AI Note Taker",
+        *,
+        language: Optional[str] = None,
+    ):
         url = f"{self.base_url}/bot/"
+
+        # Phase 13A — provider-aware transcript config. The active
+        # provider is chosen by settings.TRANSCRIPTION_PROVIDER and the
+        # adapter builds the right shape for Recall's payload.
+        # `language` is the per-meeting override; falls back to the
+        # workspace default when not provided.
+        from app.services.transcription import get_active_provider
+
+        provider = get_active_provider()
+        effective_language = language or settings.TRANSCRIPTION_LANGUAGE
+        transcript_provider_config = provider.build_recording_config(effective_language)
+        logger.info(
+            f"Bot {meeting_id}: using transcription provider={provider.name!r} "
+            f"recall_key={provider.recall_provider_key!r} language={effective_language!r}"
+        )
 
         payload = {
             "meeting_url": meeting_url,
@@ -39,11 +63,7 @@ class RecallService:
             "recording_config": {
                 "transcript": {
                     "provider": {
-                        "assembly_ai_v3_streaming": {
-                            "speech_model": "universal-streaming-multilingual",
-                            "language_detection": True,
-                            "format_turns": True
-                        }
+                        provider.recall_provider_key: transcript_provider_config,
                     }
                 },
                 "participant_events": {},
@@ -163,9 +183,21 @@ class RecallService:
         logger.info(f"[POLL] Bot {bot_id} did not reach terminal status within {max_duration_s}s")
         return None
     
-    def wait_for_transcript(self, bot_id: str, timeout: Optional[int] = None):
-        """Wait for the transcript to be ready. 
+    def wait_for_transcript(
+        self,
+        bot_id: str,
+        timeout: Optional[int] = None,
+        *,
+        meeting_id: Optional[int] = None,
+    ):
+        """Wait for the transcript to be ready.
         If timeout is None, it will wait indefinitely until the bot call ends and the transcript is processed.
+
+        Phase 12E: when `meeting_id` is provided, each poll cycle also
+        checks whether `call_ended` has appeared in status_changes and
+        whether our DB still shows the meeting as pending. If both,
+        self-delivers the bot.status_change webhook locally (fallback
+        for Recall's unreliable per-bot webhook_url delivery).
         """
         start_time = time.time()
         logger.info(f"Waiting for transcript for bot {bot_id} (Timeout: {timeout or 'None'})...")
@@ -173,7 +205,17 @@ class RecallService:
         while True:
             bot_data = self.get_bot(bot_id)
             recordings = bot_data.get("recordings", [])
-            bot_status = bot_data.get("status_changes", [])[-1].get("code") if bot_data.get("status_changes") else "unknown"
+            status_changes_list = bot_data.get("status_changes", []) or []
+            bot_status = status_changes_list[-1].get("code") if status_changes_list else "unknown"
+
+            # Phase 12E — self-deliver the call_ended webhook if it never
+            # arrived through Recall's webhook channel. Idempotent.
+            if meeting_id is not None:
+                try:
+                    self.self_deliver_call_ended_if_pending(meeting_id, status_changes_list)
+                except Exception as exc:
+                    # Never let the fallback path crash transcript waiting.
+                    logger.error(f"[POLL] self_deliver raised (ignoring): {exc}")
 
             if recordings:
                 rec = next(
@@ -214,3 +256,228 @@ class RecallService:
             sleep_time = min(10 + int((time.time() - start_time) / 60), 30)
             logger.debug(f"Sleeping for {sleep_time} seconds...")
             time.sleep(sleep_time)
+
+    # ---------------------------------------------------------------------
+    # Phase 12D — In-meeting audio output + bot leave.
+    #
+    # These three methods exist so the Phase 12E orchestrator (and 12D's
+    # `AudioPlayer`) can drive the bot's mouth + exit cleanly. None of
+    # them touch live state; they're thin HTTP wrappers over Recall's
+    # bot-control endpoints.
+    # ---------------------------------------------------------------------
+
+    def play_audio(
+        self,
+        bot_id: str,
+        audio_bytes: bytes,
+        *,
+        kind: str = "mp3",
+    ) -> dict:
+        """Push audio into the meeting via Recall's output_audio endpoint.
+
+        Recall.ai's contract is "send me the bytes" — the audio MUST be
+        base64-encoded and sent inline as `b64_data`. There is no fetch-from-URL
+        variant. A previous version of this method sent `url=...` which
+        Recall silently 400s.
+
+        `kind` matches the audio container (currently always 'mp3' since
+        TTSService produces mp3). If a future provider returns wav, the
+        TTSResult.format flows through here too.
+
+        Returns the Recall response dict; the caller grabs the playback id
+        from `id` or `playback_id`. Raises on HTTP error — AudioPlayer
+        catches and degrades.
+        """
+        if not audio_bytes:
+            raise ValueError("play_audio requires non-empty audio_bytes")
+
+        b64 = base64.b64encode(audio_bytes).decode("ascii")
+        url = f"{self.base_url}/bot/{bot_id}/output_audio/"
+        payload = {"kind": kind, "b64_data": b64}
+
+        logger.info(
+            f"[RECALL] play_audio bot={bot_id} kind={kind} "
+            f"audio_bytes={len(audio_bytes)} b64_len={len(b64)}"
+        )
+        response = requests.post(url, json=payload, headers=self.headers)
+        if response.status_code not in (200, 201, 202):
+            # Don't print the entire base64 blob in error logs.
+            body = response.text[:500] if response.text else "(no body)"
+            logger.error(
+                f"[RECALL] play_audio failed: {response.status_code} body={body}"
+            )
+            # Raise an exception WITH the body included so the orchestrator
+            # captures it in the audit row's error_message column. Plain
+            # response.raise_for_status() only includes the URL, not the
+            # response body — which is exactly the diagnostic info we need.
+            raise HTTPError(
+                f"play_audio {response.status_code}: {body}",
+                response=response,
+            )
+        return response.json() if response.content else {"id": None}
+
+    def wait_for_playback_complete(
+        self,
+        bot_id: str,
+        playback_id: Optional[str],
+        timeout: int,
+        poll_interval_s: float = 1.0,
+    ) -> bool:
+        """Poll the bot until output playback is reported complete.
+
+        Returns True on confirmed completion; False on timeout (caller
+        decides whether to still leave the call — `AudioPlayer` always
+        leaves regardless of this return value).
+
+        Recall's output-audio status surfaces under
+        `bot_data["output_media"]` or `bot_data["recording_status"]`
+        depending on API version. We look for the playback id in either
+        location and check its status code.
+        """
+        if not playback_id:
+            # Some Recall plans return no id — we fall back to a fixed
+            # delay matched to a conservative upper bound for a 60s clip.
+            logger.warning(
+                "[RECALL] wait_for_playback called with no playback_id; "
+                "falling back to fixed timeout"
+            )
+            time.sleep(min(timeout, 90))
+            return True
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                bot_data = self.get_bot(bot_id)
+            except Exception as exc:
+                logger.warning(f"[RECALL] wait_for_playback poll failed: {exc}")
+                time.sleep(poll_interval_s)
+                continue
+
+            # Look in both common shapes — Recall's response schema for
+            # output_media has shifted between API versions.
+            candidates = []
+            if isinstance(bot_data.get("output_media"), list):
+                candidates.extend(bot_data["output_media"])
+            elif isinstance(bot_data.get("output_media"), dict):
+                candidates.append(bot_data["output_media"])
+            if isinstance(bot_data.get("output_audio"), list):
+                candidates.extend(bot_data["output_audio"])
+
+            for entry in candidates:
+                if not isinstance(entry, dict):
+                    continue
+                entry_id = entry.get("id") or entry.get("playback_id")
+                if entry_id != playback_id:
+                    continue
+                status = entry.get("status") or {}
+                if isinstance(status, dict):
+                    code = status.get("code")
+                else:
+                    code = status
+                if code in ("done", "completed", "played"):
+                    return True
+                if code in ("failed", "error"):
+                    logger.error(f"[RECALL] playback {playback_id} entered failure state: {code}")
+                    return False
+
+            time.sleep(poll_interval_s)
+
+        logger.warning(
+            f"[RECALL] wait_for_playback timed out after {timeout}s for "
+            f"playback_id={playback_id}"
+        )
+        return False
+
+    def leave_call(self, bot_id: str) -> None:
+        """Tell the bot to disconnect from the meeting.
+
+        Idempotent: Recall returns 200/204 even if the bot has already
+        left. We swallow connection errors here too — by the time we
+        ask the bot to leave, we want zero remaining work; any failure
+        is logged and forgotten.
+        """
+        url = f"{self.base_url}/bot/{bot_id}/leave_call/"
+        try:
+            response = requests.post(url, headers=self.headers)
+            if response.status_code not in (200, 202, 204):
+                logger.warning(
+                    f"[RECALL] leave_call returned {response.status_code}: {response.text}"
+                )
+        except Exception as exc:
+            logger.error(f"[RECALL] leave_call request error: {exc}")
+
+    # ---------------------------------------------------------------------
+    # Phase 12E — Webhook delivery fallback.
+    #
+    # Recall.ai's per-bot `webhook_url` field is unreliable for
+    # `bot.status_change` events (transcripts + participant events arrive
+    # fine via realtime_endpoints, but bot lifecycle events don't). When
+    # the polling loop sees `call_ended` in status_changes but our DB
+    # still says 'pending', the webhook was lost — we self-deliver by
+    # POSTing to our OWN /webhook/recall/{id} endpoint over localhost.
+    #
+    # Idempotency: the webhook handler refuses to re-emit when
+    # closing_briefing_status is already past 'pending', so this can
+    # be called repeatedly without side effects.
+    # ---------------------------------------------------------------------
+
+    def self_deliver_call_ended_if_pending(
+        self, meeting_id: int, status_changes: list,
+    ) -> bool:
+        """If `call_ended` appears in status_changes but our DB still
+        shows the meeting as pending, self-deliver the webhook locally.
+
+        Returns True if a self-delivery was attempted, False otherwise.
+        Safe to call on every poll cycle — handler is idempotent.
+        """
+        # Find the FIRST call_ended entry — Recall sometimes repeats
+        # status transitions; we only want the original timestamp.
+        ended_status = next(
+            (s for s in (status_changes or [])
+             if isinstance(s, dict) and s.get("code") == "call_ended"),
+            None,
+        )
+        if ended_status is None:
+            return False
+
+        # Cheap DB check first to avoid pointless HTTP roundtrips.
+        from app.db.database import SessionLocal
+        from app.db.models import Meeting
+
+        db = SessionLocal()
+        try:
+            meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+            if meeting is None:
+                logger.warning(
+                    f"[POLL] meeting {meeting_id} not found for self-deliver"
+                )
+                return False
+            if meeting.closing_briefing_status != "pending":
+                # Already processed (or in flight). Don't re-fire.
+                return False
+        finally:
+            db.close()
+
+        # Self-deliver. Use the internal URL (localhost) — bypasses ngrok,
+        # avoids re-entering our own public endpoint via the tunnel.
+        local_url = f"{settings.INTERNAL_WEBHOOK_BASE_URL}/webhook/recall/{meeting_id}"
+        payload = {
+            "event": "bot.status_change",
+            "data": {"status": ended_status},
+        }
+        logger.info(
+            f"[POLL] self-delivering call_ended webhook for meeting {meeting_id} "
+            f"(ended_at={ended_status.get('created_at')})"
+        )
+        try:
+            response = requests.post(local_url, json=payload, timeout=10)
+            if response.status_code != 200:
+                logger.warning(
+                    f"[POLL] self-deliver got {response.status_code}: {response.text[:200]}"
+                )
+                return True  # we tried
+            logger.info(f"[POLL] self-deliver succeeded for meeting {meeting_id}")
+            return True
+        except Exception as exc:
+            logger.error(f"[POLL] self-deliver request failed: {exc}")
+            return True  # we tried; orchestrator may still pick up next cycle

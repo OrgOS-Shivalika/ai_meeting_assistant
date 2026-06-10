@@ -20,10 +20,18 @@ class GeminiTranscriptAnalyzer:
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
 
+        # Phase 13D revised — inject today's date for relative-deadline
+        # normalization, same as the OpenAI analyzer path.
+        from datetime import datetime as _dt, timezone as _tz
+        _today = _dt.now(_tz.utc).date()
+        _day_names = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                      "Friday", "Saturday", "Sunday"]
         formatted_prompt = (
             analyzer_prompt
             .replace("{behavior_context}", behavior_context or "")
             .replace("{transcript}", transcript)
+            .replace("{current_date_iso}", _today.isoformat())
+            .replace("{current_day_of_week}", _day_names[_today.weekday()])
         )
 
         logger.info("Starting analysis of transcript with Gemini (%s)...", settings.GEMINI_MODEL)

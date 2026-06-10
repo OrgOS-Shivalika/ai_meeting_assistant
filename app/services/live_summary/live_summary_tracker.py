@@ -34,14 +34,14 @@ this is a sibling, not a subclass.
 """
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.ai_agents.openAI_transcript_analyzer import _get_client
 from app.services.meeting_memory.meeting_state_store import MeetingState
+from app.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # Tunables — module-level so tests can override without touching the
 # class internals.
@@ -123,6 +123,12 @@ class LiveSummaryTracker:
             prompt = f"""
 You are maintaining a running summary of a live business meeting.
 
+LANGUAGE HANDLING:
+- The discussion may be in English, Hindi (Devanagari), or Hinglish.
+- ALWAYS WRITE THE SUMMARY IN ENGLISH, regardless of the input
+  language. Translate Hindi/Hinglish discussion into clear,
+  business-grade English prose for the dashboard.
+
 PREVIOUS SUMMARY:
 {previous_summary}
 
@@ -133,7 +139,8 @@ Update the running summary so it incorporates the new discussion.
 Constraints:
 - Maximum {_SUMMARY_MAX_SENTENCES} sentences.
 - Single paragraph, plain prose. No bullets, no headers, no markdown.
-- Speak in the past tense ("The team discussed...", "Engineering reviewed...").
+- Past tense ("The team discussed...", "Engineering reviewed...").
+- ENGLISH ONLY for the output — even if input is Hindi/Hinglish.
 - Keep the SAME high-level topic — only add to it. Do not rewrite from scratch.
 - If the new discussion is off-topic or trivial, return the previous summary unchanged.
 
@@ -143,12 +150,17 @@ Output ONLY the updated summary text. No JSON, no preamble.
             prompt = f"""
 You are summarizing the first portion of a live business meeting.
 
+LANGUAGE HANDLING:
+- The discussion may be in English, Hindi (Devanagari), or Hinglish.
+- ALWAYS WRITE THE SUMMARY IN ENGLISH, regardless of the input language.
+
 DISCUSSION SO FAR:
 {latest_text}
 
 Write a {_SUMMARY_MAX_SENTENCES}-sentence summary of what has been
 discussed. Single paragraph, plain prose. No bullets, no headers,
-no markdown. Speak in the past tense ("The team discussed...").
+no markdown. Past tense ("The team discussed...").
+ENGLISH ONLY — translate from Hindi/Hinglish if needed.
 
 Output ONLY the summary text. No JSON, no preamble.
 """.strip()

@@ -48,10 +48,21 @@ class OpenAITranscriptAnalyzer:
         # if not formatted_transcript.strip():
         #     raise ValueError("Transcript is empty, skipping analysis")
 
+        # Phase 13D revised — inject today's ISO date so the LLM can
+        # convert relative deadlines ("by Friday", "कल तक", "Friday tak")
+        # into concrete ISO 8601 due_date values. Falls back to "" if
+        # the placeholder isn't present in the prompt template
+        # (.replace is a no-op for missing tokens).
+        from datetime import datetime as _dt, timezone as _tz
+        _today = _dt.now(_tz.utc).date()
+        _day_names = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                      "Friday", "Saturday", "Sunday"]
         formatted_prompt = (
             analyzer_prompt
             .replace("{behavior_context}", behavior_context or "")
             .replace("{transcript}", transcript)
+            .replace("{current_date_iso}", _today.isoformat())
+            .replace("{current_day_of_week}", _day_names[_today.weekday()])
         )
 
         print("FORMATTED TRANSCRIPT:\n", transcript)

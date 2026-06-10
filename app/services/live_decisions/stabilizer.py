@@ -17,7 +17,6 @@ State transitions
 from __future__ import annotations
 
 import hashlib
-import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -28,8 +27,9 @@ from app.services.live_decisions.live_decision_models import (
     LiveDecision,
 )
 from app.services.meeting_memory.meeting_state_store import MeetingState
+from app.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 # Tunables — kept module-level so tests can swap them without monkey-

@@ -40,7 +40,6 @@ Design choices
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, Dict, List, Optional
 
 from app.ai_agents.openAI_transcript_analyzer import _get_client
@@ -53,17 +52,62 @@ from app.schemas.briefing_schema import (
     LLMBriefingPayload,
 )
 from app.services.meeting_memory.meeting_state_store import state_store
+from app.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 # Hardcoded sentence templates. Kept here (not in the prompt module)
 # because they are NOT LLM input — they're attached after composition.
 # Single source of truth for spoken framing.
-_OPENING_TEMPLATE = (
-    "Before we wrap up, here's a quick summary of today's discussion."
-)
-_CLOSING_TEMPLATE = "Thank you everyone."
+#
+# Phase 13D — per-language templates. The composer detects the
+# dominant language of the meeting state (Devanagari script ratio in
+# summary + decisions text) and picks the matching pair.
+_OPENING_TEMPLATES = {
+    "english": "Before we wrap up, here's a quick summary of today's discussion.",
+    "hindi": "मीटिंग खत्म करने से पहले, आज की चर्चा का संक्षिप्त सारांश।",
+    "hinglish": "Meeting khatam karne se pehle, aaj ki discussion ka chhota summary.",
+}
+_CLOSING_TEMPLATES = {
+    "english": "Thank you everyone.",
+    "hindi": "धन्यवाद सबको।",
+    "hinglish": "Thanks everyone, dhanyawad.",
+}
+
+# Backward-compat aliases — some callers (tests) reference these.
+_OPENING_TEMPLATE = _OPENING_TEMPLATES["english"]
+_CLOSING_TEMPLATE = _CLOSING_TEMPLATES["english"]
+
+
+def _detect_language(text: str) -> str:
+    """Return 'english' / 'hindi' / 'hinglish' based on the script
+    composition of `text`.
+
+    Approach: count Devanagari characters (U+0900-U+097F) vs ASCII
+    letters. The thresholds are deliberately wide so a stray Hindi
+    word in an otherwise-English meeting doesn't flip the language;
+    likewise a few English brand names in a Hindi meeting don't
+    flip it.
+
+    Heuristic:
+      - Devanagari chars / total letters > 0.5  -> 'hindi'
+      - Devanagari chars / total letters > 0.10 -> 'hinglish'
+      - otherwise                                -> 'english'
+    """
+    if not text:
+        return "english"
+    devanagari = sum(1 for c in text if 0x0900 <= ord(c) <= 0x097F)
+    ascii_letters = sum(1 for c in text if c.isascii() and c.isalpha())
+    total_letters = devanagari + ascii_letters
+    if total_letters == 0:
+        return "english"
+    ratio = devanagari / total_letters
+    if ratio > 0.50:
+        return "hindi"
+    if ratio > 0.10:
+        return "hinglish"
+    return "english"
 
 
 # Sentinel "owner" values that leak from upstream Phase 11 code into
@@ -150,7 +194,26 @@ class BriefingComposer:
             )
             return None
 
-        # 2. Build the prompt for the configured version.
+        # 2. Detect target language for the spoken briefing.
+        #
+        # The dashboard outputs (summary, tasks, decisions) are now
+        # always English (Phase 13D revision per user requirement) —
+        # so they can't be used as a language signal anymore.
+        #
+        # We read the RAW live transcript directly from the DB.
+        # `meeting.transcript` contains the original-language text
+        # written by Phase 11/12's persistence helper, so a Hindi
+        # meeting will have Devanagari in that column. This gives
+        # the composer the source-of-truth signal for whether to
+        # speak Hindi or English.
+        raw_transcript = self._read_raw_transcript(meeting_id)
+        target_language = _detect_language(raw_transcript) if raw_transcript else "english"
+        logger.info(
+            f"[BRIEFING] meeting={meeting_id} detected target_language={target_language!r} "
+            f"from raw_transcript_len={len(raw_transcript or '')}"
+        )
+
+        # 3. Build the prompt for the configured version.
         prompt_version = settings.CLOSING_BRIEFING_PROMPT_VERSION
         render = PROMPT_VERSIONS.get(prompt_version)
         if render is None:
@@ -166,6 +229,7 @@ class BriefingComposer:
             decisions=snapshot["decisions"],
             assigned_tasks=snapshot["assigned_tasks"],
             unassigned_tasks=snapshot["unassigned_tasks"],
+            target_language=target_language,
         )
 
         # 3. One LLM call. Retry once with a tighter cap if it overshoots.
@@ -181,6 +245,7 @@ class BriefingComposer:
             sections_enabled=sections_enabled,
             prompt_version=prompt_version,
             snapshot=snapshot,
+            target_language=target_language,
         )
 
         # 4. Length cap. Soft enforcement: if we overshoot, retry once
@@ -197,6 +262,7 @@ class BriefingComposer:
                 decisions=snapshot["decisions"],
                 assigned_tasks=snapshot["assigned_tasks"],
                 unassigned_tasks=snapshot["unassigned_tasks"],
+                target_language=target_language,
             )
             retry_payload = self._call_llm(retry_prompt)
             if retry_payload is not None:
@@ -207,6 +273,7 @@ class BriefingComposer:
                     sections_enabled=sections_enabled,
                     prompt_version=prompt_version,
                     snapshot=snapshot,
+                    target_language=target_language,
                 )
                 if retry_script.word_count <= max_words:
                     script = retry_script
@@ -278,6 +345,39 @@ class BriefingComposer:
             "assigned_tasks": assigned,
             "unassigned_tasks": unassigned,
         }
+
+    def _read_raw_transcript(self, meeting_id: str) -> Optional[str]:
+        """Read the live transcript text from the meetings row.
+
+        Used by Phase 13D-revised for spoken-briefing language detection.
+        The live transcript preserves the ORIGINAL language of the
+        meeting (Hindi stays in Devanagari) — unlike the AI-generated
+        summary, which is always English under the revised policy.
+
+        Returns None on DB error or missing row (composer falls back to
+        English default — safe choice for spoken output).
+        """
+        from app.db.database import SessionLocal
+        from app.db.models import Meeting
+
+        try:
+            mid = int(meeting_id)
+        except (TypeError, ValueError):
+            return None
+
+        db = SessionLocal()
+        try:
+            meeting = db.query(Meeting).filter(Meeting.id == mid).first()
+            if meeting is None:
+                return None
+            return meeting.transcript or None
+        except Exception as exc:
+            logger.warning(
+                f"[BRIEFING] _read_raw_transcript failed for {meeting_id}: {exc}"
+            )
+            return None
+        finally:
+            db.close()
 
     def _has_minimum_signal(self, snapshot: Dict[str, Any]) -> bool:
         """Returns False when state is so sparse the brief would be
@@ -355,9 +455,17 @@ class BriefingComposer:
         sections_enabled: BriefingSections,
         prompt_version: str,
         snapshot: Dict[str, Any],
+        target_language: str = "english",
     ) -> BriefingScript:
-        opening = _OPENING_TEMPLATE if BriefingSections.OPENING in sections_enabled else None
-        closing = _CLOSING_TEMPLATE if BriefingSections.CLOSING in sections_enabled else None
+        # Phase 13D — pick opening/closing in the target language so the
+        # spoken briefing is linguistically coherent end to end.
+        tl = target_language if target_language in _OPENING_TEMPLATES else "english"
+        opening = (
+            _OPENING_TEMPLATES[tl] if BriefingSections.OPENING in sections_enabled else None
+        )
+        closing = (
+            _CLOSING_TEMPLATES[tl] if BriefingSections.CLOSING in sections_enabled else None
+        )
 
         # Helper — treat empty / whitespace as omitted.
         def _opt(s: str) -> Optional[str]:

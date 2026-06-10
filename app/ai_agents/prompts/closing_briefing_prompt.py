@@ -22,16 +22,30 @@ This output will be passed to a text-to-speech engine. It will be
 SPOKEN to a room of humans. Write what a human would SAY, not what
 they would read on a screen.
 
+LANGUAGE HANDLING (Phase 13D):
+- The meeting's input data (summary, decisions, tasks) may be in
+  English, Hindi (Devanagari script), or Hinglish (mixed).
+- The TARGET LANGUAGE for this briefing is: {target_language}
+  - 'english' -> respond entirely in natural conversational English
+  - 'hindi'   -> respond entirely in natural conversational Hindi
+                 (Devanagari script). Use everyday spoken Hindi —
+                 the way a person would actually say this in a
+                 meeting, not formal/literary Hindi.
+  - 'hinglish' -> use the same mix of Hindi+English that the input
+                  uses. Don't over-correct toward either side.
+- Translate input items only if the target language differs from the
+  source language. Person names and proper nouns stay as-is.
+
 HARD RULES — these are non-negotiable:
 1. NO markdown. No asterisks, no underscores, no backticks, no #.
 2. NO bullet points or numbered lists. Use flowing sentences.
-3. NO headers like "Decisions:" — speak naturally instead.
+3. NO headers like "Decisions:" / "निर्णय:" — speak naturally instead.
 4. NO emojis. No special characters except standard punctuation.
 5. NO "the user", "the team should", "as an AI" — speak in the
    voice of a participant who watched the meeting.
 6. NO meta references like "based on the transcript" or "as discussed".
 7. Use the speaker names provided. If a name is missing, say
-   "someone" or "the team".
+   "someone" / "किसी ने" / "the team" / "टीम ने".
 8. Stay STRICTLY under {max_words} words across ALL sections combined.
    Going over means the bot will get cut off mid-sentence.
 
@@ -39,28 +53,41 @@ SECTION-LEVEL GUIDANCE:
 
 For `summary_text` (target 25-40 words):
 - Two sentences max.
-- Past tense ("The team discussed...", "Engineering reviewed...").
+- Past tense (English: "The team discussed...";
+              Hindi: "टीम ने ... पर चर्चा की।").
 - Captures the high-level topic, not specific decisions.
 - If the input summary is empty or generic, return an empty string.
 
 For `decisions_text` (target 30-60 words):
-- Open with a count: "Three decisions were made today."
+- Open with a count:
+    English: "Three decisions were made today."
+    Hindi:   "आज तीन निर्णय लिए गए।"
+    Hinglish: "Aaj teen decisions liye gaye."
 - Then state each decision in one short sentence.
 - If there are no decisions, return an empty string.
-- Use natural transitions between decisions ("Second,", "And finally,").
+- Use natural transitions (English: "Second,", "And finally,";
+                           Hindi: "दूसरा,", "और अंत में,").
 - Do NOT list decisions if the count is zero — say nothing.
 
 For `assigned_text` (target 30-60 words):
-- Open with a count: "Four action items were assigned."
+- Open with a count:
+    English: "Four action items were assigned."
+    Hindi:   "चार कार्य सौंपे गए।"
 - For each task: who, what, when (if a deadline is provided).
-- Format: "Sarah will prepare the load test plan by September 12th."
+- Format:
+    English: "Sarah will prepare the load test plan by September 12th."
+    Hindi:   "सारा १२ सितंबर तक लोड टेस्ट प्लान तैयार करेगी।"
 - If there are no assigned tasks, return an empty string.
 
 For `unassigned_text` (target 20-40 words):
 - This is the most important section — call it out clearly.
-- Open: "I found two tasks without owners."
+- Open:
+    English: "I found two tasks without owners."
+    Hindi:   "दो ऐसे कार्य हैं जिनका कोई ज़िम्मेदार नहीं है।"
 - List the bare tasks (no owner, since there isn't one).
-- End with: "Please assign owners before closing these items."
+- End with:
+    English: "Please assign owners before closing these items."
+    Hindi:   "कृपया इन्हें बंद करने से पहले ज़िम्मेदार तय करें।"
 - If there are no unassigned tasks, return an empty string.
 
 INPUT DATA:
@@ -97,12 +124,18 @@ def render(
     decisions: list,
     assigned_tasks: list,
     unassigned_tasks: list,
+    target_language: str = "english",
 ) -> str:
     """Substitute the runtime variables into PROMPT_V1.
 
     Lists are rendered as one-per-line text blocks so the LLM doesn't
     spend tokens parsing JSON-of-JSON. Each line is a single human
     sentence: 'Decision: <text> (decided by: <name>)' / etc.
+
+    `target_language` is the language the FINAL SPOKEN BRIEFING should
+    be in: 'english' (default), 'hindi', or 'hinglish'. The composer's
+    language-detection logic picks this based on the input summary +
+    decisions text.
     """
     def _fmt_decision(d: dict) -> str:
         text = d.get("decision", "").strip()
@@ -113,6 +146,9 @@ def render(
         text = t.get("task", "").strip()
         owner = t.get("owner") or "unknown"
         deadline = t.get("deadline")
+        # Format string is language-neutral here — the LLM converts to
+        # natural prose in the target language. We just need to give it
+        # the raw fields.
         line = f"- {owner} will {text}"
         if deadline:
             line += f" by {deadline}"
@@ -127,8 +163,15 @@ def render(
             return empty_label
         return "\n".join(formatter(i) for i in items)
 
+    # Normalize target language to one of the three values referenced
+    # in the prompt template.
+    tl = (target_language or "english").lower().strip()
+    if tl not in ("english", "hindi", "hinglish"):
+        tl = "english"
+
     return PROMPT_V1.format(
         max_words=max_words,
+        target_language=tl,
         summary=(summary or "(no summary available)"),
         decisions=_block(decisions, _fmt_decision),
         assigned_tasks=_block(assigned_tasks, _fmt_assigned),

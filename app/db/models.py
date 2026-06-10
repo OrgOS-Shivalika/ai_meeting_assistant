@@ -95,6 +95,14 @@ class Meeting(Base):
         server_default="pending",
     )
 
+    # Phase 12E — one audit row per spoken (or attempted) brief.
+    closing_briefing = relationship(
+        "ClosingBriefing",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
 class Participant(Base):
     __tablename__ = "participants"
 
@@ -2736,3 +2744,121 @@ class TemplateBehaviorProfile(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         server_default=text("now()"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12E — Closing briefing audit table.
+#
+# One row per meeting that the orchestrator attempted to brief. UNIQUE
+# on meeting_id (a meeting can only have one closing brief) — re-runs
+# UPDATE the existing row rather than inserting a new one. Soft-coupled
+# to the Phase 12A `meetings.closing_briefing_status` column: this row
+# carries the full audit detail (script, audio, timings, outcome), the
+# status column gives a single-field view for filtering.
+#
+# Append-only after status reaches a terminal state ('spoken' |
+# 'skipped' | 'failed' | 'timeout' | 'upload_failed' |
+# 'playback_failed' | 'storage_not_configured'). The orchestrator may
+# UPDATE intermediate columns (e.g. set audio_storage_key after upload)
+# during a single end-of-meeting flow.
+# ---------------------------------------------------------------------------
+
+
+class ClosingBriefing(Base):
+    """Audit row for one spoken (or attempted) closing brief.
+
+    Lifecycle of `status` (subset of values; full list enforced by CHECK):
+        composing       — orchestrator started; script not ready yet
+        composed        — BriefingScript built; TTS not yet run
+        tts_ready       — audio bytes generated, cached locally
+        uploading       — pushing to S3/MinIO
+        playing         — Recall is playing audio in the meeting
+        spoken          — terminal happy path
+        skipped         — terminal: state too sparse / disabled / unsupported
+        failed          — terminal: composer returned None or LLM died
+        upload_failed   — terminal: S3/MinIO upload errored
+        storage_not_configured — terminal: S3 not set up for this deployment
+        playback_failed — terminal: Recall play_audio errored
+        timeout         — terminal: Recall didn't confirm playback complete
+    """
+    __tablename__ = "closing_briefings"
+    __table_args__ = (
+        UniqueConstraint("meeting_id", name="uq_closing_briefings_meeting"),
+        CheckConstraint(
+            "status IN ("
+            "'composing','composed','tts_ready','uploading','playing',"
+            "'spoken','skipped','failed','upload_failed','playback_failed',"
+            "'storage_not_configured','timeout'"
+            ")",
+            name="ck_closing_briefings_status",
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bot_id = Column(String(128), nullable=True)
+
+    # Composed script (Phase 12C output)
+    full_text = Column(Text, nullable=True)
+    section_breakdown = Column(JSONB, nullable=True)  # opening/summary/...
+    sections_included = Column(ARRAY(String), nullable=True)
+    word_count = Column(Integer, nullable=True)
+    estimated_seconds = Column(Float, nullable=True)
+    actual_playback_seconds = Column(Float, nullable=True)
+
+    # Composer audit metadata
+    composer_model = Column(String(64), nullable=True)
+    prompt_version = Column(String(32), nullable=True)
+    source_state_summary = Column(JSONB, nullable=True)
+
+    # TTS audit metadata (Phase 12D output)
+    tts_provider = Column(String(32), nullable=True)
+    tts_model = Column(String(64), nullable=True)
+    tts_voice = Column(String(32), nullable=True)
+    tts_char_count = Column(Integer, nullable=True)
+    tts_cache_hit = Column(Boolean, nullable=True)
+
+    # Storage + playback (Phase 12D output)
+    audio_storage_key = Column(Text, nullable=True)
+    audio_size_bytes = Column(Integer, nullable=True)
+    playback_id = Column(String(128), nullable=True)
+
+    # Outcome
+    status = Column(String(24), nullable=False, default="composing")
+    error_message = Column(Text, nullable=True)
+
+    # Timing — every stage timestamps independently so we can reconstruct
+    # the full latency profile per meeting.
+    composing_started_at = Column(DateTime(timezone=True), nullable=True)
+    composed_at = Column(DateTime(timezone=True), nullable=True)
+    tts_completed_at = Column(DateTime(timezone=True), nullable=True)
+    playback_started_at = Column(DateTime(timezone=True), nullable=True)
+    spoken_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    organization = relationship("Organization")
+    meeting = relationship("Meeting", back_populates="closing_briefing")

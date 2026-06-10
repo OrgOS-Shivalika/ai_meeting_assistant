@@ -424,6 +424,87 @@ def test_linguistic_irrelevant_text_no_emit():
         restore()
 
 
+def test_linguistic_handles_real_world_wrap_phrasings():
+    """Phase 12E revision: wrap-up patterns require EXPLICIT group
+    pronouns (everyone/all/guys/y'all/folks) for thanks/bye/take care.
+    Solo "thanks" and "bye" no longer trigger because they false-fired
+    on mid-meeting movie quotes ("I often say thank you little baby
+    Jesus..." from Talladega Nights)."""
+    from app.services.live_stream import meeting_lifecycle as lm
+    phrases_must_match = [
+        "Cool. Thanks. See you all later.",
+        "Alright, see you guys next week.",
+        "Bye everyone, take care folks.",
+        "That's a wrap.",
+        "I'll let you all go.",
+        "Have a good weekend.",
+        "Have a great day.",
+        "Catch you later.",
+        "Talk to y'all later.",
+        "Thanks guys.",
+        "Thank you all.",
+        "Any final questions?",
+        "Let's wrap things up.",
+        "We'll stop there for today.",
+        "Take care everyone.",
+    ]
+    original_grace = lm._LINGUISTIC_GRACE_S
+    lm._LINGUISTIC_GRACE_S = 0
+    try:
+        for i, phrase in enumerate(phrases_must_match):
+            mid = f"wrap-{i}-{uuid.uuid4()}"
+            lm.meeting_lifecycle_monitor.reset(mid)
+            captured, restore = _capture_bus()
+            try:
+                lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
+                wd = _events_of(captured, "meeting.winding_down")
+                assert len(wd) == 1, (
+                    f"phrase did NOT trigger wrap-up detection: {phrase!r}"
+                )
+            finally:
+                restore()
+    finally:
+        lm._LINGUISTIC_GRACE_S = original_grace
+
+
+def test_linguistic_does_not_false_positive_on_normal_speech():
+    """The v3 patterns MUST NOT trigger on routine conversation. The
+    previous v2 versions false-fired on "thank you" alone (movie
+    quotes) and "take care" alone (migration discussions)."""
+    from app.services.live_stream import meeting_lifecycle as lm
+    must_not_match = [
+        "I see what you mean about that approach.",
+        "Let's wrap our heads around the design.",
+        "We're talking about the staging environment.",
+        # The regression case from meeting 4537:
+        "I often say thank you little eight pound five ounce baby Jesus.",
+        "Thanks for the explanation, I understand now.",
+        # Generic "thanks" / "bye" / "take care" mid-meeting:
+        "Thanks for joining the call.",
+        "We need to take care of the migration first.",
+        "Say goodbye to the old API once we cut over.",
+        # "any other thoughts" used to match — removed from patterns:
+        "Are there any other thoughts on the design before we move on?",
+    ]
+    original_grace = lm._LINGUISTIC_GRACE_S
+    lm._LINGUISTIC_GRACE_S = 0
+    try:
+        for i, phrase in enumerate(must_not_match):
+            mid = f"safe-{i}-{uuid.uuid4()}"
+            lm.meeting_lifecycle_monitor.reset(mid)
+            captured, restore = _capture_bus()
+            try:
+                lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
+                wd = _events_of(captured, "meeting.winding_down")
+                assert wd == [], (
+                    f"phrase falsely triggered wrap-up: {phrase!r}"
+                )
+            finally:
+                restore()
+    finally:
+        lm._LINGUISTIC_GRACE_S = original_grace
+
+
 # ---------------------------------------------------------------------------
 # 12A.4 — Cross-detector interaction
 # ---------------------------------------------------------------------------
@@ -471,10 +552,11 @@ def test_ended_blocks_subsequent_winding_down():
 # ---------------------------------------------------------------------------
 
 def test_webhook_dispatcher_routes_status_change():
-    """End-to-end check: the webhook handler routes
-    `bot.status_change` to `process_status_change_event`, which calls
-    the monitor. We mock the DB transition helper to avoid needing
-    a real Meeting row."""
+    """Phase 12E revision: the webhook handler still attempts the DB
+    transition pending→ended, but the meeting.ended event is emitted
+    REGARDLESS of whether the transition succeeded (the orchestrator's
+    post-facto handler is idempotent and will no-op if a terminal row
+    already exists)."""
     from app.api.webhooks import recall_webhook as wh
     from app.services.live_stream import meeting_lifecycle as lm
 
@@ -503,10 +585,14 @@ def test_webhook_dispatcher_routes_status_change():
         }
         asyncio.run(wh.process_status_change_event(mid, payload))
 
-        # DB transition was attempted with the right preconditions.
+        # DB transition was attempted: pending → ended (NOT pending OR
+        # winding_down → ended; the latter is now the orchestrator's
+        # job).
         assert transition_calls, "expected _transition_briefing_status to be called"
         _, expected, new = transition_calls[0]
-        assert "pending" in expected and "winding_down" in expected
+        assert expected == {"pending"}, (
+            f"expected exactly {{'pending'}}, got {expected!r}"
+        )
         assert new == "ended"
 
         # The monitor emitted exactly one meeting.ended.
@@ -518,9 +604,12 @@ def test_webhook_dispatcher_routes_status_change():
         restore()
 
 
-def test_webhook_dispatcher_drops_when_db_says_already_past_pending():
-    """If `_transition_briefing_status` returns False (because the row
-    is already past 'pending'), the monitor must NOT be invoked."""
+def test_webhook_dispatcher_emits_even_when_db_rejects_transition():
+    """Phase 12E revision: meeting.ended is emitted regardless of
+    whether the DB transition succeeded. If status is already
+    'winding_down' (orchestrator in flight) or terminal, the DB
+    transition is rejected — but we still emit so the orchestrator's
+    post-facto handler can decide whether to record an audit row."""
     from app.api.webhooks import recall_webhook as wh
     from app.services.live_stream import meeting_lifecycle as lm
 
@@ -537,8 +626,12 @@ def test_webhook_dispatcher_drops_when_db_says_already_past_pending():
             "data": {"status": {"code": "call_ended"}},
         }
         asyncio.run(wh.process_status_change_event(mid, payload))
-        assert _events_of(captured, "meeting.ended") == [], (
-            "expected NO emit when DB rejects the transition"
+        # Phase 12E: emit is unconditional. The orchestrator handles
+        # idempotency itself via the closing_briefings row.
+        ended = _events_of(captured, "meeting.ended")
+        assert len(ended) == 1, (
+            "expected meeting.ended emit even when DB rejects "
+            "(orchestrator owns idempotency)"
         )
     finally:
         wh._transition_briefing_status = original_transition
@@ -599,6 +692,8 @@ def main():
             ("grace period suppresses", test_linguistic_within_grace_period_is_ignored),
             ("emits only once per meeting", test_linguistic_emits_only_once_per_meeting),
             ("irrelevant text no-op", test_linguistic_irrelevant_text_no_emit),
+            ("real-world wrap phrasings", test_linguistic_handles_real_world_wrap_phrasings),
+            ("does not false-positive", test_linguistic_does_not_false_positive_on_normal_speech),
         ]),
         ("12A.4 cross-detector", [
             ("winding_down then ended both fire", test_winding_down_then_ended_emits_both),
@@ -606,7 +701,7 @@ def main():
         ]),
         ("12A.5 webhook dispatcher", [
             ("routes status_change", test_webhook_dispatcher_routes_status_change),
-            ("drops on DB reject", test_webhook_dispatcher_drops_when_db_says_already_past_pending),
+            ("emits even when DB rejects", test_webhook_dispatcher_emits_even_when_db_rejects_transition),
             ("routes participant events", test_webhook_dispatcher_handles_participant_events),
         ]),
     ]

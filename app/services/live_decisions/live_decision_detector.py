@@ -7,14 +7,14 @@ detector stays trivially testable.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List
 
 from app.services.live_decisions.decision_extractor import DecisionExtractor
 from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
 from app.services.live_stream.stream_session import StreamSession
+from app.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 class LiveDecisionDetector:

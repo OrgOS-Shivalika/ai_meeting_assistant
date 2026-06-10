@@ -29,7 +29,7 @@ class MeetingPipeline:
     def save_participants(self, db, meeting, transcript_json, bot_data=None):
         # Unique participants from transcript using their Recall ID
         unique_participants = {} # recall_id -> name
-        
+
         # 1. First, populate from Recall bot's meeting_participants list (if available)
         # This list includes everyone who joined the meeting, even if they didn't speak.
         if bot_data and "meeting_participants" in bot_data:
@@ -39,9 +39,12 @@ class MeetingPipeline:
                 name = p.get("name")
                 if p_id and name:
                     unique_participants[p_id] = name
-        
-        # 2. Fallback/Supplement from transcript (just in case)
-        for block in transcript_json:
+
+        # 2. Fallback/Supplement from transcript (just in case).
+        # transcript_json may be None when Recall's compiled transcript
+        # failed and we fell back to the live transcript — in that case
+        # we rely entirely on bot_data["meeting_participants"] above.
+        for block in (transcript_json or []):
             p_info = block.get("participant", {})
             p_id = p_info.get("id")
             name = p_info.get("name")
@@ -193,17 +196,52 @@ class MeetingPipeline:
             db.commit()
 
             logger.info(f"⏳ Waiting for transcript for bot_id: {bot_id}")
-            transcript_url = self.recall.wait_for_transcript(bot_id)
+            # Phase 12E — pass meeting_id so the polling loop can
+            # self-deliver bot.status_change=call_ended webhooks when
+            # Recall fails to deliver them via the per-bot webhook_url.
+            #
+            # Resilience: when Recall's underlying transcription provider
+            # (AssemblyAI) fails mid-meeting with `provider_connection_failed`
+            # or similar, wait_for_transcript raises. In that case we fall
+            # back to the LIVE transcript captured via WebSocket during
+            # the meeting (Phase 11) — the text is already in
+            # `meeting.transcript` and is sufficient for AI analysis,
+            # embedding, and graph extraction. We just lose the typed
+            # JSON shape that gives us speaker-perfect attribution.
+            transcript_json = None
+            formatted = None
+            try:
+                transcript_url = self.recall.wait_for_transcript(
+                    bot_id, meeting_id=meeting.id,
+                )
+                logger.info("📥 Fetching transcript...")
+                transcript_json = requests.get(transcript_url).json()
+                meeting.transcript_raw = transcript_json
+                db.commit()
 
-            logger.info("📥 Fetching transcript...")
-            transcript_json = requests.get(transcript_url).json()
-
-            # ✅ Use actual transcript data
-            meeting.transcript_raw = transcript_json
-            db.commit()
-
-            logger.info("🧾 Formatting transcript...")
-            formatted = TranscriptProcessor.format(transcript_json)
+                logger.info("🧾 Formatting transcript...")
+                formatted = TranscriptProcessor.format(transcript_json)
+            except Exception as transcript_exc:
+                # Compiled-transcript path failed. Try the live fallback.
+                live_text = meeting.transcript or ""
+                if len(live_text.strip()) < 100:
+                    # No usable live data either — propagate the failure.
+                    logger.error(
+                        f"❌ Recall transcript failed AND no live fallback "
+                        f"available (live_len={len(live_text)}): {transcript_exc}"
+                    )
+                    raise
+                logger.warning(
+                    f"⚠️  Recall compiled transcript failed ({transcript_exc}); "
+                    f"falling back to live transcript ({len(live_text)} chars)"
+                )
+                # Live transcript is already in "Speaker: text\n" format
+                # (per the Phase 12E persistence helper) — that's exactly
+                # what TranscriptProcessor.format() would produce, so we
+                # can feed it directly into the analyzer.
+                formatted = live_text
+                # transcript_raw stays NULL — downstream consumers should
+                # check transcript_text / transcript before transcript_raw.
 
             meeting.transcript_text = formatted
             db.commit()

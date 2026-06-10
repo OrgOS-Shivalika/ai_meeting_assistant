@@ -29,6 +29,33 @@ class Settings:
     RECALL_API_KEY = os.getenv("RECALL_API_KEY")
     BASE_URL = os.getenv("BASE_URL")
 
+    # ---- Phase 13A — Transcription provider abstraction -------------------
+    # Recall.ai routes audio through a third-party transcription provider.
+    # Different providers have wildly different language support — the
+    # default `assemblyai` only handles ~7 European languages in streaming
+    # mode; switching to `deepgram` gives Hindi + 35 other languages with
+    # code-switching support via the Nova-3 multilingual model.
+    #
+    # Provider API keys live in the Recall.ai dashboard (not in this .env),
+    # since Recall authenticates to the underlying provider on our behalf.
+    #
+    # Allowed values: 'assemblyai' (default, legacy) | 'deepgram'
+    TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "assemblyai")
+
+    # Language hint for the provider. Format varies per provider — we
+    # normalize at the adapter layer:
+    #   'auto'  -> AssemblyAI: language_detection=true / Deepgram: language=multi
+    #   'hi'    -> explicit Hindi (Deepgram-only — AssemblyAI streaming has no Hindi)
+    #   'en'    -> explicit English
+    #   'multi' -> alias for 'auto' (some users prefer this name)
+    # Per-meeting overrides land here from `Meeting.language` once Phase 13B
+    # adds that column; this setting is the workspace-wide default.
+    TRANSCRIPTION_LANGUAGE = os.getenv("TRANSCRIPTION_LANGUAGE", "auto")
+
+    # Deepgram-specific tuning. Nova-3 is the latest model as of mid-2025
+    # and is the only Deepgram model with Hindi multilingual support.
+    DEEPGRAM_MODEL = os.getenv("DEEPGRAM_MODEL", "nova-3")
+
     # ---- Networking / CORS ------------------------------------------------
     CORS_ORIGINS = os.getenv(
         "CORS_ORIGINS",
@@ -231,6 +258,50 @@ class Settings:
     # Estimated speaking rate. 150 wpm is a comfortable conversational
     # pace; we use it to convert max_seconds -> max_words for the prompt.
     CLOSING_BRIEFING_WPM = int(os.getenv("CLOSING_BRIEFING_WPM", "150"))
+
+    # ---------------------------------------------------------------------
+    # Phase 12D — Text-to-Speech + Recall audio injection.
+    # ---------------------------------------------------------------------
+    # Provider abstraction. Today only "openai" is implemented; adding
+    # "elevenlabs" / "azure" later means a new adapter class registering
+    # itself with the TTSService, no callsite changes.
+    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "openai")
+    # OpenAI TTS models: "tts-1" (faster, ~$0.015/1k chars) or
+    # "tts-1-hd" (better quality, ~$0.030/1k chars).
+    TTS_MODEL = os.getenv("TTS_MODEL", "tts-1-hd")
+    # Voice options for OpenAI: alloy, echo, fable, onyx, nova, shimmer.
+    # `nova` is a clear, neutral female voice — good default for a
+    # business-meeting recap. Override per-org via behavior config
+    # (Phase 12F).
+    TTS_VOICE = os.getenv("TTS_VOICE", "nova")
+    # Local cache dir for synthesized audio. Same script -> same hash ->
+    # same file on disk. Cleared by the OS or by a maintenance task; the
+    # service tolerates a missing cache file.
+    TTS_CACHE_DIR = os.getenv("TTS_CACHE_DIR", ".cache/tts")
+    # How long to poll Recall waiting for the bot to finish playing the
+    # audio before giving up and calling leave_call anyway. Set well
+    # above CLOSING_BRIEFING_MAX_SECONDS so a 60s briefing has slack for
+    # network + Recall internal queueing.
+    RECALL_PLAYBACK_TIMEOUT_S = int(os.getenv("RECALL_PLAYBACK_TIMEOUT_S", "120"))
+    # Quiet window required before the bot injects audio (seconds). Don't
+    # talk over a human. The orchestrator polls Recall's transcript or
+    # participant_events for last-speech timestamp.
+    RECALL_PLAYBACK_MIN_SILENCE_S = float(os.getenv("RECALL_PLAYBACK_MIN_SILENCE_S", "2.0"))
+
+    # ---------------------------------------------------------------------
+    # Phase 12E — Webhook delivery fallback.
+    # ---------------------------------------------------------------------
+    # Recall.ai's per-bot `webhook_url` field is unreliable for
+    # `bot.status_change` events. When the Celery poll sees `call_ended`
+    # in the bot's status_changes but our DB still says 'pending', the
+    # webhook was lost and we self-deliver to this URL. Defaults to
+    # localhost since the Celery worker and FastAPI run on the same host
+    # in the standard dev setup. In production / Docker, set to the
+    # FastAPI service's internal hostname (NOT the ngrok URL — that
+    # would just exit the host and re-enter, wasting bandwidth + latency).
+    INTERNAL_WEBHOOK_BASE_URL = os.getenv(
+        "INTERNAL_WEBHOOK_BASE_URL", "http://localhost:8000",
+    )
 
     def __init__(self):
         if not self.OPEN_API_KEY:

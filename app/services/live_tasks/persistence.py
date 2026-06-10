@@ -44,10 +44,19 @@ class LiveTaskPersistence:
                     Task.task == task_text
                 ).first()
 
+                # Phase 13D revised — prefer the LLM's ISO `due_date`
+                # over the raw `deadline` phrase. `due_date` is already
+                # YYYY-MM-DD when the LLM could anchor a relative date;
+                # _parse_date handles both ISO and natural-language input,
+                # but ISO parses ~10x faster and is unambiguous.
+                resolved_due_date = cls._parse_date(
+                    payload.get("due_date") or payload.get("deadline")
+                )
+
                 if existing:
                     # Update
                     existing.owner_name = payload.get("owner")
-                    existing.due_date = cls._parse_date(payload.get("deadline"))
+                    existing.due_date = resolved_due_date
                     existing.is_completed = 1 if payload.get("status") == "completed" else 0
                     logger.debug(f"Updated existing task {existing.id} in DB")
                 else:
@@ -56,7 +65,7 @@ class LiveTaskPersistence:
                         meeting_id=meeting_id,
                         task=task_text,
                         owner_name=payload.get("owner"),
-                        due_date=cls._parse_date(payload.get("deadline")),
+                        due_date=resolved_due_date,
                         is_completed=0
                     )
                     db.add(new_task)

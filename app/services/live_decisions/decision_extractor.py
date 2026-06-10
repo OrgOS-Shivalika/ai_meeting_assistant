@@ -17,13 +17,13 @@ Why decisions need their own extractor (vs. piggybacking on TaskExtractor):
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, Dict, List
 
 from app.ai_agents.openAI_transcript_analyzer import _get_client
 from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
+from app.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 class DecisionExtractor:
@@ -53,9 +53,43 @@ class DecisionExtractor:
             }
         """
         prompt = f"""
-You are a conservative real-time decision detection engine for meetings.
+You are a FAITHFUL real-time decision detection engine for meetings.
+Your single job is to extract decisions that were ACTUALLY MADE in the
+CURRENT CHUNK. You DO NOT invent. You DO NOT pattern-match against
+typical meeting topics.
+
+ANTI-HALLUCINATION (CRITICAL):
+- Every decision in your output MUST be traceable to a specific phrase
+  in the CURRENT CHUNK.
+- DO NOT invent group names ("Engineering team", "PM team") if the
+  speaker didn't say them. Use null for `decided_by` if uncertain.
+- DO NOT generate template PM decisions (about OKRs, customer
+  interviews, onboarding, surveys, hiring) unless those words appear
+  in the chunk.
+- An empty `decisions` array is the CORRECT output when nothing was
+  decided. When in doubt, leave it out.
+
 Analyze the ROLLING CONTEXT to understand the discussion, then extract
 FINALIZED decisions ONLY from the CURRENT CHUNK.
+
+LANGUAGE HANDLING:
+- Input may be English, Hindi (Devanagari script), or Hinglish.
+- ALWAYS OUTPUT THE `decision` FIELD IN ENGLISH. Translate Hindi/Hinglish
+  decisions into clear, concise English for the dashboard.
+    Hindi input "ऑथ सर्विस पहले माइग्रेट करना है" ->
+      decision: "Migrate the auth service first"
+    Hinglish input "Auth ko pehle migrate karna hai" ->
+      decision: "Migrate auth first"
+    English input "Migrate auth before payment" ->
+      decision: "Migrate auth before payment"
+- `decision_type` values stay English (technical labels).
+- `decided_by`: ALWAYS in Roman/Latin script. Transliterate Hindi names:
+    "रवि"   -> "Ravi"
+    "साहिल" -> "Sahil"
+    "प्रिया" -> "Priya"
+    "टीम"   -> "Team"
+    "इंजीनियरिंग टीम" -> "Engineering team"
+  Never output Devanagari in `decided_by` — dashboards expect Roman script.
 
 ROLLING CONTEXT (Past discussion for reference ONLY):
 {rolling_context}
@@ -65,32 +99,42 @@ Speaker: {chunk.speaker_name}
 Text: {chunk.text}
 
 Rules:
-1. Extract ONLY genuine, finalized decisions. A decision is a choice
-   the group has converged on. Phrases that signal a decision:
-   "we'll go with", "let's do", "agreed", "approved", "the decision
-   is", "we've decided", "going with option A", "moving forward with".
+1. Extract ONLY genuine, finalized decisions — a choice the group has converged on.
+   English phrases that signal a decision:
+     "we'll go with", "let's do", "agreed", "approved", "the decision is",
+     "we've decided", "going with option A", "moving forward with".
+   Hindi phrases that signal a decision:
+     "हम तय करते हैं", "ठीक है यही करेंगे", "मंज़ूर", "फाइनल", "तय हो गया",
+     "हम X के साथ जाएंगे", "यही करना है".
+   Hinglish phrases:
+     "OK chaliye final karte hain", "thik hai yahi karenge",
+     "approved hai", "X ke saath jate hain", "final ho gaya".
+
 2. DO NOT extract:
-   - Suggestions ("we could", "maybe we should")
-   - Open questions ("should we?")
-   - Speculation ("if we did X then Y")
-   - Action items / tasks (those are handled separately)
-   - Pure information sharing ("the data shows X")
-3. DO NOT extract decisions that appear ONLY in ROLLING CONTEXT.
-   They have already been processed.
+   - Suggestions ("we could", "maybe we should", "शायद", "हो सकता है")
+   - Open questions ("should we?", "क्या हमें?")
+   - Speculation ("if we did X then Y", "अगर हम X करेंगे तो")
+   - Action items / tasks (handled separately)
+   - Pure information sharing
+
+3. DO NOT extract decisions that appear ONLY in ROLLING CONTEXT — they're already processed.
+
 4. Identify `decided_by`: the speaker, or a group name if explicit
-   ("the team agreed"). Use null if unclear.
-5. Classify `decision_type` as one of:
+   ("the team agreed", "टीम सहमत है"). Use null if unclear.
+
+5. Classify `decision_type` as one of (English values only):
    - "process"     — workflow / how-we-work decisions
    - "technical"   — tech choices, architecture, tools
    - "scheduling"  — timing, dates, ordering
    - "ownership"   — who owns what (not WHAT to do, that's a task)
    - "scope"       — what's in / out of scope
    - "other"
+
 6. Confidence scale (0.0 - 1.0):
-   - 0.9+ : Explicit confirmation phrase used ("agreed", "approved")
-   - 0.7-0.9 : Strong directional language ("let's go with", "we'll do")
-   - 0.5-0.7 : Implied decision but slightly fuzzy
-   - Below 0.5 : DO NOT EMIT — too uncertain for a decision
+   - 0.9+   : Explicit confirmation ("agreed", "approved", "मंज़ूर", "तय")
+   - 0.7-0.9: Strong directional ("let's go with", "हम X करेंगे", "thik hai chalo")
+   - 0.5-0.7: Implied but fuzzy
+   - <0.5   : DO NOT EMIT.
 
 Response Format (JSON only, no prose):
 {{
@@ -114,8 +158,12 @@ If nothing qualifies, return {{"decisions": []}}.
                     {
                         "role": "system",
                         "content": (
-                            "You are a real-time decision extractor. Be CONSERVATIVE. "
-                            "You must always respond with valid JSON."
+                            "You are a FAITHFUL real-time decision extractor. "
+                            "Your ONLY job is to surface decisions that were "
+                            "literally said in the chunk. You NEVER invent "
+                            "decisions or group names based on topic or training "
+                            "data. Empty array is the correct answer when "
+                            "nothing was decided. Always respond with valid JSON."
                         ),
                     },
                     {"role": "user", "content": prompt},

@@ -113,15 +113,27 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         logger.warning(f"[LIVE TRANSCRIPT] Empty text for meeting {meeting_id} | payload: {json.dumps(payload)}")
         return
 
-    # Extract detected language for logging (AssemblyAI Multilingual)
-    data_block = payload.get("data", {})
-    provider_data = data_block.get("provider_data", {})
-    lang_code = provider_data.get("language_code") or data_block.get("language") or "unknown"
+    # Phase 13A — provider-aware language detection.
+    # Different transcription providers expose the detected language
+    # in different parts of the webhook payload. Delegate to the
+    # active provider's adapter so we don't have to know whether
+    # we're reading AssemblyAI (`provider_data.language_code`) or
+    # Deepgram (`provider_data.language`) or some future provider.
+    # Diagnostic only — the language is logged, not persisted.
+    from app.services.transcription import get_active_provider
+    try:
+        lang_code = get_active_provider().extract_language_code(payload) or "unknown"
+    except Exception:
+        # Never let provider lookup break transcript ingestion.
+        lang_code = "unknown"
 
     # Standardize speaker name for logs and UI
     speaker_safe = speaker or "Unknown Speaker"
 
-    formatted_line = f"[{lang_code.upper()}] {speaker_safe}: {text}"
+    # User-facing line — saved to meeting.transcript and consumed by
+    # post-meeting analysis. Clean "Speaker: text" format.
+    formatted_line = f"{speaker_safe}: {text}"
+
     # Diagnostic: log the inter-event gap (delta from previous event for
     # this meeting). Large gaps point at upstream (AssemblyAI/ngrok); zero
     # gaps in a burst mean Recall queued and dumped at once.
@@ -132,7 +144,8 @@ async def process_transcript_event(meeting_id: int, payload: dict):
 
     logger.info(
         f"[LIVE TRANSCRIPT] Meeting {meeting_id} | {event} | Final: {is_final} | "
-        f"gap_ms={gap_ms} | subs={len(manager.active_connections.get(meeting_id, []))} | "
+        f"lang={lang_code} | gap_ms={gap_ms} | "
+        f"subs={len(manager.active_connections.get(meeting_id, []))} | "
         f"{formatted_line}"
     )
 
@@ -258,15 +271,21 @@ async def process_status_change_event(meeting_id: int, payload: dict) -> None:
     logger.info(f"[LIFECYCLE] meeting={meeting_id} bot.status_change code={code!r}")
 
     if code == "call_ended":
-        # Authoritative end. From any of {pending, winding_down}, advance
-        # to 'ended' (the orchestrator will move it to spoken/skipped/failed).
+        # Phase 12E revision: ONLY flip pending → ended. If status is
+        # already 'winding_down' (orchestrator is mid-speak), or any
+        # terminal value, leave it alone — the orchestrator owns the
+        # final state. The `meeting.ended` event is still emitted so
+        # the orchestrator can record audit detail for meetings that
+        # ended without a wrap-up signal.
         applied = _transition_briefing_status(
             meeting_id,
-            expected_current={_BRIEFING_STATUS_PENDING, _BRIEFING_STATUS_WINDING_DOWN},
+            expected_current={_BRIEFING_STATUS_PENDING},
             new_status=_BRIEFING_STATUS_ENDED,
         )
-        if applied:
-            meeting_lifecycle_monitor.on_status_change(str(meeting_id), status)
+        # Emit the event regardless of DB transition — the orchestrator's
+        # post-facto handler is idempotent and will no-op if a terminal
+        # row already exists.
+        meeting_lifecycle_monitor.on_status_change(str(meeting_id), status)
 
     elif code in ("recording_permission_denied", "fatal"):
         # Bot can never speak — terminal failure.
