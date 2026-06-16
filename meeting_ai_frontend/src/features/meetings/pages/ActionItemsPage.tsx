@@ -10,6 +10,9 @@ import {
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { fetchAllTasks, updateTask } from "../api";
+import TaskAssignmentEditor, {
+  type MeetingParticipant,
+} from "../components/TaskAssignmentEditor";
 
 interface ActionTask {
   id: number;
@@ -21,6 +24,7 @@ interface ActionTask {
   is_unassigned: boolean;
   meeting_id: number;
   meeting_title: string | null;
+  meeting_participants: MeetingParticipant[];
   created_at: string;
 }
 
@@ -50,7 +54,6 @@ export default function ActionItemsPage() {
   const [tab, setTab] = useState<FilterTab>("unassigned");
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingOwner, setEditingOwner] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
 
   const refresh = () => {
@@ -92,23 +95,20 @@ export default function ActionItemsPage() {
     return rows;
   }, [tasks, tab, search]);
 
-  const startEdit = (task: ActionTask) => {
-    setEditingId(task.id);
-    setEditingOwner(task.owner || "");
-  };
+  const startEdit = (task: ActionTask) => setEditingId(task.id);
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingOwner("");
-  };
+  const cancelEdit = () => setEditingId(null);
 
-  const saveOwner = async (taskId: number) => {
+  const saveAssignment = async (
+    taskId: number,
+    next: { owner_name: string | null; due_date: string | null },
+  ) => {
     setSavingId(taskId);
     try {
-      const updated = await updateTask(taskId, {
-        owner_name: editingOwner.trim() || null,
-      });
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...updated } : t)));
+      const updated = await updateTask(taskId, next);
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+      );
       cancelEdit();
     } catch (e) {
       console.error("Failed to update task", e);
@@ -289,53 +289,55 @@ export default function ActionItemsPage() {
                     </div>
 
                     <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px] text-slate-500">
-                      {/* Owner — editable inline */}
-                      {editing ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="text"
-                            value={editingOwner}
-                            onChange={(e) => setEditingOwner(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveOwner(task.id);
-                              if (e.key === "Escape") cancelEdit();
-                            }}
-                            placeholder="Owner name"
-                            autoFocus
-                            className="px-2 py-0.5 text-[11px] border border-indigo-300 rounded bg-white focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
-                          />
-                          <button
-                            onClick={() => saveOwner(task.id)}
-                            disabled={saving}
-                            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-indigo-600 text-white rounded disabled:opacity-50"
-                          >
-                            {saving ? "…" : "Save"}
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 text-slate-500 hover:bg-slate-100 rounded"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
+                      {/* Owner / date status — three branches when NOT editing:
+                          - both missing  -> combined "Unassigned owner & date" trigger
+                          - default       -> owner trigger + (date pill OR "Unassigned date") */}
+                      {!editing && task.is_unassigned && !due && (
                         <button
                           onClick={() => startEdit(task)}
-                          className={`group flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white border ${
-                            task.is_unassigned
-                              ? "text-amber-700 border-amber-200 italic"
-                              : "text-slate-600 border-transparent hover:border-slate-200"
-                          }`}
+                          className="group flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white border text-amber-700 border-amber-200 italic"
+                          title="Click to assign an owner and date"
                         >
-                          <span className="font-semibold">{task.owner || "Unassigned"}</span>
+                          <span className="font-semibold">Unassigned owner & date</span>
                           <Pencil className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" />
                         </button>
                       )}
+                      {!editing && !(task.is_unassigned && !due) && (
+                        <>
+                          <button
+                            onClick={() => startEdit(task)}
+                            className={`group flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white border ${
+                              task.is_unassigned
+                                ? "text-amber-700 border-amber-200 italic"
+                                : "text-slate-600 border-transparent hover:border-slate-200"
+                            }`}
+                          >
+                            <span className="font-semibold">
+                              {task.owner || "Unassigned owner"}
+                            </span>
+                            <Pencil className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" />
+                          </button>
 
-                      {due && (
-                        <span className="text-[10px] font-bold uppercase tracking-tighter">
-                          Due {due}
-                        </span>
+                          {due ? (
+                            <button
+                              onClick={() => startEdit(task)}
+                              className="group flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter text-slate-600 hover:text-indigo-600"
+                              title="Click to change due date"
+                            >
+                              <span>Due {due}</span>
+                              <Pencil className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => startEdit(task)}
+                              className="group flex items-center gap-1 text-[10px] font-bold uppercase tracking-tighter text-amber-700 italic hover:text-amber-900"
+                              title="Click to assign a due date"
+                            >
+                              <span>Unassigned date</span>
+                              <Pencil className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" />
+                            </button>
+                          )}
+                        </>
                       )}
 
                       {task.meeting_title && (
@@ -348,6 +350,23 @@ export default function ActionItemsPage() {
                         </Link>
                       )}
                     </div>
+
+                    {/* Inline editor — opens beneath the row when this task
+                        is being edited. Same component used on the Meeting
+                        Detail tasks card, so behavior is identical. */}
+                    {editing && (
+                      <div className="mt-2 max-w-md">
+                        <TaskAssignmentEditor
+                          open={editing}
+                          initialOwner={task.owner}
+                          initialDueDate={task.due_date}
+                          participants={task.meeting_participants || []}
+                          onCancel={cancelEdit}
+                          onSave={(next) => saveAssignment(task.id, next)}
+                          saving={saving}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               );

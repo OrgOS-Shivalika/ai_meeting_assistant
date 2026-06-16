@@ -525,6 +525,33 @@ def test_english_thats_a_wrap_still_fires():
     _assert_fires("Alright that's a wrap.")
 
 
+def test_english_thanks_comma_everyone_fires():
+    """Regression for meeting 4689 — "Thanks, everyone." (with comma)
+    used to be missed because the regex required pure whitespace
+    between the words. Now handles common punctuation."""
+    _assert_fires("I look forward to seeing all your proposals. Thanks, everyone.")
+
+
+def test_english_thanks_everybody_fires():
+    """'everybody' (vs 'everyone') is a common synonym we used to miss."""
+    _assert_fires("Thank you everybody for joining.")
+
+
+def test_english_bye_comma_everyone_fires():
+    """"Bye, everyone." with comma separator should match."""
+    _assert_fires("Alright. Bye, everyone.")
+
+
+def test_english_take_care_comma_all_fires():
+    """"Take care, all" with comma should match."""
+    _assert_fires("OK. Take care, all.")
+
+
+def test_hinglish_shukriya_comma_sab_fires():
+    """Comma-separated Hinglish wrap-up matches."""
+    _assert_fires("Alright, shukriya, sab.")
+
+
 # ---------------------------------------------------------------------------
 # 13E.4 - Hindi no false positives
 # ---------------------------------------------------------------------------
@@ -599,6 +626,11 @@ def main():
             ("thanks everyone", test_english_thanks_everyone_still_fires),
             ("see you all later", test_english_see_you_later_still_fires),
             ("that's a wrap", test_english_thats_a_wrap_still_fires),
+            ("thanks, everyone (comma — meeting 4689 fix)", test_english_thanks_comma_everyone_fires),
+            ("thank you everybody (synonym)", test_english_thanks_everybody_fires),
+            ("bye, everyone (comma)", test_english_bye_comma_everyone_fires),
+            ("take care, all (comma)", test_english_take_care_comma_all_fires),
+            ("shukriya, sab (Hinglish + comma)", test_hinglish_shukriya_comma_sab_fires),
         ]),
         ("13E.4 no false positives", [
             ("solo dhanyawad no fire", test_hindi_solo_dhanyawad_no_fire),

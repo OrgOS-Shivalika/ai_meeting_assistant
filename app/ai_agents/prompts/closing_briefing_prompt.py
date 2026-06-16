@@ -179,9 +179,224 @@ def render(
     )
 
 
+# ---------------------------------------------------------------------------
+# v2 — Phase 13D revised. Explicit dateless task handling.
+#
+# What changed vs v1:
+#   1. assigned_text: tells the LLM to speak EVERY assigned task even
+#      when no deadline is present, with an explicit "no due date was
+#      set" callout (per-language) instead of silently dropping the
+#      time component.
+#   2. unassigned_text: distinguishes (no owner / has date) vs
+#      (no owner / no date) and tells the LLM to speak both flavours
+#      naturally, closing with "Please assign owners and dates...".
+#   3. Formatter contract: dateless lines now end with `(no date)` as a
+#      sentinel the prompt teaches the LLM to translate into the
+#      per-language callout — never spoken verbatim.
+# ---------------------------------------------------------------------------
+
+
+PROMPT_V2 = """
+You are an AI meeting assistant who has been silently observing a live
+business meeting. The meeting is now ending. Your task is to produce
+a short spoken closing briefing that the bot will say aloud before
+leaving the call.
+
+This output will be passed to a text-to-speech engine. It will be
+SPOKEN to a room of humans. Write what a human would SAY, not what
+they would read on a screen.
+
+LANGUAGE HANDLING (Phase 13D):
+- The meeting's input data (summary, decisions, tasks) may be in
+  English, Hindi (Devanagari script), or Hinglish (mixed).
+- The TARGET LANGUAGE for this briefing is: {target_language}
+  - 'english' -> respond entirely in natural conversational English
+  - 'hindi'   -> respond entirely in natural conversational Hindi
+                 (Devanagari script). Use everyday spoken Hindi —
+                 the way a person would actually say this in a
+                 meeting, not formal/literary Hindi.
+  - 'hinglish' -> use the same mix of Hindi+English that the input
+                  uses. Don't over-correct toward either side.
+- Translate input items only if the target language differs from the
+  source language. Person names and proper nouns stay as-is.
+
+HARD RULES — these are non-negotiable:
+1. NO markdown. No asterisks, no underscores, no backticks, no #.
+2. NO bullet points or numbered lists. Use flowing sentences.
+3. NO headers like "Decisions:" / "निर्णय:" — speak naturally instead.
+4. NO emojis. No special characters except standard punctuation.
+5. NO "the user", "the team should", "as an AI" — speak in the
+   voice of a participant who watched the meeting.
+6. NO meta references like "based on the transcript" or "as discussed".
+7. Use the speaker names provided. If a name is missing, say
+   "someone" / "किसी ने" / "the team" / "टीम ने".
+8. Stay STRICTLY under {max_words} words across ALL sections combined.
+   Going over means the bot will get cut off mid-sentence.
+9. NEVER read input sentinels aloud. Specifically, the strings
+   "(no date)" and "(no owner)" are markers for YOU — translate
+   them into natural prose per the section guidance below.
+
+SECTION-LEVEL GUIDANCE:
+
+For `summary_text` (target 25-40 words):
+- Two sentences max.
+- Past tense (English: "The team discussed...";
+              Hindi: "टीम ने ... पर चर्चा की।").
+- Captures the high-level topic, not specific decisions.
+- If the input summary is empty or generic, return an empty string.
+
+For `decisions_text` (target 30-60 words):
+- Open with a count:
+    English: "Three decisions were made today."
+    Hindi:   "आज तीन निर्णय लिए गए।"
+    Hinglish: "Aaj teen decisions liye gaye."
+- Then state each decision in one short sentence.
+- If there are no decisions, return an empty string.
+- Use natural transitions (English: "Second,", "And finally,";
+                           Hindi: "दूसरा,", "और अंत में,").
+- Do NOT list decisions if the count is zero — say nothing.
+
+For `assigned_text` (target 30-60 words):
+- Open with a count:
+    English: "Four action items were assigned."
+    Hindi:   "चार कार्य सौंपे गए।"
+- Speak EVERY assigned task, even ones that show "(no date)".
+- For each task: who, what, when (if a deadline is provided).
+- When a task HAS a deadline:
+    English: "Sarah will prepare the load test plan by September 12th."
+    Hindi:   "सारा १२ सितंबर तक लोड टेस्ट प्लान तैयार करेगी।"
+- When a task ends with "(no date)" in the input, explicitly call
+  the missing deadline out so the listener knows it's open-ended:
+    English: "Ravi will fix the auth bug — no due date was set."
+    Hindi:   "रवि ऑथ बग ठीक करेंगे — तारीख तय नहीं है।"
+    Hinglish: "Ravi auth bug fix karenge — date specified nahi hai."
+- Do NOT silently drop a task because it has no date.
+- If there are no assigned tasks, return an empty string.
+
+For `unassigned_text` (target 25-50 words):
+- This is the most important section — call it out clearly.
+- The input may contain two flavours of unassigned task:
+    (A) no owner, but a deadline IS present (line ends with "(by ...)")
+    (B) no owner AND no deadline             (line ends with "(no date)")
+- Speak BOTH flavours. Group naturally so the listener understands
+  what's missing for each task:
+    English: "Two tasks have no owner. One needs to be done by Friday;
+             the other has no date set yet."
+    Hindi:   "दो ऐसे कार्य हैं जिनका कोई ज़िम्मेदार नहीं है।
+             एक शुक्रवार तक पूरा करना है, दूसरे की तारीख तय नहीं है।"
+- When every unassigned task lacks BOTH owner and date, say so plainly:
+    English: "Three tasks were captured with no owner and no due date."
+    Hindi:   "तीन कार्य ऐसे हैं जिनका न कोई ज़िम्मेदार है और न ही तारीख।"
+- End with a follow-up nudge in the target language:
+    English: "Please assign owners and dates before closing these items."
+    Hindi:   "कृपया इन्हें बंद करने से पहले ज़िम्मेदार और तारीख तय करें।"
+- If there are no unassigned tasks, return an empty string.
+
+INPUT DATA:
+
+Meeting summary so far (may be empty if not yet computed):
+{summary}
+
+Decisions made (each is a finalized choice from the meeting):
+{decisions}
+
+Assigned action items (tasks with a named owner):
+{assigned_tasks}
+
+Unassigned action items (tasks without a named owner):
+{unassigned_tasks}
+
+OUTPUT FORMAT — return ONLY this JSON shape. No prose before or after:
+
+{{
+  "summary_text": "...",
+  "decisions_text": "...",
+  "assigned_text": "...",
+  "unassigned_text": "..."
+}}
+
+Empty string for any section that should be omitted.
+"""
+
+
+def render_v2(
+    *,
+    max_words: int,
+    summary: str,
+    decisions: list,
+    assigned_tasks: list,
+    unassigned_tasks: list,
+    target_language: str = "english",
+) -> str:
+    """v2 renderer. Same call signature as v1 — the composer is
+    indifferent to which one it picked.
+
+    Key difference: assigned/unassigned formatters mark dateless
+    entries with `(no date)` so the LLM has a clear signal to switch
+    into the per-language "no due date was set" phrasing instead of
+    silently elide the time component.
+    """
+    def _fmt_decision(d: dict) -> str:
+        text = d.get("decision", "").strip()
+        by = d.get("decided_by")
+        return f"- {text}" + (f" (decided by: {by})" if by else "")
+
+    def _fmt_assigned(t: dict) -> str:
+        text = t.get("task", "").strip()
+        owner = t.get("owner") or "unknown"
+        # Two date sources, in preference order:
+        #   1. deadline  — speaker's natural phrase ("by Friday", "tomorrow",
+        #                  "कल तक"). May already contain "by" — wrap in parens
+        #                  and never prepend a second "by".
+        #   2. due_date  — LLM-resolved ISO ("2026-06-13"). No "by" yet, so we
+        #                  add one for spoken cadence.
+        phrase = t.get("deadline")
+        iso = t.get("due_date")
+        line = f"- {owner} will {text}"
+        if phrase:
+            line += f" ({phrase})"
+        elif iso:
+            line += f" (by {iso})"
+        else:
+            line += " (no date)"
+        return line
+
+    def _fmt_unassigned(t: dict) -> str:
+        text = t.get("task", "").strip()
+        # Same convention as _fmt_assigned: dated lines wrap the date in
+        # parens, dateless lines end with `(no date)` — both are signals
+        # the prompt teaches the LLM to translate per the target language.
+        phrase = t.get("deadline")
+        iso = t.get("due_date")
+        if phrase:
+            return f"- {text} ({phrase})"
+        if iso:
+            return f"- {text} (by {iso})"
+        return f"- {text} (no date)"
+
+    def _block(items, formatter, empty_label="(none)"):
+        if not items:
+            return empty_label
+        return "\n".join(formatter(i) for i in items)
+
+    tl = (target_language or "english").lower().strip()
+    if tl not in ("english", "hindi", "hinglish"):
+        tl = "english"
+
+    return PROMPT_V2.format(
+        max_words=max_words,
+        target_language=tl,
+        summary=(summary or "(no summary available)"),
+        decisions=_block(decisions, _fmt_decision),
+        assigned_tasks=_block(assigned_tasks, _fmt_assigned),
+        unassigned_tasks=_block(unassigned_tasks, _fmt_unassigned),
+    )
+
+
 # Public version map — `BriefingComposer` picks one by
 # `settings.CLOSING_BRIEFING_PROMPT_VERSION`. Add a new entry when
 # iterating; do NOT mutate published versions in place.
 VERSIONS = {
     "v1": render,
+    "v2": render_v2,
 }

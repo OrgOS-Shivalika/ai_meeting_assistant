@@ -36,7 +36,13 @@ class LiveTask(BaseModel):
     first_seen_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_seen_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     deadline: Optional[str] = None
-    
+    # Phase 13D revised — ISO 8601 (YYYY-MM-DD) resolved by the extractor
+    # against today's date. `deadline` keeps the speaker's natural phrasing
+    # ("by Friday", "कल तक") for display; `due_date` is the machine-readable
+    # form persisted to `tasks.due_date`. None when the speaker gave no
+    # temporal anchor — that's intentional and tracked as a dateless task.
+    due_date: Optional[str] = None
+
     # Traceability & Observability
     source_speaker: str
     source_transcript_chunk_id: int

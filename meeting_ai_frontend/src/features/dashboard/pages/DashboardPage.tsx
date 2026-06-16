@@ -547,9 +547,13 @@ export default function DashboardPage() {
                             High
                           </span>
                         )}
-                        {t.due_date && (
+                        {t.due_date ? (
                           <span className="text-slate-500">
                             Due {formatDateShort(t.due_date)}
+                          </span>
+                        ) : (
+                          <span className="text-amber-700 italic">
+                            Unassigned date
                           </span>
                         )}
                         {t.meeting_id && (

@@ -96,6 +96,22 @@ def _task_dict(task: Task, include_meeting_id: bool = False) -> dict:
     }
     if include_meeting_id:
         payload["meeting_id"] = task.meeting_id
+        # Owner-picker payload — gives the Action Items page (cross-meeting
+        # task list) the participant roster for THIS task's meeting so the
+        # dropdown can show real names instead of forcing free-text. Only
+        # attached when meeting_id is requested to avoid bloating the
+        # per-meeting endpoint, which already has participants on the
+        # meeting payload.
+        payload["meeting_participants"] = (
+            [
+                {
+                    "name": p.name,
+                    "email": p.email,
+                    "avatar_url": p.avatar_url,
+                }
+                for p in (task.meeting.participants if task.meeting else [])
+            ]
+        )
     return payload
 
 

@@ -83,7 +83,8 @@ class TaskStabilizer:
             confidence=raw.get("confidence", 0.5),
             source_speaker=raw.get("source_speaker", "unknown"),
             source_transcript_chunk_id=chunk_id,
-            deadline=raw.get("deadline")
+            deadline=raw.get("deadline"),
+            due_date=raw.get("due_date"),
         )
         
         # Log first evolution
@@ -119,9 +120,21 @@ class TaskStabilizer:
                 # Contradiction Detection / Ownership Transfer
                 logger.info(f"⚡ Contradiction Detected: Task '{task.task}' owner change {old_owner} -> {new_owner}")
                 task.previous_owners.append(old_owner)
-            
+
             task.owner = new_owner
             task.ownership_type = cls._resolve_ownership_type(raw)
+
+        # 2b. Resolve Deadline (Phase 13D revised — sticky)
+        # Only overwrite when the NEW mention carries a fresh value. A
+        # later vague mention ("we'll do it later") must NOT erase the
+        # earlier concrete one ("by Friday" → 2026-06-13). Once we have a
+        # date, we keep it until a more specific date comes in.
+        new_due_date = raw.get("due_date")
+        if new_due_date:
+            task.due_date = new_due_date
+        new_deadline = raw.get("deadline")
+        if new_deadline:
+            task.deadline = new_deadline
             
         # 3. State Machine Progression
         if task.confidence > 0.85 and task.owner and task.status in ["detected", "inferred"]:

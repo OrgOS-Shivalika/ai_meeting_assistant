@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any
 from app.db.database import SessionLocal
 from app.db.models import Task
@@ -6,6 +7,11 @@ from app.services.live_events.event_models import LiveCognitiveEvent
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Phase 13D revised — only ISO-shaped strings are persisted into
+# `tasks.due_date`. Natural-language phrases like "by Friday" stay in
+# `LiveTask.deadline` for display but never reach the date column.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?.*)?$")
 
 class LiveTaskPersistence:
     """
@@ -44,14 +50,13 @@ class LiveTaskPersistence:
                     Task.task == task_text
                 ).first()
 
-                # Phase 13D revised — prefer the LLM's ISO `due_date`
-                # over the raw `deadline` phrase. `due_date` is already
-                # YYYY-MM-DD when the LLM could anchor a relative date;
-                # _parse_date handles both ISO and natural-language input,
-                # but ISO parses ~10x faster and is unambiguous.
-                resolved_due_date = cls._parse_date(
-                    payload.get("due_date") or payload.get("deadline")
-                )
+                # Phase 13D revised — prefer the LLM's ISO `due_date`.
+                # `deadline` is the speaker's natural phrasing ("by
+                # Friday") and is NOT parseable as a date here — we keep
+                # it on the live event for display only. If the LLM
+                # didn't resolve a concrete date, `due_date` stays None
+                # in the DB; that's a valid, tracked dateless task.
+                resolved_due_date = cls._parse_date(payload.get("due_date"))
 
                 if existing:
                     # Update
@@ -85,12 +90,16 @@ class LiveTaskPersistence:
 
     @staticmethod
     def _parse_date(date_str: Any) -> Any:
-        if not date_str:
+        """Convert an ISO-shaped string into a datetime. Returns None for
+        anything non-ISO (e.g. "by Friday") so dateless tasks land cleanly
+        as NULL rather than failing the row insert.
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None
+        s = date_str.strip()
+        if not _ISO_DATE_RE.match(s):
             return None
         try:
-            # Basic parser for common formats
-            if isinstance(date_str, str):
-                return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            return None
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
         except Exception:
             return None

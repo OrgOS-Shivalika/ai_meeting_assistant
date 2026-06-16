@@ -84,11 +84,14 @@ _WRAP_UP_PATTERNS = [
         re.IGNORECASE,
     ),
 
-    # "thanks/thank you (guys|y'all|folks|all|everyone)" — REQUIRES the
-    # group pronoun. "thank you" alone no longer matches (was firing
-    # on Talladega Nights movie quotes mid-conversation).
+    # "thanks/thank you, (guys|y'all|folks|all|everyone|everybody)"
+    # REQUIRES the group pronoun. The [,.\s]+ between the words allows
+    # natural punctuation like "Thanks, everyone." (a real failure
+    # we caught: comma-separated greetings used to break the match).
+    # Solo "thanks"/"thank you" still don't match — that's intentional
+    # (was false-firing on Talladega Nights movie quotes mid-conversation).
     re.compile(
-        r"\b(?:thanks|thank\s+you)\s+(?:guys|y'?all|folks|all|everyone)\b",
+        r"\b(?:thanks|thank\s+you)[,.\-:\s]+(?:guys|y'?all|folks|all|everyone|everybody)\b",
         re.IGNORECASE,
     ),
 
@@ -110,19 +113,20 @@ _WRAP_UP_PATTERNS = [
         re.IGNORECASE,
     ),
 
-    # "(bye|goodbye) (everyone|all|guys|folks|y'all)" — REQUIRES pronoun.
-    # Solo "bye" or "goodbye" no longer matches (too generic — used in
-    # "say goodbye to the old API" type references mid-meeting).
+    # "(bye|goodbye), (everyone|all|guys|folks|y'all|everybody)"
+    # REQUIRES pronoun + punctuation-tolerant separator. Solo "bye" or
+    # "goodbye" doesn't match (too generic mid-meeting — "say goodbye
+    # to the old API").
     re.compile(
-        r"\b(?:bye|goodbye)\s+(?:everyone|all|guys|folks|y'?all)\b",
+        r"\b(?:bye|goodbye)[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
         re.IGNORECASE,
     ),
 
-    # "take care (everyone|all|guys|folks|y'all)" — REQUIRES pronoun.
-    # Solo "take care" was matching mid-meeting ("we need to take care
-    # of the migration first").
+    # "take care, (everyone|all|guys|folks|y'all|everybody)"
+    # REQUIRES pronoun + punctuation tolerance. Solo "take care" was
+    # matching mid-meeting ("we need to take care of the migration").
     re.compile(
-        r"\btake\s+care\s+(?:everyone|all|guys|folks|y'?all)\b",
+        r"\btake\s+care[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
         re.IGNORECASE,
     ),
 
@@ -200,13 +204,19 @@ _WRAP_UP_PATTERNS = [
     re.compile(r"\b(?:phir|firr|fir)\s+milenge\b", re.IGNORECASE),
 
     # "shukriya/dhanyawad/dhanyavad (sab|sabko|everyone|all)" — thanks everyone
+    # Punctuation-tolerant separator (same fix as the English "Thanks,
+    # everyone" pattern).
     re.compile(
-        r"\b(?:shukriya|dhanyawad|dhanyavad|dhanyvad)\s+(?:sab|sabko|sabhi|everyone|all|guys|folks)\b",
+        r"\b(?:shukriya|dhanyawad|dhanyavad|dhanyvad)[,.\-:\s]+"
+        r"(?:sab|sabko|sabhi|everyone|all|guys|folks|everybody)\b",
         re.IGNORECASE,
     ),
 
-    # "alvida sab/sabko" — bye everyone (transliterated)
-    re.compile(r"\balvida\s+(?:sab|sabko|sabhi|everyone|all|dosto)\b", re.IGNORECASE),
+    # "alvida, sab/sabko" — bye everyone (transliterated)
+    re.compile(
+        r"\balvida[,.\-:\s]+(?:sab|sabko|sabhi|everyone|all|dosto|everybody)\b",
+        re.IGNORECASE,
+    ),
 
     # "bas itna hi" / "itna hi tha" — that's it
     re.compile(r"\b(?:bas\s+)?itna\s+hi(?:\s+tha)?\b", re.IGNORECASE),

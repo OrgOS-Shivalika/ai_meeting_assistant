@@ -246,7 +246,7 @@ class Settings:
     # GRAPH_PROMPT_VERSION / RAG_*_PROMPT_VERSION — bump when the prompt
     # template changes.
     CLOSING_BRIEFING_MODEL = os.getenv("CLOSING_BRIEFING_MODEL", "gpt-4o-mini")
-    CLOSING_BRIEFING_PROMPT_VERSION = os.getenv("CLOSING_BRIEFING_PROMPT_VERSION", "v1")
+    CLOSING_BRIEFING_PROMPT_VERSION = os.getenv("CLOSING_BRIEFING_PROMPT_VERSION", "v2")
     # Hard ceiling on speaking time. Past this, the prompt will be re-run
     # with a stricter word cap (Phase 12C does one retry; further overruns
     # are truncated). 60s matches the spec's default max.

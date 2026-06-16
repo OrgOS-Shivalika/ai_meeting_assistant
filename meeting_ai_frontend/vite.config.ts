@@ -93,6 +93,9 @@ export default defineConfig(({ mode }) => {
       babel({ presets: [reactCompilerPreset()] })
     ],
     server: {
+      allowedHosts: [
+        'viral-salami-thimble.ngrok-free.dev',
+      ],
       proxy,
     },
   }

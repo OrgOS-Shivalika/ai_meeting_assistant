@@ -1,7 +1,10 @@
 export interface Task {
   id: number;
   task: string;
-  owner: string;
+  // Backend column `tasks.owner_name` is nullable, and the assignment
+  // editor now writes null when a task is explicitly unassigned. Every
+  // call site already uses `task.owner || "..."` defensively.
+  owner: string | null;
   priority: 'low' | 'medium' | 'high';
   due_date: string | null;
   is_completed: boolean;

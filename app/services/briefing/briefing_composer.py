@@ -324,10 +324,18 @@ class BriefingComposer:
             # synthetic group names ("Conversation Group") in
             # LiveTask.owner — those must route to unassigned.
             real_owner = _clean_owner(t.owner)
+            # Phase 13D revised — pass BOTH the speaker's natural phrasing
+            # (deadline, e.g. "by Friday") and the LLM-resolved ISO date
+            # (due_date, e.g. "2026-06-13") so the briefing prompt can
+            # render dates naturally AND know which tasks are dateless
+            # for explicit call-out in the spoken brief.
+            has_date = bool(t.deadline or getattr(t, "due_date", None))
             entry = {
                 "task": t.task,
                 "owner": real_owner,
                 "deadline": t.deadline,
+                "due_date": getattr(t, "due_date", None),
+                "has_date": has_date,
                 "confidence": t.confidence,
                 "status": t.status,
             }

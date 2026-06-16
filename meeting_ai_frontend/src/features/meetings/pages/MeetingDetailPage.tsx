@@ -1,8 +1,9 @@
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchMeetingById } from "../api";
+import { fetchMeetingById, updateTask } from "../api";
 import Layout from "../../../shared/components/Layout";
 import CategoryAssignControl from "../components/CategoryAssignControl";
+import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import {
   Calendar,
   Clock,
@@ -15,6 +16,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Inbox,
+  Pencil,
   Radio,
   Zap,
 } from "lucide-react";
@@ -24,6 +26,10 @@ import {
   useLiveTranscript,
   type LiveFinal,
 } from "../hooks/useLiveTranscript";
+
+type TaskOverride = Partial<Omit<Task, "owner">> & {
+  owner?: string | null;
+};
 
 type TranscriptGroup = {
   speaker: string;
@@ -130,6 +136,12 @@ export default function MeetingDetailPage() {
   
   const [activeNotification, setActiveNotification] = useState<any | null>(null);
   const [liveTasks, setLiveTasks] = useState<Task[]>([]);
+  // Task assignment edit state. The card is otherwise read-only; opening
+  // the editor for a task swaps the owner+date row for the inline
+  // TaskAssignmentEditor. Only ONE task editable at a time.
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [savingTaskId, setSavingTaskId] = useState<number | null>(null);
+  const [taskOverrides, setTaskOverrides] = useState<Record<number, TaskOverride>>({});
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -177,7 +189,7 @@ export default function MeetingDetailPage() {
              task: payload.task,
              owner: payload.owner || "Unassigned",
              priority: "medium",
-             due_date: payload.deadline || null,
+             due_date: payload.due_date || payload.deadline || null,
              is_completed: payload.status === "completed",
              created_at: payload.source_timestamp,
              updated_at: payload.source_timestamp,
@@ -291,8 +303,50 @@ export default function MeetingDetailPage() {
     if (!meeting) return [];
     const base = meeting.tasks ?? [];
     const fresh = liveTasks.filter(lt => !base.some(bt => String(bt.id) === String(lt.id)));
-    return [...base, ...fresh];
-  }, [meeting, liveTasks]);
+    const merged = [...base, ...fresh];
+    // Apply local edits over server data so saving feels instant — the
+    // server response is also merged into overrides on success.
+    return merged.map((t) => {
+      const override = taskOverrides[t.id as number];
+      return override ? { ...t, ...override } : t;
+    });
+  }, [meeting, liveTasks, taskOverrides]);
+
+  // Save handler — single PATCH for owner + due date. Optimistically
+  // applies the change locally so the row updates before the server
+  // round-trip completes.
+  const saveTaskAssignment = useCallback(
+    async (
+      taskId: number,
+      next: { owner_name: string | null; due_date: string | null },
+    ) => {
+      setSavingTaskId(taskId);
+      setTaskOverrides((prev) => ({
+        ...prev,
+        [taskId]: {
+          ...(prev[taskId] || {}),
+          owner: next.owner_name,
+          due_date: next.due_date,
+        },
+      }));
+      try {
+        const updated = await updateTask(taskId, next);
+        setTaskOverrides((prev) => ({ ...prev, [taskId]: { ...updated } }));
+        setEditingTaskId(null);
+      } catch (e) {
+        console.error("Failed to update task", e);
+        // Roll back optimistic update on failure.
+        setTaskOverrides((prev) => {
+          const copy = { ...prev };
+          delete copy[taskId];
+          return copy;
+        });
+      } finally {
+        setSavingTaskId(null);
+      }
+    },
+    [],
+  );
 
   if (error) {
     return (
@@ -498,6 +552,12 @@ export default function MeetingDetailPage() {
                       const priorityClass = PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
                       const unassigned = isTaskUnassigned(task);
                       const due = formatDateShort(task.due_date);
+                      const editingThis = editingTaskId === (task.id as number);
+                      const savingThis = savingTaskId === (task.id as number);
+                      // Persisted tasks (numeric id) can be edited. Live-only
+                      // tasks have string UUIDs and aren't yet in the DB —
+                      // hide the edit affordance for them.
+                      const canEdit = typeof task.id === "number";
                       return (
                         <div key={task.id} className={`px-3 py-2.5 rounded-lg border text-xs ${unassigned ? "border-l-2 border-l-amber-400 border-amber-100 bg-amber-50/40" : "border-slate-100 hover:border-slate-200 hover:bg-slate-50"} transition-all`}>
                           <div className="flex items-start justify-between gap-2 mb-2">
@@ -505,12 +565,73 @@ export default function MeetingDetailPage() {
                             <span className={`px-1.5 py-0.5 text-[7px] font-black rounded ring-1 tracking-wider shrink-0 ${priorityClass}`}>{priorityKey}</span>
                           </div>
                           <div className="flex items-center justify-between gap-1 text-xs">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <div className={`w-4 h-4 text-white text-[7px] font-black rounded flex items-center justify-center shrink-0 ${colorFor(task.owner || "?")}`}>{getInitials(task.owner || "?")}</div>
-                              <span className={`truncate font-medium ${unassigned ? "text-amber-700 italic" : "text-slate-500"}`}>{task.owner || "Unassigned"}</span>
-                            </div>
-                            {due && <span className="text-slate-400 text-[8px] shrink-0">{due}</span>}
+                            {unassigned && !due ? (
+                              <button
+                                onClick={() => canEdit && setEditingTaskId(task.id as number)}
+                                disabled={!canEdit}
+                                className="group flex items-center gap-1 text-amber-700 italic text-[10px] font-semibold hover:text-amber-900 disabled:cursor-default"
+                                title={canEdit ? "Click to assign owner & date" : ""}
+                              >
+                                <span>Unassigned owner & date</span>
+                                {canEdit && <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />}
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => canEdit && setEditingTaskId(task.id as number)}
+                                  disabled={!canEdit}
+                                  className="group flex items-center gap-1.5 min-w-0 disabled:cursor-default"
+                                  title={canEdit ? "Click to change owner or date" : ""}
+                                >
+                                  <div className={`w-4 h-4 text-white text-[7px] font-black rounded flex items-center justify-center shrink-0 ${colorFor(task.owner || "?")}`}>{getInitials(task.owner || "?")}</div>
+                                  <span className={`truncate font-medium ${unassigned ? "text-amber-700 italic" : "text-slate-500"}`}>
+                                    {task.owner || "Unassigned owner"}
+                                  </span>
+                                  {canEdit && <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />}
+                                </button>
+                                {due ? (
+                                  <button
+                                    onClick={() => canEdit && setEditingTaskId(task.id as number)}
+                                    disabled={!canEdit}
+                                    className="text-slate-400 text-[8px] shrink-0 hover:text-indigo-600 disabled:cursor-default"
+                                    title={canEdit ? "Click to change due date" : ""}
+                                  >
+                                    {due}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => canEdit && setEditingTaskId(task.id as number)}
+                                    disabled={!canEdit}
+                                    className="text-amber-700 italic text-[8px] shrink-0 hover:text-amber-900 disabled:cursor-default"
+                                    title={canEdit ? "Click to assign a due date" : ""}
+                                  >
+                                    Unassigned date
+                                  </button>
+                                )}
+                              </>
+                            )}
                           </div>
+
+                          {/* Inline editor — opens beneath the row. Pulls
+                              the participants from the parent meeting since
+                              every task here belongs to the same meeting. */}
+                          {editingThis && canEdit && (
+                            <div className="mt-2">
+                              <TaskAssignmentEditor
+                                open={editingThis}
+                                initialOwner={task.owner ?? null}
+                                initialDueDate={task.due_date ?? null}
+                                participants={(meeting?.participants ?? []).map((p) => ({
+                                  name: p.name,
+                                  email: p.email,
+                                  avatar_url: p.avatar_url,
+                                }))}
+                                onCancel={() => setEditingTaskId(null)}
+                                onSave={(next) => saveTaskAssignment(task.id as number, next)}
+                                saving={savingThis}
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -549,7 +670,20 @@ export default function MeetingDetailPage() {
                   <h5 className="text-xs font-bold leading-snug text-white line-clamp-2">{activeNotification.payload.task}</h5>
                   <div className="mt-2 flex items-center gap-1.5 text-xs">
                     <div className={`w-4 h-4 rounded text-[7px] font-bold flex items-center justify-center ${colorFor(activeNotification.payload.owner || "?")}`}>{getInitials(activeNotification.payload.owner || "?")}</div>
-                    <span className="text-white/70">Owner: <span className="text-white font-semibold">{activeNotification.payload.owner || "Unassigned"}</span></span>
+                    <span className="text-white/70">Owner: <span className="text-white font-semibold">{activeNotification.payload.owner || "Unassigned owner"}</span></span>
+                  </div>
+                  {/* Due-date row — shows the ISO date if the LLM resolved one,
+                      falls back to the raw phrase ("by Friday"), else amber italic
+                      "Unassigned date" to mirror the persisted-task UI. */}
+                  <div className="mt-1 flex items-center gap-1.5 text-xs">
+                    <span className="text-white/70">Due: {(() => {
+                      const iso = activeNotification.payload.due_date as string | undefined;
+                      const phrase = activeNotification.payload.deadline as string | undefined;
+                      const formatted = iso ? formatDateShort(iso) : null;
+                      if (formatted) return <span className="text-white font-semibold">{formatted}</span>;
+                      if (phrase) return <span className="text-white font-semibold">{phrase}</span>;
+                      return <span className="text-amber-300 italic font-semibold">Unassigned date</span>;
+                    })()}</span>
                   </div>
                 </div>
               </div>
