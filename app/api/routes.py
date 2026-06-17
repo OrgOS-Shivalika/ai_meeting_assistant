@@ -16,7 +16,7 @@ from app.utils.logger import setup_logger
 import uuid
 from app.config.settings import settings
 from app.db.database import SessionLocal
-from app.db.models import Meeting, Task, Category, Team
+from app.db.models import Meeting, Task, Category, Team, KanbanBoard, KanbanColumn
 from app.services.google_calendar_service import create_calendar_event
 from app.store.job_store import jobs
 
@@ -91,6 +91,13 @@ def _task_dict(task: Task, include_meeting_id: bool = False) -> dict:
         "due_date": task.due_date,
         "is_completed": bool(task.is_completed),
         "is_unassigned": _task_is_unassigned(task),
+        # Phase 14 — Kanban fields. Always present so the frontend
+        # doesn't need to feature-detect.
+        "status": task.status,
+        "description": task.description,
+        "board_id": task.board_id,
+        "column_id": task.column_id,
+        "position": task.position,
         "created_at": task.created_at,
         "updated_at": task.updated_at,
     }
@@ -630,6 +637,9 @@ def get_meeting_tasks(meeting_id: int, db: Session = Depends(get_db)):
     return [_task_dict(t) for t in tasks]
 
 
+_VALID_STATUSES = {"todo", "in_progress", "in_review", "done", "archived"}
+
+
 @router.patch("/tasks/{task_id}")
 def update_task(
     task_id: int,
@@ -637,18 +647,49 @@ def update_task(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Inline edits from the Action Items page — assign an owner, mark
-    completed, change priority. Org-scoped via the parent meeting."""
+    """Inline edits from the Action Items page / Kanban card drawer.
+
+    Phase 14 — accepts status / description / board_id / column_id in
+    addition to the original fields. Enforces:
+      - status ∈ _VALID_STATUSES
+      - column_id (if provided) belongs to an org-owned board
+      - board_id (if provided) belongs to this org
+      - status ↔ is_completed lockstep (mirrors the DB CHECK constraint)
+      - moving into a column with a bound_status auto-sets task.status
+    """
+    # Phase 14 — tasks may now exist without a parent meeting (manual
+    # Kanban cards). Org-scope check needs to fall back to the board's
+    # organization in that case. Same logic as `_require_task` in
+    # `kanban_router.py`.
     task = (
         db.query(Task)
-        .join(Meeting, Task.meeting_id == Meeting.id)
-        .filter(Task.id == task_id, Meeting.organization_id == user.organization_id)
+        .outerjoin(Meeting, Task.meeting_id == Meeting.id)
+        .outerjoin(KanbanBoard, Task.board_id == KanbanBoard.id)
+        .filter(
+            Task.id == task_id,
+            (Meeting.organization_id == user.organization_id)
+            | (KanbanBoard.organization_id == user.organization_id),
+        )
         .first()
     )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    # Phase 14 K2 — capture a snapshot BEFORE mutation so we can emit
+    # one activity row per field that actually changed. Keep this
+    # cheap (~6 scalar reads) so the PATCH stays fast.
+    before_snapshot = {
+        "owner_name": task.owner_name,
+        "priority": task.priority,
+        "due_date": task.due_date,
+        "description": task.description,
+        "status": task.status,
+        "column_id": task.column_id,
+        "board_id": task.board_id,
+    }
+
     data = payload.model_dump(exclude_unset=True)
+
     if "owner_name" in data:
         task.owner_name = (data["owner_name"] or "").strip() or None
     if "priority" in data and data["priority"]:
@@ -656,10 +697,109 @@ def update_task(
         if priority not in {"low", "medium", "high"}:
             raise HTTPException(status_code=400, detail="priority must be low|medium|high")
         task.priority = priority
-    if "is_completed" in data and data["is_completed"] is not None:
-        task.is_completed = 1 if data["is_completed"] else 0
     if "due_date" in data:
         task.due_date = data["due_date"]
+    if "description" in data:
+        task.description = data["description"] or None
+
+    # Board move — must belong to caller's org.
+    if "board_id" in data:
+        if data["board_id"] is None:
+            task.board_id = None
+        else:
+            board = (
+                db.query(KanbanBoard)
+                .filter(
+                    KanbanBoard.id == data["board_id"],
+                    KanbanBoard.organization_id == user.organization_id,
+                )
+                .first()
+            )
+            if not board:
+                raise HTTPException(status_code=404, detail="Board not found")
+            task.board_id = board.id
+
+    # Column move — auto-derives status from the column's bound_status
+    # so the client only needs to send `column_id` for a drag-drop.
+    if "column_id" in data:
+        if data["column_id"] is None:
+            task.column_id = None
+        else:
+            column = (
+                db.query(KanbanColumn)
+                .join(KanbanBoard, KanbanColumn.board_id == KanbanBoard.id)
+                .filter(
+                    KanbanColumn.id == data["column_id"],
+                    KanbanBoard.organization_id == user.organization_id,
+                )
+                .first()
+            )
+            if not column:
+                raise HTTPException(status_code=404, detail="Column not found")
+            task.column_id = column.id
+            # Auto-sync board_id if the client didn't explicitly set it.
+            if "board_id" not in data:
+                task.board_id = column.board_id
+            # Auto-sync status from the column's bound_status. Caller's
+            # explicit `status` field (if any) wins — handled below.
+            if column.bound_status and "status" not in data:
+                data["status"] = column.bound_status
+
+    # Status — explicit field OR derived from column move.
+    new_status = data.get("status")
+    if new_status is not None:
+        if new_status not in _VALID_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"status must be one of {sorted(_VALID_STATUSES)}",
+            )
+        task.status = new_status
+
+    # is_completed — keep in lockstep with status so the DB CHECK
+    # constraint never blocks the write. Two paths:
+    #   - explicit is_completed   → derive status if not also provided
+    #   - explicit status         → derive is_completed
+    if "is_completed" in data and data["is_completed"] is not None:
+        completed = bool(data["is_completed"])
+        task.is_completed = 1 if completed else 0
+        if "status" not in data and "column_id" not in data:
+            # Caller toggled completion without a status — sync.
+            task.status = "done" if completed else (
+                "todo" if task.status == "done" else task.status
+            )
+    else:
+        # No explicit is_completed; derive from final status.
+        task.is_completed = 1 if task.status == "done" else 0
+
+    # Phase 14 K2 — emit per-field activity rows. `diff_and_record`
+    # silently skips fields that didn't change, so a PATCH that
+    # touches one field produces exactly one activity row.
+    from app.services.kanban.activity import diff_and_record
+    after_snapshot = {
+        "owner_name": task.owner_name,
+        "priority": task.priority,
+        "due_date": task.due_date,
+        "description": task.description,
+        "status": task.status,
+        "column_id": task.column_id,
+        "board_id": task.board_id,
+    }
+    diff_and_record(
+        db,
+        task_id=task.id,
+        actor_user_id=user.id,
+        actor_name=user.name,
+        before=before_snapshot,
+        after=after_snapshot,
+        field_to_event={
+            "owner_name": "owner_changed",
+            "priority": "priority_changed",
+            "due_date": "due_changed",
+            "description": "description_changed",
+            "status": "status_changed",
+            "column_id": "column_moved",
+        },
+    )
 
     db.commit()
     db.refresh(task)

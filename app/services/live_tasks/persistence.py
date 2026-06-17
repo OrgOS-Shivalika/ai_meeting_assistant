@@ -2,7 +2,9 @@ import logging
 import re
 from typing import Dict, Any
 from app.db.database import SessionLocal
-from app.db.models import Task
+from app.db.models import Meeting, Task
+from app.services.kanban.defaults import resolve_landing_for_meeting
+from app.services.kanban.positions import position_for_end
 from app.services.live_events.event_models import LiveCognitiveEvent
 from datetime import datetime
 
@@ -62,19 +64,48 @@ class LiveTaskPersistence:
                     # Update
                     existing.owner_name = payload.get("owner")
                     existing.due_date = resolved_due_date
-                    existing.is_completed = 1 if payload.get("status") == "completed" else 0
+                    # Keep status + is_completed in lockstep — the K1
+                    # CHECK constraint enforces this; bypassing it
+                    # raises IntegrityError. `status='done'` is the
+                    # single source of truth.
+                    completed = payload.get("status") == "completed"
+                    existing.is_completed = 1 if completed else 0
+                    existing.status = "done" if completed else (existing.status or "todo")
                     logger.debug(f"Updated existing task {existing.id} in DB")
                 else:
-                    # Create new
+                    # Phase 14 — attach the new task to the org's
+                    # default board's "To Do" column so it shows up on
+                    # the Kanban surface immediately. We look up the
+                    # meeting to get its organization_id; if the
+                    # meeting somehow doesn't exist yet (race), we
+                    # insert without board info — the K2 reconciler
+                    # will fix it later.
+                    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+                    board_id, column_id = (None, None)
+                    position = None
+                    if meeting is not None:
+                        board_id, column_id = resolve_landing_for_meeting(
+                            db, meeting.organization_id, status="todo",
+                        )
+                        if column_id is not None:
+                            position = position_for_end(db, column_id)
+
                     new_task = Task(
                         meeting_id=meeting_id,
                         task=task_text,
                         owner_name=payload.get("owner"),
                         due_date=resolved_due_date,
-                        is_completed=0
+                        is_completed=0,
+                        status="todo",
+                        board_id=board_id,
+                        column_id=column_id,
+                        position=position,
                     )
                     db.add(new_task)
-                    logger.debug(f"Inserted new live task into DB")
+                    logger.debug(
+                        "Inserted new live task into DB (board=%s, column=%s, pos=%s)",
+                        board_id, column_id, position,
+                    )
                 
                 db.commit()
             except Exception as e:

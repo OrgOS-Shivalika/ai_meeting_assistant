@@ -4,6 +4,7 @@ import { fetchMeetingById, updateTask } from "../api";
 import Layout from "../../../shared/components/Layout";
 import CategoryAssignControl from "../components/CategoryAssignControl";
 import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
+import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
 import {
   Calendar,
   Clock,
@@ -536,9 +537,12 @@ export default function MeetingDetailPage() {
 
               {/* Assigned Tasks Card */}
               <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm overflow-y-scroll border-b-2 border-b-slate-100">
-                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Tasks</h3>
-                  <span className="text-xs font-semibold text-slate-500">{completedTaskCount}/{taskCount}</span>
+                  <div className="flex items-center gap-2">
+                    {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
+                    <span className="text-xs font-semibold text-slate-500">{completedTaskCount}/{taskCount}</span>
+                  </div>
                 </div>
                 {unassignedTaskCount > 0 && (
                   <div className="m-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">

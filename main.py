@@ -24,6 +24,8 @@ from app.api.templates_router import router as templates_router
 from app.api.behavior_router import router as behavior_router
 # Phase 12E — closing-briefing endpoint + orchestrator startup hook.
 from app.api.closing_briefing_router import closing_briefing_router
+# Phase 14 K2 — Kanban Boards REST API.
+from app.api.kanban_router import kanban_router
 from app.services.briefing.closing_briefing_orchestrator import get_orchestrator
 from app.utils.logger import setup_logger
 from app.config.settings import settings
@@ -69,6 +71,8 @@ app.include_router(ws_router)
 app.include_router(recall_webhook_router)
 # Phase 12E — closing briefing endpoint (replaces the Phase 12C debug router).
 app.include_router(closing_briefing_router)
+# Phase 14 K2 — Kanban Boards (boards/columns/task moves).
+app.include_router(kanban_router)
 
 @app.on_event("startup")
 async def startup_event():

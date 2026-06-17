@@ -20,11 +20,23 @@ class MeetingAssignRequest(BaseModel):
 
 
 class TaskUpdateRequest(BaseModel):
-    """Inline edits from the Action Items page. Any subset may be provided."""
+    """Inline edits from the Action Items page / Kanban card drawer.
+    Any subset may be provided.
+
+    Phase 14 added: `status`, `description`, `board_id`, `column_id`.
+    The router enforces the (status ↔ is_completed) lockstep rule and
+    rejects unknown status values. Setting `column_id` also sets
+    `status` server-side from the column's `bound_status` so a single
+    move PATCH is atomic.
+    """
     owner_name: Optional[str] = None
     priority: Optional[str] = None
     is_completed: Optional[bool] = None
     due_date: Optional[datetime] = None
+    status: Optional[str] = None         # 'todo'|'in_progress'|'in_review'|'done'|'archived'
+    description: Optional[str] = None    # markdown
+    board_id: Optional[int] = None
+    column_id: Optional[int] = None
 
 
 class MeetingUpdateRequest(BaseModel):

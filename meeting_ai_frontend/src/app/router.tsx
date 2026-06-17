@@ -22,6 +22,10 @@ import BundlePreviewPage from "../features/templates/pages/BundlePreviewPage";
 import TemplatesInstalledPage from "../features/templates/pages/TemplatesInstalledPage";
 import MembersPage from "../features/members/pages/MembersPage";
 import ReportsPage from "../features/reports/pages/ReportsPage";
+import BoardListPage from "../features/kanban/pages/BoardListPage";
+import BoardLayout from "../features/kanban/pages/BoardLayout";
+import BoardPage from "../features/kanban/pages/BoardPage";
+import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
 
 export const router = createBrowserRouter([
   {
@@ -114,6 +118,22 @@ export const router = createBrowserRouter([
       {
         path: "/reports",
         element: <ReportsPage />,
+      },
+      {
+        path: "/boards",
+        element: <BoardListPage />,
+      },
+      {
+        // Phase 14 — nested routes. BoardLayout owns Layout + the
+        // useBoard fetch + the shared header + tabs, so switching
+        // between Board view and Summary view doesn't remount any
+        // of that. Children render via <Outlet />.
+        path: "/board/:id",
+        element: <BoardLayout />,
+        children: [
+          { index: true, element: <BoardPage /> },
+          { path: "summary", element: <BoardSummaryPage /> },
+        ],
       },
     ],
   },

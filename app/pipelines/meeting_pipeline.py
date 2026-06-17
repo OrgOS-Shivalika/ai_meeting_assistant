@@ -3,6 +3,8 @@ import requests
 from app.services.recall_ai_service import RecallService
 from app.processors.transcript_processor import TranscriptProcessor
 from app.ai_agents.transcript_analyzer import TranscriptAnalyzer
+from app.services.kanban.defaults import resolve_landing_for_meeting
+from app.services.kanban.positions import position_for_end
 from app.utils.logger import setup_logger
 import json
 from app.db.models import Meeting, Task, Participant
@@ -163,22 +165,46 @@ class MeetingPipeline:
             ).first()
 
             if existing:
-                # Update existing record with final analysis details
+                # Update existing record with final analysis details.
+                # status + is_completed stay untouched — the live engine
+                # owns those during the meeting; the analyzer just
+                # refines metadata fields.
                 existing.owner_name = t.get("owner")
                 existing.priority = t.get("priority", "medium")
                 existing.due_date = self.parse_iso_date(t.get("due_date"))
                 logger.debug(f"Harmonized final task {existing.id} with live version")
             else:
-                # Create new record
+                # Phase 14 — new analyzer-extracted tasks (which happen
+                # when the live engine missed something) also need to
+                # land on the org default board's "To Do" column.
+                # Meeting is already in scope here; fetch its
+                # organization_id lazily through the relationship.
+                meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+                board_id, column_id = (None, None)
+                position = None
+                if meeting is not None:
+                    board_id, column_id = resolve_landing_for_meeting(
+                        db, meeting.organization_id, status="todo",
+                    )
+                    if column_id is not None:
+                        position = position_for_end(db, column_id)
+
                 task = Task(
                     meeting_id=meeting_id,
                     task=task_text,
                     owner_name=t.get("owner"),
                     priority=t.get("priority", "medium"),
                     due_date=self.parse_iso_date(t.get("due_date")),
+                    status="todo",
+                    board_id=board_id,
+                    column_id=column_id,
+                    position=position,
                 )
                 db.add(task)
-                logger.debug(f"Saved new final task for meeting {meeting_id}")
+                logger.debug(
+                    "Saved new final task for meeting %s (board=%s, column=%s)",
+                    meeting_id, board_id, column_id,
+                )
 
         db.commit()
 

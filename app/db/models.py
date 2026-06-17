@@ -131,10 +131,278 @@ class Task(Base):
     due_date = Column(DateTime(timezone=True), nullable=True)
     is_completed = Column(Integer, default=0) # Using Integer as boolean for SQLite/generic compat if needed, but standard is Column(Boolean)
 
+    # Phase 14 — Kanban surface. `status` is the authoritative source of
+    # truth for completion state; `is_completed` is kept for backward
+    # compat and constrained to equal `(status = 'done')` via a CHECK
+    # constraint enforced in the K1 migration. `board_id`/`column_id`
+    # are nullable to allow task rows to exist before a board is
+    # assigned (e.g. transient state during board deletion).
+    # `position` is a Trello-style float — midpoint insertion until the
+    # gap shrinks past 0.01, then the column is rebalanced.
+    # `description` is markdown for the card detail drawer.
+    board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    column_id = Column(
+        Integer,
+        ForeignKey("kanban_columns.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    position = Column(Float, nullable=True)
+    status = Column(
+        String(24),
+        nullable=False,
+        default="todo",
+        server_default="todo",
+    )
+    description = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     meeting = relationship("Meeting", back_populates="tasks")
+    board = relationship("KanbanBoard", foreign_keys=[board_id])
+    column = relationship("KanbanColumn", foreign_keys=[column_id], back_populates="tasks")
+    comments = relationship(
+        "TaskComment",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskComment.created_at",
+    )
+    activity = relationship(
+        "TaskActivity",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskActivity.created_at.desc()",
+    )
+
+    __table_args__ = (
+        # status enum guard — keep the set small and explicit. Adding a
+        # new status here MUST come with a migration that updates this
+        # constraint, OR you'll get a constraint violation on insert.
+        CheckConstraint(
+            "status IN ('todo', 'in_progress', 'in_review', 'done', 'archived')",
+            name="ck_tasks_status",
+        ),
+        # Keep `is_completed` and `status` in lockstep. Server-side
+        # writers should set `status` only; the K1 migration also adds
+        # a trigger that mirrors status='done' → is_completed=1.
+        CheckConstraint(
+            "(is_completed = 1 AND status = 'done') OR "
+            "(is_completed = 0 AND status <> 'done')",
+            name="ck_tasks_status_completed_match",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 — Kanban Boards
+#
+# Three new tables (kanban_boards / kanban_columns / task_comments /
+# task_activity) plus extensions on `tasks` (above). Mirrors existing
+# conventions: organization-scoped, polymorphic `scope_type` + `scope_id`,
+# append-only audit log shape for `task_activity`.
+#
+# Boards are scoped to org / category / team via (scope_type, scope_id).
+# Partial unique index enforces one default board per (org, scope_type,
+# scope_id). Columns hold a `bound_status` so moving a card into them
+# atomically updates `tasks.status` to that value — frees us to rename
+# column labels without losing the underlying status semantics.
+# ---------------------------------------------------------------------------
+
+
+class KanbanBoard(Base):
+    __tablename__ = "kanban_boards"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('org', 'category', 'team')",
+            name="ck_kanban_boards_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'org' AND scope_id IS NULL) OR "
+            "(scope_type IN ('category', 'team') AND scope_id IS NOT NULL)",
+            name="ck_kanban_boards_scope_id_matches",
+        ),
+        # Default-board uniqueness — split into two partial indexes to
+        # handle Postgres's "NULL is distinct" rule in unique indexes.
+        # scoped boards key on the full (org, scope_type, scope_id);
+        # org-level boards key on (org, scope_type) only with
+        # `scope_id IS NULL` in the predicate.
+        Index(
+            "uq_kanban_boards_default_scoped",
+            "organization_id", "scope_type", "scope_id",
+            unique=True,
+            postgresql_where="is_default = true AND scope_id IS NOT NULL",
+        ),
+        Index(
+            "uq_kanban_boards_default_org",
+            "organization_id", "scope_type",
+            unique=True,
+            postgresql_where="is_default = true AND scope_id IS NULL",
+        ),
+        Index(
+            "ix_kanban_boards_org_scope",
+            "organization_id", "scope_type", "scope_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    scope_type = Column(String(16), nullable=False)
+    scope_id = Column(Integer, nullable=True)
+    created_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_default = Column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    organization = relationship("Organization")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    columns = relationship(
+        "KanbanColumn",
+        back_populates="board",
+        cascade="all, delete-orphan",
+        order_by="KanbanColumn.position",
+    )
+
+
+class KanbanColumn(Base):
+    __tablename__ = "kanban_columns"
+    __table_args__ = (
+        UniqueConstraint("board_id", "position", name="uq_kanban_columns_board_position"),
+        CheckConstraint(
+            "bound_status IS NULL OR bound_status IN "
+            "('todo', 'in_progress', 'in_review', 'done', 'archived')",
+            name="ck_kanban_columns_bound_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String, nullable=False)
+    position = Column(Integer, nullable=False)
+    color = Column(String(16), nullable=True)
+    is_done_column = Column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    wip_limit = Column(Integer, nullable=True)
+    bound_status = Column(String(24), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    board = relationship("KanbanBoard", back_populates="columns")
+    tasks = relationship(
+        "Task",
+        foreign_keys="[Task.column_id]",
+        back_populates="column",
+    )
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(
+        Integer,
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Snapshot the author's display name at write time so the comment
+    # still attributes correctly if the user is later deleted.
+    author_name = Column(String, nullable=True)
+    body = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    task = relationship("Task", back_populates="comments")
+    author = relationship("User", foreign_keys=[author_user_id])
+
+
+class TaskActivity(Base):
+    """Append-only audit feed per task. Drives the activity timeline in
+    the card detail drawer. NEVER updated in place — every event is a
+    new row. Same audit-log shape as `graph_extraction_runs` and
+    `rag_query_runs`."""
+    __tablename__ = "task_activity"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ("
+            "'created', 'status_changed', 'column_moved', 'owner_changed', "
+            "'due_changed', 'priority_changed', 'description_changed', "
+            "'title_changed', 'commented', 'archived', 'restored'"
+            ")",
+            name="ck_task_activity_event_type",
+        ),
+        Index("ix_task_activity_task_created", "task_id", "created_at"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    task_id = Column(
+        Integer,
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_name = Column(String, nullable=True)
+    event_type = Column(String(32), nullable=False)
+    before = Column(JSONB, nullable=True)
+    after = Column(JSONB, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    task = relationship("Task", back_populates="activity")
+    actor = relationship("User", foreign_keys=[actor_user_id])
 
 
 class Organization(Base):
