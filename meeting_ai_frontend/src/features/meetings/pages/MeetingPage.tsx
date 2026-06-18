@@ -46,28 +46,28 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
     <div className="relative group/scroll">
       <button
         onClick={() => scrollBy(-360)}
-        className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
         aria-label="Scroll left"
         type="button"
       >
-        <ChevronLeft className="w-5 h-5" />
+        <ChevronLeft className="w-4 h-4" />
       </button>
       <button
         onClick={() => scrollBy(360)}
-        className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200/80 shadow-md flex items-center justify-center text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 opacity-0 group-hover/scroll:opacity-100 transition-all"
         aria-label="Scroll right"
         type="button"
       >
-        <ChevronRight className="w-5 h-5" />
+        <ChevronRight className="w-4 h-4" />
       </button>
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto pb-2 px-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.2)_transparent]"
+        className="flex gap-3 overflow-x-auto pb-2 px-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.2)_transparent]"
       >
         {meetings.map((meeting) => (
           <div
             key={meeting.id}
-            className="snap-start shrink-0 w-[20rem] md:w-[22rem]"
+            className="snap-start shrink-0 w-[20rem] md:w-[22rem] h-[280px]"
           >
             <MeetingCard
               meeting={meeting}
@@ -96,11 +96,11 @@ function CategorySection({
 }: CategorySectionProps) {
   const color = category.color || "#4F46E5";
   return (
-    <section className="mb-12">
-      <div className="flex items-end justify-between gap-4 mb-5">
-        <div className="flex items-center gap-4 min-w-0">
+    <section className="mb-9">
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-sm border border-opacity-20"
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 shadow-sm border border-opacity-20"
             style={{ 
               backgroundColor: color + "15",
               borderColor: color
@@ -111,10 +111,10 @@ function CategorySection({
             </span>
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-slate-900 truncate">
+            <h2 className="text-base font-bold text-slate-900 truncate">
               {category.name}
             </h2>
-            <p className="text-xs font-semibold text-slate-500 mt-1">
+            <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
               {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
               {category.description ? ` • ${category.description}` : ""}
             </p>
@@ -122,7 +122,7 @@ function CategorySection({
         </div>
         <Link
           to={`/?category_id=${category.id}`}
-          className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline transition-colors shrink-0 whitespace-nowrap"
+          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 hover:underline transition-colors shrink-0 whitespace-nowrap"
         >
           View all →
         </Link>
@@ -148,17 +148,17 @@ function UncategorizedSection({
   deletingId,
 }: UncategorizedSectionProps) {
   return (
-    <section className="mt-12 pt-8 border-t border-dashed border-slate-200">
-      <div className="flex items-end justify-between gap-4 mb-5">
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
-            <Inbox className="w-6 h-6 text-slate-500" />
+    <section className="mt-9 pt-6 border-t border-dashed border-slate-200">
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
+            <Inbox className="w-5 h-5 text-slate-500" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-slate-900 truncate">
+            <h2 className="text-base font-bold text-slate-900 truncate">
               Uncategorized
             </h2>
-            <p className="text-xs font-semibold text-slate-500 mt-1">
+            <p className="text-[10px] font-semibold text-slate-500 mt-0.5">
               {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"} 
               <span className="text-slate-400"> • not yet classified</span>
             </p>
@@ -190,6 +190,7 @@ export default function MeetingsPage() {
 
   const { data, loading, removeMeeting, addMeeting } = useMeetings(filter);
   const { data: categories } = useCategories();
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const navigate = useNavigate();
@@ -268,13 +269,13 @@ export default function MeetingsPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex justify-center items-center h-[60vh]">
+        <div className="flex justify-center items-center h-[45vh]">
           <div className="text-center">
-            <div className="relative w-10 h-10 mx-auto mb-3">
-              <div className="absolute inset-0 rounded-full border-3 border-slate-200" />
-              <div className="absolute inset-0 rounded-full border-t-3 border-indigo-600 animate-spin" />
+            <div className="relative w-8 h-8 mx-auto mb-2">
+              <div className="absolute inset-0 rounded-full border-2 border-slate-200" />
+              <div className="absolute inset-0 rounded-full border-t-2 border-indigo-600 animate-spin" />
             </div>
-            <p className="text-sm text-slate-500">Loading meetings…</p>
+            <p className="text-xs text-slate-500">Loading meetings…</p>
           </div>
         </div>
       </Layout>
@@ -289,18 +290,18 @@ export default function MeetingsPage() {
       : "You haven't scheduled any meetings yet.";
     return (
       <Layout>
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto px-3 py-6">
           <ScheduleMeetingForm
             defaultCategoryId={filter.category_id}
             defaultTeamId={filter.team_id}
             onScheduled={handleScheduled}
           />
-          <div className="text-center py-16 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-2xl border border-slate-200/50 mt-8">
-            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-200/50">
-              <Calendar className="w-8 h-8 text-slate-400" />
+          <div className="text-center py-12 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-2xl border border-slate-200/50 mt-6">
+            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm border border-slate-200/50">
+              <Calendar className="w-6 h-6 text-slate-400" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">No meetings found</h3>
-            <p className="text-slate-600 max-w-sm mx-auto text-sm">{emptyMessage}</p>
+            <h3 className="text-base font-bold text-slate-900 mb-1.5">No meetings found</h3>
+            <p className="text-slate-600 max-w-sm mx-auto text-xs">{emptyMessage}</p>
           </div>
         </div>
       </Layout>
@@ -316,80 +317,95 @@ export default function MeetingsPage() {
     
     return (
       <Layout>
-        <div className="px-4 py-8">
-          <ScheduleMeetingForm
-            defaultCategoryId={filter.category_id}
-            defaultTeamId={filter.team_id}
-            onScheduled={handleScheduled}
-          />
-          
+        <div className="px-3 py-6">
           {/* Header with breadcrumb and view toggle */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 mt-8">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 mt-6">
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 onClick={handleClearFilter}
-                className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
                 title="Back to all meetings"
               >
-                <ChevronLeft className="w-5 h-5 text-slate-600" />
+                <ChevronLeft className="w-4 h-4 text-slate-600" />
               </button>
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
                   {headerTitle}
                 </h1>
-                <span className="text-xs font-medium text-slate-500 mt-1 block">
+                <span className="text-[10px] font-medium text-slate-500 mt-0.5 block">
                   {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5 bg-slate-100 p-0.75 rounded-lg">
+                <button
+                  onClick={() => setView("table")}
+                  className={`p-1.5 rounded transition-all ${
+                    view === "table"
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  title="Table view"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setView("grid")}
+                  className={`p-1.5 rounded transition-all ${
+                    view === "grid"
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+              </div>
               <button
-                onClick={() => setView("table")}
-                className={`p-2 rounded transition-all ${
-                  view === "table"
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-                title="Table view"
+                onClick={() => setShowScheduleForm(!showScheduleForm)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-xs font-medium"
               >
-                <List className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setView("grid")}
-                className={`p-2 rounded transition-all ${
-                  view === "grid"
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-                title="Grid view"
-              >
-                <LayoutGrid className="w-5 h-5" />
+                Schedule Meeting
               </button>
             </div>
           </div>
 
+          {showScheduleForm && (
+            <div className="mb-5 bg-slate-50 border border-slate-200 rounded-lg p-4">
+              <ScheduleMeetingForm
+                defaultCategoryId={filter.category_id}
+                defaultTeamId={filter.team_id}
+                onScheduled={() => {
+                  handleScheduled;
+                  setShowScheduleForm(false);
+                }}
+              />
+            </div>
+          )}
+          
           {view === "table" ? (
             <div className="bg-white border border-slate-200/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50/50 border-b border-slate-100">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Source
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Meeting Details
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Timestamp
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Participants
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -424,23 +440,36 @@ export default function MeetingsPage() {
   // -------------------------------------------------------------------------
   return (
     <Layout>
-      <div className=" px-4 py-8">
-        <ScheduleMeetingForm
-          defaultCategoryId={filter.category_id}
-          defaultTeamId={filter.team_id}
-          onScheduled={handleScheduled}
-        />
-        
-        <div className="flex items-center justify-between gap-4 mb-8 mt-8">
+      <div className=" px-3 py-6">
+        <div className="flex items-center justify-between gap-3 mb-6 mt-0">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
               Meetings
             </h1>
-            <p className="text-sm text-slate-600 mt-1">
+            <p className="text-xs text-slate-600 mt-0.5">
               {meetings.length} sessions across {groupedByCategory.sections.length} {groupedByCategory.sections.length === 1 ? "category" : "categories"}
             </p>
           </div>
+          <button
+            onClick={() => setShowScheduleForm(!showScheduleForm)}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-xs font-medium shrink-0"
+          >
+            Schedule Meeting
+          </button>
         </div>
+
+        {showScheduleForm && (
+          <div className="mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <ScheduleMeetingForm
+              defaultCategoryId={filter.category_id}
+              defaultTeamId={filter.team_id}
+              onScheduled={() => {
+                handleScheduled;
+                setShowScheduleForm(false);
+              }}
+            />
+          </div>
+        )}
 
         {groupedByCategory.sections.map(({ category, meetings: catMeetings }) => (
           <CategorySection

@@ -71,7 +71,6 @@ export default function MeetingCard({
         }
       }
     }
-    // Fallback: copy to clipboard
     handleCopyLink();
   };
 
@@ -115,33 +114,34 @@ export default function MeetingCard({
   return (
     <div
       onClick={() => navigate(`/meeting/${meeting.id}`)}
-      className="group relative bg-white rounded-2xl border border-slate-200 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 cursor-pointer overflow-hidden"
+      className="group relative bg-white rounded-lg border border-slate-100 hover:border-slate-200 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden h-full flex flex-col"
     >
-      {/* Accent Bar */}
-      <div className="absolute top-0 left-0 h-1.5 w-full bg-indigo-600 shadow-[0_2px_8px_rgba(79,70,229,0.3)] transition-transform duration-300 origin-left group-hover:scale-x-110" />
+      {/* Accent Bar – modernized with a subtle gradient */}
+      {/* <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-transform duration-300 origin-left group-hover:scale-x-110" /> */}
 
-      <div className="p-6">
+      <div className="p-4 flex flex-col flex-1">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1 min-w-0">
             {meeting.category && (
               <span
-                className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border mb-1.5"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded mb-2"
                 style={{
-                  backgroundColor: `${meeting.category.color || "#4F46E5"}14`,
+                  backgroundColor: `${meeting.category.color || "#4F46E5"}10`,
                   color: meeting.category.color || "#4F46E5",
-                  borderColor: `${meeting.category.color || "#4F46E5"}33`,
+                  borderColor: `${meeting.category.color || "#4F46E5"}30`,
+                  borderWidth: 1,
                 }}
               >
                 {meeting.category.name}
                 {meeting.team && <span className="opacity-60"> · {meeting.team.name}</span>}
               </span>
             )}
-            <h3 className="text-base font-bold text-slate-900 line-clamp-2 leading-tight group-hover:text-indigo-600 transition-colors">
+            <h3 className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors">
               {meeting.title || "Untitled Meeting"}
             </h3>
             {meeting.summary && (
-              <p className="mt-2 text-xs text-slate-500 line-clamp-2 leading-relaxed font-medium">
+              <p className="mt-1.5 text-xs text-slate-500 line-clamp-2 leading-relaxed">
                 {meeting.summary}
               </p>
             )}
@@ -151,7 +151,7 @@ export default function MeetingCard({
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors shrink-0 group/menu"
+            className="p-1.5 hover:bg-slate-50 rounded-md transition-colors shrink-0 group/menu"
             title="More options"
           >
             <MoreVertical className="w-4 h-4 text-slate-400 group-hover/menu:text-slate-600" />
@@ -159,10 +159,10 @@ export default function MeetingCard({
         </div>
 
         {/* Meta Info */}
-        <div className="space-y-3 mb-6">
-          <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-500">
-            <div className="p-1.5 bg-slate-50 rounded-lg group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-              <Calendar className="w-3.5 h-3.5" />
+        <div className="space-y-2.5 mb-4 flex-1">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <div className="p-1 bg-slate-50 rounded group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+              <Calendar className="w-3 h-3" />
             </div>
             <span>{dateStr}</span>
             <span className="text-slate-300">/</span>
@@ -174,39 +174,39 @@ export default function MeetingCard({
         {/* Participants */}
         {meeting.participants && meeting.participants.length > 0 && (
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-1.5 bg-slate-50 rounded-lg group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-              <Users className="w-3.5 h-3.5 text-slate-500" />
+            <div className="p-1 bg-slate-50 rounded group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+              <Users className="w-3 h-3 text-slate-500" />
             </div>
-            <div className="flex -space-x-1.5">
+            <div className="flex -space-x-1">
               {meeting.participants.slice(0, 5).map((p) => (
                 <div
                   key={p.id}
                   title={p.name}
-                  className={`w-6 h-6 rounded-full ring-2 ring-white flex items-center justify-center text-[9px] font-bold text-white ${colorFor(p.name)}`}
+                  className={`w-5 h-5 rounded-full ring-2 ring-white flex items-center justify-center text-[8px] font-semibold text-white ${colorFor(p.name)}`}
                 >
                   {initialsOf(p.name)}
                 </div>
               ))}
               {meeting.participants.length > 5 && (
-                <div className="w-6 h-6 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-600">
+                <div className="w-5 h-5 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[8px] font-semibold text-slate-600">
                   +{meeting.participants.length - 5}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+            <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide ml-1">
               {meeting.participants.length} attended
             </span>
           </div>
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-auto">
           <div className="flex items-center gap-2">
             <div
-              className={`w-2 h-2 rounded-full ${status.dot} shadow-[0_0_8px_currentColor]`}
+              className={`w-1.5 h-1.5 rounded-full ${status.dot} shadow-[0_0_6px_currentColor]`}
             />
             <span
-              className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg ${status.badge}`}
+              className={`text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-md ${status.badge}`}
             >
               {status.label}
             </span>
@@ -215,7 +215,7 @@ export default function MeetingCard({
               graphStatus={meeting.graph_status}
             />
           </div>
-          <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+          <div className="flex items-center gap-1 text-xs font-medium text-indigo-600 opacity-0 group-hover:opacity-100 transition-all translate-x-1 group-hover:translate-x-0">
             Details
             <span>→</span>
           </div>
@@ -225,7 +225,7 @@ export default function MeetingCard({
       {/* Context Menu Dropdown */}
       {showMenu && (
         <div
-          className="absolute top-12 right-6 bg-white border border-slate-200 rounded-xl shadow-2xl z-20 min-w-[160px] py-1 animate-in fade-in slide-in-from-top-2 duration-200"
+          className="absolute top-12 right-6 bg-white border border-slate-200 rounded-lg shadow-xl z-20 min-w-[160px] py-1 animate-in fade-in slide-in-from-top-1 duration-200"
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -233,27 +233,17 @@ export default function MeetingCard({
               setShowMenu(false);
               navigate(`/meeting/${meeting.id}`);
             }}
-            className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
           >
             View Details
           </button>
-          {/* <button
-            onClick={() => {
-              handleCopyLink();
-              setShowMenu(false);
-            }}
-            disabled={!meeting.meeting_url}
-            className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {copied ? "Copied!" : "Copy Link"}
-          </button> */}
           <button
             onClick={() => {
               handleShare();
               setShowMenu(false);
             }}
             disabled={!meeting.meeting_url}
-            className="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Share
           </button>
@@ -264,7 +254,7 @@ export default function MeetingCard({
               onDelete?.(meeting.id);
             }}
             disabled={isDeleting || !onDelete}
-            className="w-full text-left px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isDeleting ? "Deleting…" : "Delete"}
           </button>

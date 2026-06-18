@@ -16,8 +16,8 @@ import {
   Sparkles,
   Bot,
   Package,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -102,18 +102,19 @@ export default function Sidebar() {
           collapsed ? "w-16" : "w-64"
         } h-screen bg-white flex flex-col border-r border-gray-200 transition-[width] duration-200 relative`}
       >
-        {/* Collapse toggle — pinned to top-right, half-overlapping the
-            border so it's discoverable but doesn't crowd the header. */}
+        {/* Collapse toggle — slim drawer-handle on the right edge,
+            vertically centered. Subtle by default, fills with indigo
+            and grows slightly on hover so it reads as deliberate. */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className="absolute -right-3 top-6 z-10 w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm text-gray-500 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center transition-colors"
+          className="group absolute -right-2.5 top-1/2 -translate-y-1/2 z-10 w-5 h-14 rounded-full bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 hover:shadow-lg hover:h-16 flex items-center justify-center transition-all duration-200 ease-out"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand" : "Collapse"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
-            <PanelLeftOpen className="w-3.5 h-3.5" />
+            <ChevronsRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:scale-125" />
           ) : (
-            <PanelLeftClose className="w-3.5 h-3.5" />
+            <ChevronsLeft className="w-3.5 h-3.5 transition-transform duration-200 group-hover:scale-125" />
           )}
         </button>
 
