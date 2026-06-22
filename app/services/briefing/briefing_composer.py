@@ -160,6 +160,7 @@ class BriefingComposer:
         meeting_id: str,
         max_seconds: int = None,
         sections_enabled: BriefingSections = ALL_SECTIONS,
+        model: str | None = None,
     ) -> Optional[BriefingScript]:
         """Build the script. Returns None when state is too sparse OR
         the LLM call fails — caller (Phase 12D orchestrator) decides
@@ -233,7 +234,7 @@ class BriefingComposer:
         )
 
         # 3. One LLM call. Retry once with a tighter cap if it overshoots.
-        payload = self._call_llm(prompt_text)
+        payload = self._call_llm(prompt_text, model=model)
         if payload is None:
             return None
 
@@ -264,7 +265,7 @@ class BriefingComposer:
                 unassigned_tasks=snapshot["unassigned_tasks"],
                 target_language=target_language,
             )
-            retry_payload = self._call_llm(retry_prompt)
+            retry_payload = self._call_llm(retry_prompt, model=model)
             if retry_payload is not None:
                 retry_payload = self._enforce_section_toggles(retry_payload, sections_enabled)
                 retry_script = self._assemble_script(
@@ -407,8 +408,9 @@ class BriefingComposer:
     # LLM call
     # ------------------------------------------------------------------
 
-    def _call_llm(self, prompt_text: str) -> Optional[LLMBriefingPayload]:
-        model = settings.CLOSING_BRIEFING_MODEL
+    def _call_llm(self, prompt_text: str, model: str | None = None) -> Optional[LLMBriefingPayload]:
+        # ponytail: model arg from compose() wins; settings is fallback.
+        model = model or settings.CLOSING_BRIEFING_MODEL
         try:
             client = self._client_factory()
             response = client.chat.completions.create(

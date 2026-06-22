@@ -22,10 +22,20 @@ def _get_client() -> OpenAI:
 class OpenAITranscriptAnalyzer:
 
     @staticmethod
-    def analyze(transcript: str, behavior_context: str = "") -> str:
+    def analyze(
+        transcript: str,
+        behavior_context: str = "",
+        model: str = "gpt-4o-mini",
+        max_tokens: int | None = None,
+    ) -> str:
         """Run analysis. `behavior_context` is the workspace-resolved
         BehaviorProfile preamble (Phase 9.2). Empty string = analyzer
-        runs with its default hardcoded behavior."""
+        runs with its default hardcoded behavior.
+
+        `model` + `max_tokens` come from the resolved profile
+        (tools_and_integrations.model, output_config.max_tokens). Both
+        have safe defaults so direct callers can ignore them.
+        """
         client = _get_client()
 
         # logger.info("original transcript length: %d characters", len(transcript))
@@ -67,14 +77,20 @@ class OpenAITranscriptAnalyzer:
 
         print("FORMATTED TRANSCRIPT:\n", transcript)
 
+        kwargs = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a strict JSON generator."},
+                {"role": "user", "content": formatted_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "timeout": 60,
+        }
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "You are a strict JSON generator."},
-                          {"role": "user", "content": formatted_prompt}],
-                response_format={"type": "json_object"},
-                timeout=60
-            )
+            response = client.chat.completions.create(**kwargs)
             logger.info("OpenAI analysis completed successfully.")
             print("OPENAI RESPONSE:\n", response.choices[0].message.content)
             return response.choices[0].message.content

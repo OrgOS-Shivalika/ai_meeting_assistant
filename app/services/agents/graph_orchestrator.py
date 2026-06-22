@@ -50,10 +50,15 @@ class AgentGraphOrchestrator:
         # 3. Master Execution (Phase 2 Hybrid)
         # We still rely on TranscriptAnalyzer as the primary runner for core schema
         # to prevent regressions while we migrate entirely to skills.
+        # Phase 8E — model + max_tokens come from the resolved profile.
+        # tools_and_integrations.model + output_config.max_tokens are
+        # the user-controlled knobs in Agent Control.
         master_result: ExtractionSummary = TranscriptAnalyzer.analyze(
-            transcript, 
-            behavior_context, 
-            contract_model=ExtractionSummary
+            transcript,
+            behavior_context,
+            contract_model=ExtractionSummary,
+            model=(profile.tools_and_integrations or {}).get("model", "gpt-4o-mini"),
+            max_tokens=(profile.output_config or {}).get("max_tokens"),
         )
 
         # 4. Orchestrated Skill Execution

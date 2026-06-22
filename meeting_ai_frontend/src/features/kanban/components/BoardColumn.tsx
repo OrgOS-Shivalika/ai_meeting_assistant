@@ -94,7 +94,7 @@ export default function BoardColumn({
       {/* Card list — droppable area */}
       <div
         ref={setNodeRef}
-        className={`flex-1 overflow-y-auto px-2 py-2 space-y-1.5 transition-colors ${
+        className={`flex-1 overflow-y-auto px-2 py-2 space-y-1.5 transition-colors [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${
           isOver ? "bg-indigo-50/40" : ""
         }`}
       >

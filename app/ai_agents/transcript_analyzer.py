@@ -22,9 +22,11 @@ logger = setup_logger(__name__)
 class TranscriptAnalyzer:
     @staticmethod
     def analyze(
-        transcript: str, 
-        behavior_context: str = "", 
-        contract_model: Optional[Type[BaseModel]] = None
+        transcript: str,
+        behavior_context: str = "",
+        contract_model: Optional[Type[BaseModel]] = None,
+        model: str = "gpt-4o-mini",
+        max_tokens: int | None = None,
     ) -> Any:
         """Run the transcript analyzer with optional behavior_context and contract validation.
 
@@ -41,7 +43,7 @@ class TranscriptAnalyzer:
 
         if openai_available:
             try:
-                raw_result = OpenAITranscriptAnalyzer.analyze(transcript, behavior_context)
+                raw_result = OpenAITranscriptAnalyzer.analyze(transcript, behavior_context, model=model, max_tokens=max_tokens)
             except Exception as primary_err:
                 if not gemini_available:
                     logger.error(

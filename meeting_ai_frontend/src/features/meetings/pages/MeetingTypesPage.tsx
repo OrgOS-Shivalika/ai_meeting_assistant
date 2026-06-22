@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Pencil,
@@ -56,6 +56,7 @@ const formatDate = (iso: string | null | undefined) => {
 };
 
 export default function MeetingTypesPage() {
+  const navigate = useNavigate();
   const { data: categories, loading } = useCategories();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -269,11 +270,23 @@ export default function MeetingTypesPage() {
                       </p>
                     )}
 
-                    <div className="mt-2 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div className="mt-2 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 group-hover:text-indigo-700 transition-colors">
                         Open →
                       </span>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                      {/* ponytail: span+navigate because <Link> is an <a>, invalid nested in <button> */}
+                      <span
+                        role="link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/?category_id=${cat.id}`);
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 cursor-pointer"
+                        title={`View all meetings in ${cat.name}`}
+                      >
+                        <Calendar className="w-3 h-3" />
+                        Meetings
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -328,7 +341,19 @@ export default function MeetingTypesPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <>
+            {/* ponytail: just a Link to the existing /?category_id= filter the meetings page already supports. No new endpoint needed. */}
+            <div className="mb-4 flex justify-end">
+              <Link
+                to={`/?category_id=${selectedType.id}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:border-indigo-300 hover:text-indigo-700 text-slate-600 transition-colors"
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                View all meetings in {selectedType.name}
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((team) => (
               <button
                 key={team.id}
@@ -367,7 +392,8 @@ export default function MeetingTypesPage() {
                 )}
               </button>
             ))}
-          </div>
+            </div>
+          </>
         )}
       </>
     );

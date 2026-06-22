@@ -202,7 +202,7 @@ export default function BoardSummaryPage() {
     stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
 
   return (
-    <div className="overflow-y-auto pb-6">
+    <div className="overflow-y-auto pb-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       {/* Tile row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <Tile icon={Inbox} label="Total tasks" value={stats.total} tint="slate" />

@@ -92,7 +92,7 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
         {/* Meeting Title */}
         <td className="px-6 py-4">
           <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
+            <div className="flex justify-between gap-2">
               <h3 className="text-sm font-bold text-slate-900 line-clamp-1 group-hover/row:text-indigo-600 transition-colors">
                 {meeting.title || "Untitled Meeting"}
               </h3>

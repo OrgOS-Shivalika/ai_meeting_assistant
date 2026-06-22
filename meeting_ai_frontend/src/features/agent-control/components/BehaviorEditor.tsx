@@ -79,11 +79,21 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
   ],
   memory_config: [
     { key: "consolidation_enabled", label: "Memory consolidation", control: "bool" },
+    {
+      key: "consolidation_cadence", label: "Consolidation cadence", control: "enum",
+      options: ["immediate", "daily", "weekly"],
+      hint: "How often archived knowledge is merged.",
+    },
     { key: "recency_weight", label: "Recency weight (0–1)", control: "slider", min: 0, max: 1, step: 0.05 },
     { key: "importance_threshold", label: "Importance threshold (0–1)", control: "slider", min: 0, max: 1, step: 0.05 },
   ],
   output_config: [
     { key: "format", label: "Format", control: "enum", options: ["markdown", "structured", "json"] },
+    {
+      key: "max_tokens", label: "Token budget", control: "number",
+      min: 500, max: 20000, step: 500,
+      hint: "Hard cap on the post-meeting analyzer call. Other calls keep their per-call defaults.",
+    },
     { key: "max_length_tokens", label: "Max output length (tokens)", control: "number", min: 100, max: 8000, step: 100 },
     { key: "sections", label: "Sections (comma-separated)", control: "list", hint: "Ordered list of section names." },
   ],
@@ -102,6 +112,8 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
   evaluation_rules: [
     { key: "eval_gate_enabled", label: "Eval gate enabled", control: "bool" },
     { key: "min_pass_rate", label: "Min pass rate (0–1)", control: "slider", min: 0, max: 1, step: 0.05 },
+    { key: "max_latency_ms", label: "Max latency per call (ms)", control: "number", min: 1000, max: 60000, step: 500 },
+    { key: "max_cost_usd_per_meeting", label: "Max cost per meeting (USD)", control: "number", min: 0.01, max: 5, step: 0.01 },
   ],
   tone_and_personality: [
     {
@@ -126,10 +138,106 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
   tools_and_integrations: [
     { key: "allowed_tools", label: "Allowed tools", control: "list", hint: "Tools the AI may invoke." },
     { key: "denied_tools", label: "Denied tools", control: "list", hint: "Explicit deny list." },
-    { key: "model", label: "Model override", control: "text", hint: "Optional LLM model id." },
     { key: "temperature", label: "Temperature", control: "slider", min: 0, max: 2, step: 0.05 },
   ],
 };
+
+// Frontier model + briefing voice — promoted out of the tools accordion
+// to a top-of-page strip so they're reachable in one click.
+const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4o", "gpt-4o-2024-08-06"];
+const VOICE_OPTIONS = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+
+function QuickRuntimeControls({
+  scope,
+  resolved,
+  scopeOverrides,
+  onMutated,
+}: {
+  scope: ActiveScope;
+  resolved: ResolvedBehavior | null;
+  scopeOverrides: Record<string, Record<string, unknown>>;
+  onMutated: () => Promise<void> | void;
+}) {
+  // Resolved view (inheritance-merged) so the dropdown shows whatever
+  // is in effect right now. Override-or-not is judged by checking the
+  // scope's own overrides map.
+  const tools = (resolved?.tools_and_integrations || {}) as { model?: string; voice?: string };
+  const localOverrides = (scopeOverrides.tools_and_integrations || {}) as { model?: unknown; voice?: unknown };
+  const modelValue = (tools.model as string | undefined) || "";
+  const voiceValue = (tools.voice as string | undefined) || "";
+  const modelOverridden = Object.prototype.hasOwnProperty.call(localOverrides, "model");
+  const voiceOverridden = Object.prototype.hasOwnProperty.call(localOverrides, "voice");
+
+  const save = async (field: "model" | "voice", value: string) => {
+    if (value === "__inherit__") {
+      await behaviorApi.deleteOverride({
+        scope_type: scope.type, scope_id: scope.id,
+        dimension: "tools_and_integrations", field,
+      });
+    } else {
+      await behaviorApi.putOverride({
+        scope_type: scope.type, scope_id: scope.id,
+        dimension: "tools_and_integrations", field, value,
+      });
+    }
+    await onMutated();
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+      <RuntimePicker
+        label="Frontier model"
+        hint="LLM for the post-meeting analyzer + closing briefing."
+        value={modelValue}
+        options={MODEL_OPTIONS}
+        overridden={modelOverridden}
+        onChange={(v) => save("model", v)}
+      />
+      <RuntimePicker
+        label="Briefing voice"
+        hint="OpenAI TTS voice the bot speaks the recap in."
+        value={voiceValue}
+        options={VOICE_OPTIONS}
+        overridden={voiceOverridden}
+        onChange={(v) => save("voice", v)}
+      />
+    </div>
+  );
+}
+
+function RuntimePicker({
+  label, hint, value, options, overridden, onChange,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  options: string[];
+  overridden: boolean;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-black uppercase tracking-wider text-gray-900">{label}</h3>
+        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${overridden ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-500"}`}>
+          {overridden ? "Overridden" : "Inherited"}
+        </span>
+      </div>
+      <p className="text-[11px] text-gray-500 mb-3 leading-snug">{hint}</p>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+      >
+        {!value && <option value="">— Select —</option>}
+        {options.map((o) => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+        {overridden && <option value="__inherit__">— Reset to inherited —</option>}
+      </select>
+    </div>
+  );
+}
 
 export default function BehaviorEditor({
   scope, onSidebarRefresh,
@@ -354,51 +462,82 @@ export default function BehaviorEditor({
           />
         </div>
 
+        {/* Primary controls — the user's 7 dimensions. Always visible
+            (no Advanced toggle gate). Intent is handled above. */}
+        <div className="flex items-center gap-4 mb-12">
+          <div className="h-px flex-1 bg-indigo-100" />
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-300">Runtime Controls</span>
+          <div className="h-px flex-1 bg-indigo-100" />
+        </div>
+
+        {/* Promoted controls — frontier model + briefing voice as a
+            top-of-page strip. Pre-loaded values, single click to change.
+            Saves immediately on change; no Update Runtime needed. */}
+        <QuickRuntimeControls
+          scope={scope}
+          resolved={resolved}
+          scopeOverrides={overridesByDim}
+          onMutated={reloadAfterMutation}
+        />
+
+        <div className="space-y-6 mb-16">
+          <DimensionAccordion
+            title={DIMENSION_META.master_prompt.label}
+            description={DIMENSION_META.master_prompt.description}
+            overrideCount={overrideCount("master_prompt")}
+            inheritanceSummary={inheritanceSummary("master_prompt")}
+            expanded={!!expanded.master_prompt}
+            onToggle={() => setExpanded((s) => ({ ...s, master_prompt: !s.master_prompt }))}
+          >
+            <MasterPromptDimension scope={scope} resolved={resolved} scopeOverrides={overridesByDim} onMutated={reloadAfterMutation} />
+          </DimensionAccordion>
+
+          <DimensionAccordion
+            title={DIMENSION_META.enabled_agents.label}
+            description={DIMENSION_META.enabled_agents.description}
+            overrideCount={overrideCount("enabled_agents")}
+            inheritanceSummary={inheritanceSummary("enabled_agents")}
+            expanded={!!expanded.enabled_agents}
+            onToggle={() => setExpanded((s) => ({ ...s, enabled_agents: !s.enabled_agents }))}
+          >
+            <SkillsDimension scope={scope} resolved={resolved} scopeOverrides={overridesByDim} onMutated={reloadAfterMutation} />
+          </DimensionAccordion>
+
+          {/* tools (model + voice live here), token budget (output_config),
+              memory, metrics/eval — generic KV editors, ordered to match
+              the Agent Control product surface. */}
+          {(["tools_and_integrations", "output_config", "memory_config", "evaluation_rules"] as Dimension[]).map((dim) => (
+            <DimensionAccordion
+              key={dim}
+              title={DIMENSION_META[dim].label}
+              description={DIMENSION_META[dim].description}
+              overrideCount={overrideCount(dim)}
+              inheritanceSummary={inheritanceSummary(dim)}
+              expanded={!!expanded[dim]}
+              onToggle={() => setExpanded((s) => ({ ...s, [dim]: !s[dim] }))}
+            >
+              <KeyValueDimension
+                scope={scope}
+                dimension={dim}
+                schema={SCHEMAS[dim] || []}
+                resolved={resolved}
+                scopeOverrides={overridesByDim}
+                onMutated={reloadAfterMutation}
+              />
+            </DimensionAccordion>
+          ))}
+        </div>
+
+        {/* Advanced — power-user dimensions kept available but stowed. */}
         {showAdvanced && (
           <div className="animate-in slide-in-from-bottom-10 duration-500">
             <div className="flex items-center gap-4 mb-12">
-              <div className="h-px flex-1 bg-indigo-100" />
-              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-300">Technical Precision Layer</span>
-              <div className="h-px flex-1 bg-indigo-100" />
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-300">Advanced</span>
+              <div className="h-px flex-1 bg-gray-200" />
             </div>
-
             <div className="space-y-6">
-              {/* Master prompt — dedicated editor */}
-              <DimensionAccordion
-                title={DIMENSION_META.master_prompt.label}
-                description={DIMENSION_META.master_prompt.description}
-                overrideCount={overrideCount("master_prompt")}
-                inheritanceSummary={inheritanceSummary("master_prompt")}
-                expanded={!!expanded.master_prompt}
-                onToggle={() => setExpanded((s) => ({ ...s, master_prompt: !s.master_prompt }))}
-              >
-                <MasterPromptDimension
-                  scope={scope}
-                  resolved={resolved}
-                  scopeOverrides={overridesByDim}
-                  onMutated={reloadAfterMutation}
-                />
-              </DimensionAccordion>
-
-              {/* Enabled agents — list editor */}
-              <DimensionAccordion
-                title={DIMENSION_META.enabled_agents.label}
-                description={DIMENSION_META.enabled_agents.description}
-                overrideCount={overrideCount("enabled_agents")}
-                inheritanceSummary={inheritanceSummary("enabled_agents")}
-                expanded={!!expanded.enabled_agents}
-                onToggle={() => setExpanded((s) => ({ ...s, enabled_agents: !s.enabled_agents }))}
-              >
-                <SkillsDimension
-                  scope={scope}
-                  resolved={resolved}
-                  scopeOverrides={overridesByDim}
-                  onMutated={reloadAfterMutation}
-                />
-              </DimensionAccordion>
-
-              {/* Remaining dimensions — generic key-value editor */}
-              {(Object.keys(SCHEMAS) as Dimension[]).map((dim) => (
+              {(["retrieval_config", "extraction_rules", "automation_rules", "tone_and_personality", "compliance_and_guardrails"] as Dimension[]).map((dim) => (
                 <DimensionAccordion
                   key={dim}
                   title={DIMENSION_META[dim].label}

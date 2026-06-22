@@ -417,7 +417,8 @@ class ClosingBriefingOrchestrator:
     def _compose_and_synth(self, meeting_id: int) -> None:
         """Compose + TTS in one shot. Result is cached for the
         subsequent meeting.ended event."""
-        script = self._composer.compose(meeting_id=str(meeting_id))
+        model, voice = self._resolve_briefing_overrides(meeting_id)
+        script = self._composer.compose(meeting_id=str(meeting_id), model=model)
         if script is None:
             logger.info(
                 f"[ORCHESTRATOR] meeting={meeting_id} composer returned None "
@@ -425,7 +426,7 @@ class ClosingBriefingOrchestrator:
             )
             return
 
-        tts_result = self._tts.synthesize(script.full_text)
+        tts_result = self._tts.synthesize(script.full_text, voice=voice)
         with self._lock:
             self._prerender_cache[meeting_id] = (script, tts_result)
         logger.info(
@@ -516,7 +517,8 @@ class ClosingBriefingOrchestrator:
                     f"[ORCHESTRATOR] meeting={meeting_id} no prerender — "
                     f"composing inline"
                 )
-                script = self._composer.compose(meeting_id=str(meeting_id))
+                model, voice = self._resolve_briefing_overrides(meeting_id)
+                script = self._composer.compose(meeting_id=str(meeting_id), model=model)
                 if script is None:
                     self._upsert_row(
                         meeting_id=meeting_id,
@@ -526,7 +528,7 @@ class ClosingBriefingOrchestrator:
                     )
                     self._set_meeting_status(meeting_id, "skipped")
                     return
-                tts_result = self._tts.synthesize(script.full_text)
+                tts_result = self._tts.synthesize(script.full_text, voice=voice)
 
             self._upsert_row(
                 meeting_id=meeting_id,
@@ -748,6 +750,30 @@ class ClosingBriefingOrchestrator:
             if meeting is None:
                 return None, None
             return meeting.bot_id, meeting.organization_id
+        finally:
+            db.close()
+
+    def _resolve_briefing_overrides(self, meeting_id: int) -> tuple[Optional[str], Optional[str]]:
+        """Return (model, voice) from the resolved BehaviorProfile, or
+        (None, None) so callers fall back to settings."""
+        # ponytail: cheap profile resolve per briefing — 1/meeting; acceptable.
+        from app.services.behavior.resolver import resolve_behavior_profile
+        db = SessionLocal()
+        try:
+            meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+            if meeting is None:
+                return None, None
+            prof = resolve_behavior_profile(
+                db,
+                organization_id=meeting.organization_id,
+                category_id=meeting.category_id,
+                team_id=meeting.team_id,
+            )
+            tools = prof.tools_and_integrations or {}
+            return tools.get("model"), tools.get("voice")
+        except Exception as exc:
+            logger.warning(f"[ORCHESTRATOR] profile resolve failed: {exc}")
+            return None, None
         finally:
             db.close()
 
