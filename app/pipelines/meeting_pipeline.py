@@ -393,9 +393,14 @@ class MeetingPipeline:
             return result_json
 
         except Exception as e:
-            logger.error(f"Pipeline failed: {str(e)}")
+            import traceback as _tb
+            tb = _tb.format_exc()
+            logger.error(f"Pipeline failed: {str(e)}\n{tb}")
 
             meeting.status = "failed"
+            # Persist the failure reason so post-mortem doesn't need
+            # the celery scrollback. Trim to keep the row sane.
+            meeting.error_message = (f"{type(e).__name__}: {e}\n\n{tb}")[:8000]
             db.commit()
             
             # Broadcast status update via WebSocket

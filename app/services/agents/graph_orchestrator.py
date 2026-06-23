@@ -51,13 +51,15 @@ class AgentGraphOrchestrator:
         # We still rely on TranscriptAnalyzer as the primary runner for core schema
         # to prevent regressions while we migrate entirely to skills.
         # Phase 8E — model + max_tokens come from the resolved profile.
-        # tools_and_integrations.model + output_config.max_tokens are
-        # the user-controlled knobs in Agent Control.
+        # `or "gpt-4o-mini"` (not `.get(..., default)`) because templates
+        # can carry an empty-string model that we must NOT pass through
+        # to OpenAI — OpenAI returns 400 "you must provide a model".
+        tools = profile.tools_and_integrations or {}
         master_result: ExtractionSummary = TranscriptAnalyzer.analyze(
             transcript,
             behavior_context,
             contract_model=ExtractionSummary,
-            model=(profile.tools_and_integrations or {}).get("model", "gpt-4o-mini"),
+            model=tools.get("model") or "gpt-4o-mini",
             max_tokens=(profile.output_config or {}).get("max_tokens"),
         )
 

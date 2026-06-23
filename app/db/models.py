@@ -95,6 +95,10 @@ class Meeting(Base):
         server_default="pending",
     )
 
+    # Last failure reason — populated by meeting_pipeline.py when the
+    # post-meeting pipeline raises. Stdout logs aren't durable; this is.
+    error_message = Column(Text, nullable=True)
+
     # Phase 12E — one audit row per spoken (or attempted) brief.
     closing_briefing = relationship(
         "ClosingBriefing",

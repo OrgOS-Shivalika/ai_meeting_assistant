@@ -770,7 +770,10 @@ class ClosingBriefingOrchestrator:
                 team_id=meeting.team_id,
             )
             tools = prof.tools_and_integrations or {}
-            return tools.get("model"), tools.get("voice")
+            # Empty-string overrides → None so consumers fall back to
+            # their own defaults (composer uses settings.CLOSING_BRIEFING_MODEL,
+            # TTS uses settings.TTS_VOICE).
+            return (tools.get("model") or None), (tools.get("voice") or None)
         except Exception as exc:
             logger.warning(f"[ORCHESTRATOR] profile resolve failed: {exc}")
             return None, None

@@ -169,7 +169,9 @@ function QuickRuntimeControls({
   const voiceOverridden = Object.prototype.hasOwnProperty.call(localOverrides, "voice");
 
   const save = async (field: "model" | "voice", value: string) => {
-    if (value === "__inherit__") {
+    // Empty value or explicit reset → delete the override (not store ""),
+    // otherwise downstream consumers receive "" and reject the call.
+    if (value === "__inherit__" || value === "") {
       await behaviorApi.deleteOverride({
         scope_type: scope.type, scope_id: scope.id,
         dimension: "tools_and_integrations", field,
