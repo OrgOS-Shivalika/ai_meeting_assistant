@@ -27,6 +27,7 @@ export type FieldSchema = {
   hint?: string;
   control: "text" | "number" | "bool" | "slider" | "enum" | "list";
   options?: string[];          // for 'enum'
+  suggestions?: string[];      // for 'list' — known good values shown as clickable chips
   step?: number;               // for 'number' / 'slider'
   min?: number;                // for 'number' / 'slider'
   max?: number;                // for 'number' / 'slider'
@@ -152,21 +153,58 @@ function renderControl(
       );
     case "list": {
       const arr = Array.isArray(value) ? (value as string[]) : [];
+      const suggestions = field.suggestions || [];
+      const inSet = new Set(arr);
+      const toggle = (item: string) => {
+        if (inSet.has(item)) {
+          setValue(arr.filter((x) => x !== item));
+        } else {
+          setValue([...arr, item]);
+        }
+      };
       return (
-        <input
-          type="text"
-          value={arr.join(", ")}
-          onChange={(e) =>
-            setValue(
-              e.target.value
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean),
-            )
-          }
-          placeholder="comma, separated, values"
-          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
-        />
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={arr.join(", ")}
+            onChange={(e) =>
+              setValue(
+                e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              )
+            }
+            placeholder={
+              suggestions.length > 0
+                ? "type custom or click below"
+                : "comma, separated, values"
+            }
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg"
+          />
+          {suggestions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((s) => {
+                const active = inSet.has(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => toggle(s)}
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 transition-colors ${
+                      active
+                        ? "bg-indigo-600 text-white ring-indigo-700"
+                        : "bg-white text-gray-600 ring-gray-200 hover:ring-gray-400"
+                    }`}
+                    title={active ? "Remove" : "Add"}
+                  >
+                    {active ? `✓ ${s}` : s}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       );
     }
     default:

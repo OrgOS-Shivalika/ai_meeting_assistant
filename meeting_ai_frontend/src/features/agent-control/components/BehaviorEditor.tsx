@@ -95,10 +95,21 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
       hint: "Hard cap on the post-meeting analyzer call. Other calls keep their per-call defaults.",
     },
     { key: "max_length_tokens", label: "Max output length (tokens)", control: "number", min: 100, max: 8000, step: 100 },
-    { key: "sections", label: "Sections (comma-separated)", control: "list", hint: "Ordered list of section names." },
+    {
+      key: "sections", label: "Output sections", control: "list",
+      hint: "Sections the analyzer fills in. Click to toggle or type custom.",
+      suggestions: ["summary", "action_items", "decisions", "risks", "timeline"],
+    },
   ],
   extraction_rules: [
-    { key: "entities", label: "Entity types to extract", control: "list", hint: "e.g. person, decision, action_item" },
+    {
+      key: "entities", label: "Entity types to extract", control: "list",
+      hint: "Entities the graph extractor should surface.",
+      suggestions: [
+        "person", "organization", "project", "decision", "action_item",
+        "milestone", "risk", "team", "document", "deadline",
+      ],
+    },
     { key: "extract_action_items", label: "Extract action items", control: "bool" },
     { key: "extract_decisions", label: "Extract decisions", control: "bool" },
     { key: "extract_timeline", label: "Extract timeline", control: "bool" },
@@ -133,11 +144,34 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
       key: "data_residency", label: "Data residency", control: "enum",
       options: ["default", "us-only", "eu-only", "restricted"],
     },
-    { key: "refused_topics", label: "Refused topics", control: "list" },
+    {
+      key: "refused_topics", label: "Refused topics", control: "list",
+      hint: "Topics the AI will refuse to discuss or include in outputs.",
+      suggestions: [
+        "compensation", "layoffs", "legal_matters", "customer_pii",
+        "financial_forecasts", "personal_health", "performance_reviews",
+      ],
+    },
   ],
   tools_and_integrations: [
-    { key: "allowed_tools", label: "Allowed tools", control: "list", hint: "Tools the AI may invoke." },
-    { key: "denied_tools", label: "Denied tools", control: "list", hint: "Explicit deny list." },
+    {
+      key: "allowed_tools", label: "Allowed tools", control: "list",
+      hint: "Tools the AI may invoke. Click to add/remove or type custom names.",
+      suggestions: [
+        "search_knowledge_base", "slack_post", "jira_create_issue",
+        "github_create_pr", "notion_create_page", "crm_update_record",
+        "send_email", "create_calendar_event",
+      ],
+    },
+    {
+      key: "denied_tools", label: "Denied tools", control: "list",
+      hint: "Explicit deny list — overrides allowed_tools.",
+      suggestions: [
+        "search_knowledge_base", "slack_post", "jira_create_issue",
+        "github_create_pr", "notion_create_page", "crm_update_record",
+        "send_email", "create_calendar_event",
+      ],
+    },
     { key: "temperature", label: "Temperature", control: "slider", min: 0, max: 2, step: 0.05 },
   ],
 };
