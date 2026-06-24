@@ -100,16 +100,68 @@ class AgentGraphOrchestrator:
 
         logger.info("🎯 Agent %s orchestrating skills: %s", agent.id, [s.id for s in skills])
         
+        # Piece 1 — harness opt-in. If `tools_and_integrations.harness_enabled`
+        # is "on" AND the skill declares required_tools, run inside the
+        # tool-calling loop. Otherwise fall back to the single-shot
+        # SkillExecutor. Skills with no required_tools always use the
+        # legacy path — no tools means no harness benefit.
+        tools_cfg = (profile.tools_and_integrations or {})
+        harness_flag = str(tools_cfg.get("harness_enabled", "off")).lower()
+        harness_on = harness_flag in ("on", "true", "1", "yes")
+
         skill_results = {}
         for skill in skills:
             try:
-                logger.info("🚀 Executing Skill: %s", skill.id)
-                # Pass the transcript to the executor (in Phase 6/7, context limits will apply)
-                output = SkillExecutor.execute_skill(db, skill, transcript, profile, meeting_id)
+                if harness_on and skill.required_tools:
+                    logger.info("🛠️  Executing Skill via HARNESS: %s", skill.id)
+                    output = cls._run_skill_in_harness(db, skill, transcript, profile, meeting_id)
+                else:
+                    logger.info("🚀 Executing Skill: %s", skill.id)
+                    output = SkillExecutor.execute_skill(db, skill, transcript, profile, meeting_id)
                 skill_results[skill.id] = output
-                
+
                 logger.debug("Skill %s output: %s", skill.id, output)
             except Exception as e:
                 logger.error("Skill %s failed: %s", skill.id, str(e), exc_info=True)
-                
+
         return skill_results
+
+    @classmethod
+    def _run_skill_in_harness(
+        cls,
+        db,
+        skill,
+        transcript: str,
+        profile: ResolvedBehaviorProfile,
+        meeting_id: Optional[int],
+    ) -> Dict[str, Any]:
+        """Bridge a SkillDefinition into the tool-calling harness.
+
+        Returns the harness's structured `output` (matching skill.output_schema)
+        when the loop terminated by answering; falls back to {error: ...}
+        when a rail tripped so downstream merger doesn't get a None.
+        """
+        # Lazy import — keeps harness off the import path for legacy runs.
+        from app.services.agents.harness import run_loop
+        # Side-effect import so every built-in tool is registered before
+        # the registry is queried. Cheap (only fires the first time).
+        from app.services.agents.tools import builtin  # noqa: F401
+
+        tools_cfg = profile.tools_and_integrations or {}
+        model = tools_cfg.get("model") or "gpt-4o-mini"
+
+        result = run_loop(
+            db=db,
+            skill=skill,
+            user_input=transcript,
+            organization_id=profile.organization_id,
+            meeting_id=meeting_id,
+            model=model,
+        )
+        if result.stopped_reason != "answered":
+            return {
+                "error": f"harness stopped: {result.stopped_reason}",
+                "run_id": str(result.run_id),
+                "iterations": result.iterations,
+            }
+        return result.output

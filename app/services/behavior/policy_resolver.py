@@ -117,7 +117,8 @@ class PolicyResolver:
         profile.tools_and_integrations = {
             "allowed_tools": allowed,
             "denied_tools": [],
-            "temperature": 0.3 # System-managed
+            "temperature": 0.3, # System-managed
+            "harness_enabled": "off",  # Piece 1 — opt-in via Agent Control
         }
 
         return profile

@@ -161,10 +161,15 @@ class BriefingComposer:
         max_seconds: int = None,
         sections_enabled: BriefingSections = ALL_SECTIONS,
         model: str | None = None,
+        language_override: str | None = None,
     ) -> Optional[BriefingScript]:
         """Build the script. Returns None when state is too sparse OR
         the LLM call fails — caller (Phase 12D orchestrator) decides
         whether to retry / mark skipped / mark failed.
+
+        `language_override`: when set, forces the briefing target
+        language instead of auto-detecting from the transcript. Valid
+        values: 'english', 'hindi', 'hinglish'. None = auto-detect.
         """
         max_seconds = max_seconds or settings.CLOSING_BRIEFING_MAX_SECONDS
         min_seconds = settings.CLOSING_BRIEFING_MIN_SECONDS
@@ -207,12 +212,22 @@ class BriefingComposer:
         # meeting will have Devanagari in that column. This gives
         # the composer the source-of-truth signal for whether to
         # speak Hindi or English.
-        raw_transcript = self._read_raw_transcript(meeting_id)
-        target_language = _detect_language(raw_transcript) if raw_transcript else "english"
-        logger.info(
-            f"[BRIEFING] meeting={meeting_id} detected target_language={target_language!r} "
-            f"from raw_transcript_len={len(raw_transcript or '')}"
-        )
+        # Language priority: explicit override (from behavior profile)
+        # > detected from transcript > english default. The override
+        # lets bilingual orgs force English even when the meeting was
+        # in Hindi/Hinglish.
+        if language_override in ("english", "hindi", "hinglish"):
+            target_language = language_override
+            logger.info(
+                f"[BRIEFING] meeting={meeting_id} target_language={target_language!r} (override)"
+            )
+        else:
+            raw_transcript = self._read_raw_transcript(meeting_id)
+            target_language = _detect_language(raw_transcript) if raw_transcript else "english"
+            logger.info(
+                f"[BRIEFING] meeting={meeting_id} detected target_language={target_language!r} "
+                f"from raw_transcript_len={len(raw_transcript or '')}"
+            )
 
         # 3. Build the prompt for the configured version.
         prompt_version = settings.CLOSING_BRIEFING_PROMPT_VERSION

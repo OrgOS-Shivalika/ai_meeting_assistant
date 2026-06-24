@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RotateCcw, Save, Settings } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Loader2, RotateCcw, Save, Settings, ExternalLink } from "lucide-react";
 import IntentEditor from "./IntentEditor";
 import DimensionAccordion from "./DimensionAccordion";
 import MasterPromptDimension from "./dimensions/MasterPromptDimension";
@@ -180,6 +181,19 @@ const SCHEMAS: Partial<Record<Dimension, FieldSchema[]>> = {
 // to a top-of-page strip so they're reachable in one click.
 const MODEL_OPTIONS = ["gpt-4o-mini", "gpt-4o", "gpt-4o-2024-08-06"];
 const VOICE_OPTIONS = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
+// Briefing language: "auto" means follow the meeting's primary language
+// (Hindi meeting → Hindi briefing); "english" forces English regardless.
+const BRIEFING_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "auto", label: "Match meeting language (auto-detect)" },
+  { value: "english", label: "Always English" },
+];
+// Agent harness — when "on", post-meeting skills that declare tools
+// run inside the tool-calling loop (harness.run_loop) instead of the
+// legacy single-shot SkillExecutor. Default off until we're confident.
+const HARNESS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "off", label: "Off — single-shot LLM" },
+  { value: "on", label: "On — tool-calling loop" },
+];
 
 function QuickRuntimeControls({
   scope,
@@ -195,61 +209,105 @@ function QuickRuntimeControls({
   // Resolved view (inheritance-merged) so the dropdown shows whatever
   // is in effect right now. Override-or-not is judged by checking the
   // scope's own overrides map.
-  const tools = (resolved?.tools_and_integrations || {}) as { model?: string; voice?: string };
-  const localOverrides = (scopeOverrides.tools_and_integrations || {}) as { model?: unknown; voice?: unknown };
+  const tools = (resolved?.tools_and_integrations || {}) as { model?: string; voice?: string; harness_enabled?: string | boolean };
+  const output = (resolved?.output_config || {}) as { briefing_language?: string };
+  const toolsLocal = (scopeOverrides.tools_and_integrations || {}) as { model?: unknown; voice?: unknown; harness_enabled?: unknown };
+  const outputLocal = (scopeOverrides.output_config || {}) as { briefing_language?: unknown };
   const modelValue = (tools.model as string | undefined) || "";
   const voiceValue = (tools.voice as string | undefined) || "";
-  const modelOverridden = Object.prototype.hasOwnProperty.call(localOverrides, "model");
-  const voiceOverridden = Object.prototype.hasOwnProperty.call(localOverrides, "voice");
+  // Default to "auto" when unset — that's the historical behavior
+  // (auto-detect from transcript).
+  const briefingLangValue = (output.briefing_language as string | undefined) || "auto";
+  // Default off — opt-in only until the harness is battle-tested.
+  const harnessRaw = tools.harness_enabled;
+  const harnessValue = harnessRaw === true || harnessRaw === "on" || harnessRaw === "true" ? "on" : "off";
+  const modelOverridden = Object.prototype.hasOwnProperty.call(toolsLocal, "model");
+  const voiceOverridden = Object.prototype.hasOwnProperty.call(toolsLocal, "voice");
+  const briefingLangOverridden = Object.prototype.hasOwnProperty.call(outputLocal, "briefing_language");
+  const harnessOverridden = Object.prototype.hasOwnProperty.call(toolsLocal, "harness_enabled");
 
-  const save = async (field: "model" | "voice", value: string) => {
+  const save = async (
+    dimension: "tools_and_integrations" | "output_config",
+    field: string,
+    value: string,
+  ) => {
     // Empty value or explicit reset → delete the override (not store ""),
     // otherwise downstream consumers receive "" and reject the call.
     if (value === "__inherit__" || value === "") {
       await behaviorApi.deleteOverride({
         scope_type: scope.type, scope_id: scope.id,
-        dimension: "tools_and_integrations", field,
+        dimension, field,
       });
     } else {
       await behaviorApi.putOverride({
         scope_type: scope.type, scope_id: scope.id,
-        dimension: "tools_and_integrations", field, value,
+        dimension, field, value,
       });
     }
     await onMutated();
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
       <RuntimePicker
         label="Frontier model"
         hint="LLM for the post-meeting analyzer + closing briefing."
         value={modelValue}
-        options={MODEL_OPTIONS}
+        options={MODEL_OPTIONS.map((o) => ({ value: o, label: o }))}
         overridden={modelOverridden}
-        onChange={(v) => save("model", v)}
+        onChange={(v) => save("tools_and_integrations", "model", v)}
       />
       <RuntimePicker
         label="Briefing voice"
         hint="OpenAI TTS voice the bot speaks the recap in."
         value={voiceValue}
-        options={VOICE_OPTIONS}
+        options={VOICE_OPTIONS.map((o) => ({ value: o, label: o }))}
         overridden={voiceOverridden}
-        onChange={(v) => save("voice", v)}
+        onChange={(v) => save("tools_and_integrations", "voice", v)}
+      />
+      <RuntimePicker
+        label="Briefing language"
+        hint="Hindi meetings get a Hindi briefing on auto. Force English here if your team prefers it."
+        value={briefingLangValue}
+        options={BRIEFING_LANGUAGE_OPTIONS}
+        overridden={briefingLangOverridden}
+        onChange={(v) => save("output_config", "briefing_language", v)}
+        // "auto" is the default and shouldn't render "Reset to inherited"
+        // since it isn't really an override — only "english" is.
+        suppressInherit={!briefingLangOverridden}
+      />
+      <RuntimePicker
+        label="Agent harness"
+        hint="Off: legacy single-shot LLM. On: tool-calling loop with audit log."
+        value={harnessValue}
+        options={HARNESS_OPTIONS}
+        overridden={harnessOverridden}
+        onChange={(v) => save("tools_and_integrations", "harness_enabled", v)}
+        suppressInherit={!harnessOverridden}
+        footer={
+          <Link
+            to="/agent-control/runs"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700"
+          >
+            View runs <ExternalLink className="w-3 h-3" />
+          </Link>
+        }
       />
     </div>
   );
 }
 
 function RuntimePicker({
-  label, hint, value, options, overridden, onChange,
+  label, hint, value, options, overridden, onChange, suppressInherit = false, footer,
 }: {
   label: string;
   hint: string;
   value: string;
-  options: string[];
+  options: Array<{ value: string; label: string }>;
   overridden: boolean;
   onChange: (next: string) => void;
+  suppressInherit?: boolean;
+  footer?: React.ReactNode;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5">
@@ -267,10 +325,13 @@ function RuntimePicker({
       >
         {!value && <option value="">— Select —</option>}
         {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o.value} value={o.value}>{o.label}</option>
         ))}
-        {overridden && <option value="__inherit__">— Reset to inherited —</option>}
+        {overridden && !suppressInherit && (
+          <option value="__inherit__">— Reset to inherited —</option>
+        )}
       </select>
+      {footer && <div className="mt-3">{footer}</div>}
     </div>
   );
 }

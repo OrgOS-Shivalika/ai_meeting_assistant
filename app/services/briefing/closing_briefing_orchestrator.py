@@ -417,8 +417,10 @@ class ClosingBriefingOrchestrator:
     def _compose_and_synth(self, meeting_id: int) -> None:
         """Compose + TTS in one shot. Result is cached for the
         subsequent meeting.ended event."""
-        model, voice = self._resolve_briefing_overrides(meeting_id)
-        script = self._composer.compose(meeting_id=str(meeting_id), model=model)
+        model, voice, lang_override = self._resolve_briefing_overrides(meeting_id)
+        script = self._composer.compose(
+            meeting_id=str(meeting_id), model=model, language_override=lang_override,
+        )
         if script is None:
             logger.info(
                 f"[ORCHESTRATOR] meeting={meeting_id} composer returned None "
@@ -517,8 +519,10 @@ class ClosingBriefingOrchestrator:
                     f"[ORCHESTRATOR] meeting={meeting_id} no prerender — "
                     f"composing inline"
                 )
-                model, voice = self._resolve_briefing_overrides(meeting_id)
-                script = self._composer.compose(meeting_id=str(meeting_id), model=model)
+                model, voice, lang_override = self._resolve_briefing_overrides(meeting_id)
+                script = self._composer.compose(
+                    meeting_id=str(meeting_id), model=model, language_override=lang_override,
+                )
                 if script is None:
                     self._upsert_row(
                         meeting_id=meeting_id,
@@ -753,16 +757,23 @@ class ClosingBriefingOrchestrator:
         finally:
             db.close()
 
-    def _resolve_briefing_overrides(self, meeting_id: int) -> tuple[Optional[str], Optional[str]]:
-        """Return (model, voice) from the resolved BehaviorProfile, or
-        (None, None) so callers fall back to settings."""
-        # ponytail: cheap profile resolve per briefing — 1/meeting; acceptable.
+    def _resolve_briefing_overrides(
+        self, meeting_id: int
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Return (model, voice, language_override) from the resolved
+        BehaviorProfile. Each may be None so callers fall back to their
+        own defaults.
+
+        language_override:
+          - "english" → force English briefing regardless of meeting lang
+          - "auto" / None → composer auto-detects from transcript
+        """
         from app.services.behavior.resolver import resolve_behavior_profile
         db = SessionLocal()
         try:
             meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
             if meeting is None:
-                return None, None
+                return None, None, None
             prof = resolve_behavior_profile(
                 db,
                 organization_id=meeting.organization_id,
@@ -770,13 +781,20 @@ class ClosingBriefingOrchestrator:
                 team_id=meeting.team_id,
             )
             tools = prof.tools_and_integrations or {}
-            # Empty-string overrides → None so consumers fall back to
-            # their own defaults (composer uses settings.CLOSING_BRIEFING_MODEL,
-            # TTS uses settings.TTS_VOICE).
-            return (tools.get("model") or None), (tools.get("voice") or None)
+            output = prof.output_config or {}
+            lang_pref = output.get("briefing_language")
+            # "auto" / "" / None all mean "no override"
+            language_override = (
+                lang_pref if lang_pref in ("english", "hindi", "hinglish") else None
+            )
+            return (
+                tools.get("model") or None,
+                tools.get("voice") or None,
+                language_override,
+            )
         except Exception as exc:
             logger.warning(f"[ORCHESTRATOR] profile resolve failed: {exc}")
-            return None, None
+            return None, None, None
         finally:
             db.close()
 

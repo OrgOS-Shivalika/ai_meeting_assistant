@@ -55,6 +55,10 @@ export default function ActionItemsPage() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
+  // Separate state for editing the task TEXT (different from the
+  // assignment editor which handles owner+date).
+  const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
 
   const refresh = () => {
     setLoading(true);
@@ -98,6 +102,36 @@ export default function ActionItemsPage() {
   const startEdit = (task: ActionTask) => setEditingId(task.id);
 
   const cancelEdit = () => setEditingId(null);
+
+  const startTitleEdit = (task: ActionTask) => {
+    setEditingTitleId(task.id);
+    setTitleDraft(task.task);
+  };
+
+  const cancelTitleEdit = () => {
+    setEditingTitleId(null);
+    setTitleDraft("");
+  };
+
+  const saveTitle = async (taskId: number, original: string) => {
+    const next = titleDraft.trim();
+    if (!next || next === original) {
+      cancelTitleEdit();
+      return;
+    }
+    setSavingId(taskId);
+    try {
+      const updated = await updateTask(taskId, { task: next });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, ...updated } : t)),
+      );
+      cancelTitleEdit();
+    } catch (e) {
+      console.error("Failed to update task text", e);
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const saveAssignment = async (
     taskId: number,
@@ -272,15 +306,35 @@ export default function ActionItemsPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3">
-                      <h3
-                        className={`text-sm font-semibold leading-snug ${
-                          task.is_completed
-                            ? "text-slate-400 line-through"
-                            : "text-slate-900"
-                        }`}
-                      >
-                        {task.task}
-                      </h3>
+                      {editingTitleId === task.id ? (
+                        <textarea
+                          autoFocus
+                          rows={2}
+                          value={titleDraft}
+                          onChange={(e) => setTitleDraft(e.target.value)}
+                          onBlur={() => saveTitle(task.id, task.task)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void saveTitle(task.id, task.task);
+                            }
+                            if (e.key === "Escape") cancelTitleEdit();
+                          }}
+                          className="flex-1 text-sm font-semibold leading-snug px-2 py-1 border border-indigo-300 rounded resize-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+                        />
+                      ) : (
+                        <h3
+                          onClick={() => startTitleEdit(task)}
+                          title="Click to edit"
+                          className={`text-sm font-semibold leading-snug cursor-text -mx-1 px-1 rounded hover:bg-slate-100 ${
+                            task.is_completed
+                              ? "text-slate-400 line-through"
+                              : "text-slate-900"
+                          }`}
+                        >
+                          {task.task}
+                        </h3>
+                      )}
                       <span
                         className={`shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${priorityClass}`}
                       >

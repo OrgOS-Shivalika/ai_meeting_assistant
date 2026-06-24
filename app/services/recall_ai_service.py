@@ -1,5 +1,10 @@
 import requests
-from requests.exceptions import HTTPError  # bound at import time, survives mock.patch
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError,  # bound at import time, survives mock.patch
+    ReadTimeout,
+    Timeout,
+)
 from typing import Callable, Optional
 from app.config.settings import settings
 import base64
@@ -8,6 +13,19 @@ import json
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+
+# Per-call timeout on every HTTP request to Recall. None was the default —
+# meant a slow Recall API could hang the worker indefinitely. 15s is well
+# above their typical p99; anything longer is broken.
+_HTTP_TIMEOUT_S = 15
+
+# Retry config for the polling path. Transient network blips against
+# ap-northeast-1 from out-of-region workers are normal — without retries,
+# one dropped poll = whole meeting marked failed.
+_RETRYABLE_EXCEPTIONS = (RequestsConnectionError, ReadTimeout, Timeout)
+_RETRY_MAX_ATTEMPTS = 4
+_RETRY_BACKOFF_S = (1, 2, 4)  # waits between attempt 1→2, 2→3, 3→4
 
 
 # Phase 12A — bot status codes that matter for closing-briefing trigger.
@@ -21,6 +39,40 @@ RECALL_TERMINAL_STATUSES = {
     "recording_permission_denied",
     "fatal",
 }
+
+
+def _request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
+    """HTTP request with retry on transient network errors only.
+
+    Retries ConnectionError + ReadTimeout — these are the failure modes
+    that took down meeting 4708 and 4712. HTTP errors (4xx, 5xx) are
+    NOT retried here; the caller's `raise_for_status()` handles those.
+
+    Default timeout applied if caller didn't pass one.
+    """
+    kwargs.setdefault("timeout", _HTTP_TIMEOUT_S)
+    last_exc: Optional[Exception] = None
+    for attempt in range(_RETRY_MAX_ATTEMPTS):
+        try:
+            return requests.request(method, url, **kwargs)
+        except _RETRYABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt + 1 >= _RETRY_MAX_ATTEMPTS:
+                logger.error(
+                    f"[RECALL] {method} {url} failed after {_RETRY_MAX_ATTEMPTS} "
+                    f"attempts: {type(exc).__name__}: {exc}"
+                )
+                raise
+            backoff = _RETRY_BACKOFF_S[min(attempt, len(_RETRY_BACKOFF_S) - 1)]
+            logger.warning(
+                f"[RECALL] {method} {url} attempt {attempt + 1}/{_RETRY_MAX_ATTEMPTS} "
+                f"failed ({type(exc).__name__}); retrying in {backoff}s"
+            )
+            time.sleep(backoff)
+    # Unreachable — loop either returns or raises. Belt-and-suspenders.
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("retry loop fell through without raising")
 
 
 class RecallService:
@@ -103,7 +155,7 @@ class RecallService:
         print(f"\n>>> RECALL BOT PAYLOAD: {json.dumps(payload, indent=2)}")
         
         logger.info(f"Sending request to create bot: {url}")
-        response = requests.post(url, json=payload, headers=self.headers)
+        response = _request_with_retry("POST", url, json=payload, headers=self.headers)
 
         logger.info(f"Create bot STATUS: {response.status_code}")
         
@@ -113,17 +165,19 @@ class RecallService:
         response.raise_for_status()
         return response.json()
 
-    # 2. Get bot status
+    # 2. Get bot status. Retries transient network errors — without
+    # this, a single ReadTimeout against ap-northeast-1 would take
+    # down the meeting pipeline (meeting 4708, 4712).
     def get_bot(self, bot_id: str):
         url = f"{self.base_url}/bot/{bot_id}/"
-        response = requests.get(url, headers=self.headers)
+        response = _request_with_retry("GET", url, headers=self.headers)
         response.raise_for_status()
         return response.json()
 
     # 3. List all bots (optional but useful)
     def list_bots(self):
         url = f"{self.base_url}/bot/"
-        response = requests.get(url, headers=self.headers)
+        response = _request_with_retry("GET", url, headers=self.headers)
         response.raise_for_status()
         return response.json()
 
@@ -203,7 +257,19 @@ class RecallService:
         logger.info(f"Waiting for transcript for bot {bot_id} (Timeout: {timeout or 'None'})...")
 
         while True:
-            bot_data = self.get_bot(bot_id)
+            try:
+                bot_data = self.get_bot(bot_id)
+            except _RETRYABLE_EXCEPTIONS as exc:
+                # get_bot() already retried 4x with backoff. If it still
+                # raised, that's a sustained outage — wait one more poll
+                # interval and try again instead of killing the meeting.
+                # Meeting 4712 died from a single ReadTimeout here.
+                logger.warning(
+                    f"[RECALL] wait_for_transcript poll failed transiently "
+                    f"({type(exc).__name__}); waiting then retrying"
+                )
+                time.sleep(15)
+                continue
             recordings = bot_data.get("recordings", [])
             status_changes_list = bot_data.get("status_changes", []) or []
             bot_status = status_changes_list[-1].get("code") if status_changes_list else "unknown"
@@ -299,7 +365,7 @@ class RecallService:
             f"[RECALL] play_audio bot={bot_id} kind={kind} "
             f"audio_bytes={len(audio_bytes)} b64_len={len(b64)}"
         )
-        response = requests.post(url, json=payload, headers=self.headers)
+        response = _request_with_retry("POST", url, json=payload, headers=self.headers)
         if response.status_code not in (200, 201, 202):
             # Don't print the entire base64 blob in error logs.
             body = response.text[:500] if response.text else "(no body)"
@@ -398,7 +464,7 @@ class RecallService:
         """
         url = f"{self.base_url}/bot/{bot_id}/leave_call/"
         try:
-            response = requests.post(url, headers=self.headers)
+            response = _request_with_retry("POST", url, headers=self.headers)
             if response.status_code not in (200, 202, 204):
                 logger.warning(
                     f"[RECALL] leave_call returned {response.status_code}: {response.text}"

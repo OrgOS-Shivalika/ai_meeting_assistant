@@ -29,6 +29,7 @@ class TaskUpdateRequest(BaseModel):
     `status` server-side from the column's `bound_status` so a single
     move PATCH is atomic.
     """
+    task: Optional[str] = None           # the task text itself — for AI-extracted tasks the user wants to correct
     owner_name: Optional[str] = None
     priority: Optional[str] = None
     is_completed: Optional[bool] = None

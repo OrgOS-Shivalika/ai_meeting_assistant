@@ -155,12 +155,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
       setEditingTitle(false);
       return;
     }
-    await applyPatch("task", { description: undefined } as any);
-    // Title is the `task` field on the model — we need a special PATCH
-    // shape. The legacy PATCH /tasks/{id} doesn't accept `task` field
-    // edits — we'll defer renaming until that endpoint supports it.
-    // For now: set the description, leave title alone.
-    // TODO: extend TaskUpdateRequest with `task` field.
+    await applyPatch("task", { task: next });
     setEditingTitle(false);
   };
 

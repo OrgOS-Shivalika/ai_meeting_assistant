@@ -2478,6 +2478,58 @@ class AgentEvalRun(Base):
 
 
 # ---------------------------------------------------------------------------
+# Phase 14B / Piece 1 — agent tool invocation audit log
+#
+# One row per tool call inside a harness loop. `run_id` groups all
+# invocations from one loop so an entire agent run can be replayed.
+# Same audit-log shape as graph_extraction_runs, rag_query_runs.
+# ---------------------------------------------------------------------------
+
+
+class AgentToolInvocation(Base):
+    __tablename__ = "agent_tool_invocations"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    actor_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    skill_id = Column(String(64), nullable=True)
+    run_id = Column(UUID(as_uuid=True), nullable=False)
+    iteration = Column(Integer, nullable=False)
+    tool_name = Column(String(64), nullable=False)
+    args_json = Column(JSONB, nullable=True)
+    result_json = Column(JSONB, nullable=True)
+    success = Column(Boolean, nullable=False)
+    error_message = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    tokens_used = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_agent_tool_invocations_org_created", "organization_id", "created_at"),
+        Index("ix_agent_tool_invocations_run", "run_id"),
+        Index("ix_agent_tool_invocations_meeting", "meeting_id"),
+        Index("ix_agent_tool_invocations_skill_created", "skill_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase 8A — Global template registry (platform-owned, immutable assets)
 #
 # Five tables. All platform-owned: no `organization_id`. Read by the

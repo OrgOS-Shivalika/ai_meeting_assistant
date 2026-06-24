@@ -9,6 +9,7 @@ import GoogleCallbackPage from "../features/auth/pages/GoogleCallbackPage";
 import ProtectedRoute from "../features/auth/components/ProtectedRoute";
 import CalendarPage from "../features/calendar/pages/CalendarPage";
 import AgentControlPage from "../features/agent-control/pages/AgentControlPage";
+import HarnessRunsPage from "../features/agent-control/pages/HarnessRunsPage";
 import AgentsListPage from "../features/agents/pages/AgentsListPage";
 import AgentDetailPage from "../features/agents/pages/AgentDetailPage";
 import KnowledgeHubPage from "../features/knowledge/pages/KnowledgeHubPage";
@@ -62,6 +63,10 @@ export const router = createBrowserRouter([
       {
         path: "/agent-control",
         element: <AgentControlPage />,
+      },
+      {
+        path: "/agent-control/runs",
+        element: <HarnessRunsPage />,
       },
       {
         path: "/agents",

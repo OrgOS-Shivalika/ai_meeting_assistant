@@ -193,6 +193,7 @@ export interface ActivityList {
 }
 
 export interface TaskUpdateRequest {
+  task?: string;              // task text — for correcting AI-extracted text
   owner_name?: string | null;
   priority?: "low" | "medium" | "high";
   is_completed?: boolean;

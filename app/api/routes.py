@@ -679,6 +679,7 @@ def update_task(
     # one activity row per field that actually changed. Keep this
     # cheap (~6 scalar reads) so the PATCH stays fast.
     before_snapshot = {
+        "task": task.task,
         "owner_name": task.owner_name,
         "priority": task.priority,
         "due_date": task.due_date,
@@ -690,6 +691,11 @@ def update_task(
 
     data = payload.model_dump(exclude_unset=True)
 
+    if "task" in data:
+        new_text = (data["task"] or "").strip()
+        if not new_text:
+            raise HTTPException(status_code=400, detail="task text cannot be empty")
+        task.task = new_text
     if "owner_name" in data:
         task.owner_name = (data["owner_name"] or "").strip() or None
     if "priority" in data and data["priority"]:
@@ -776,6 +782,7 @@ def update_task(
     # touches one field produces exactly one activity row.
     from app.services.kanban.activity import diff_and_record
     after_snapshot = {
+        "task": task.task,
         "owner_name": task.owner_name,
         "priority": task.priority,
         "due_date": task.due_date,
@@ -792,6 +799,7 @@ def update_task(
         before=before_snapshot,
         after=after_snapshot,
         field_to_event={
+            "task": "title_changed",
             "owner_name": "owner_changed",
             "priority": "priority_changed",
             "due_date": "due_changed",

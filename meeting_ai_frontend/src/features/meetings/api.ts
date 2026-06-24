@@ -265,6 +265,7 @@ export const fetchAllTasks = (filter: TaskFilter = {}) => {
 };
 
 export interface TaskUpdate {
+  task?: string;                 // edit task text — for AI-extracted tasks the user wants to correct
   owner_name?: string | null;
   priority?: "low" | "medium" | "high";
   is_completed?: boolean;
