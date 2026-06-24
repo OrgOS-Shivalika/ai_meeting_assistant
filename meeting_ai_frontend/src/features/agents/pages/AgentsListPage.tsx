@@ -10,6 +10,7 @@ import {
   AlertCircle, Archive, Bot, Copy, Loader2, Plus, RefreshCw,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import {
   archiveAgent, createAgent, duplicateAgent, listAgents, listAgentTypes,
 } from "../api";
@@ -146,10 +147,11 @@ export default function AgentsListPage() {
 
         {/* List */}
         {loading ? (
-          <div className="flex items-center gap-2 p-8 text-slate-500">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Loading…
-          </div>
+          <ul className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li key={i}><SkeletonCard className="h-20" /></li>
+            ))}
+          </ul>
         ) : agents.length === 0 ? (
           <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
             <p className="text-sm text-slate-500">

@@ -11,8 +11,9 @@
 // Children consume the shared board state via the typed
 // `useBoardOutletContext()` hook below.
 import { Link, Outlet, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, Sparkles } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { useBoard } from "../hooks/useBoard";
 import BoardTabs from "../components/BoardTabs";
 import type { BoardDetail } from "../types";
@@ -52,10 +53,25 @@ export default function BoardLayout() {
   );
 
   if (loading) {
+    // Header strip + 4-column kanban silhouette so the page doesn't
+    // empty out while the board loads.
     return (
       <Layout>
-        <div className="flex justify-center items-center py-24">
-          <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+        <div className="px-4 py-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-8 w-32" />
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, col) => (
+              <div key={col} className="space-y-2">
+                <Skeleton className="h-4 w-24 mb-2" />
+                {Array.from({ length: 3 }).map((_, j) => (
+                  <SkeletonCard key={j} className="h-20" />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       </Layout>
     );

@@ -15,13 +15,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Inbox,
-  Loader2,
   Network,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import EntityCard from "../components/EntityCard";
 import EntityDetailDrawer from "../components/EntityDetailDrawer";
 import ScopePicker, { type PickerScope } from "../components/ScopePicker";
@@ -176,9 +176,13 @@ export default function KnowledgeGraphPage() {
           </div>
 
           {meetingGraph.loading && !data && (
-            <div className="mt-8 flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading meeting graph…
+            // Graph SVG placeholder + a couple of side panels.
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <SkeletonCard className="h-80 lg:col-span-2" />
+              <div className="space-y-3">
+                <SkeletonCard className="h-32" />
+                <SkeletonCard className="h-32" />
+              </div>
             </div>
           )}
           {meetingGraph.error && (
@@ -340,9 +344,10 @@ export default function KnowledgeGraphPage() {
         {/* Body */}
         <div className="mt-6">
           {list.loading && list.items.length === 0 && (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Loading entities…
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
             </div>
           )}
           {list.error && (

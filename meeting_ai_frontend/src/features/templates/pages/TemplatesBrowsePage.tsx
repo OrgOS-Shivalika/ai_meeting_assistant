@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Sparkles, Package } from "lucide-react";
+import { Sparkles, Package } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { templatesApi } from "../services/templatesApi";
 import type { BundleSummary } from "../services/templatesApi";
 
@@ -40,8 +41,10 @@ export default function TemplatesBrowsePage() {
         </header>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-gray-500">
-            <Loader2 className="animate-spin w-5 h-5 mr-2" /> Loading bundles…
+          <div className="grid grid-cols-2 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-28" />
+            ))}
           </div>
         ) : error ? (
           <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">

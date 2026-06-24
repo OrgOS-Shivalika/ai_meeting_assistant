@@ -10,6 +10,7 @@ import {
   ArrowLeft, Loader2, AlertCircle,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import {
   archivePromptConfig, createPromptConfig, createVersion, getAgent,
   getVersion, listPromptConfigs, listVersions, publishVersion,
@@ -64,11 +65,27 @@ export default function AgentDetailPage() {
   );
 
   if (loading) {
+    // Title strip + tab nav + 2-column body matches the real layout.
     return (
       <Layout>
-        <div className="max-w-6xl mx-auto px-4 py-12 flex items-center gap-2 text-slate-500">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading…
+        <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
+          <Skeleton className="h-4 w-32" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-64" />
+              <Skeleton className="h-3 w-48" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-24" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <SkeletonCard className="h-64 lg:col-span-2" />
+            <SkeletonCard className="h-64" />
+          </div>
         </div>
       </Layout>
     );

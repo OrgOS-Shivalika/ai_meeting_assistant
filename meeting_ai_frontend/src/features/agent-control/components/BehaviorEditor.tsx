@@ -450,9 +450,26 @@ export default function BehaviorEditor({
 
   const initialLoading = loading && intent === null;
   if (initialLoading) {
+    // Mimics the real editor: header strip, 4 runtime picker tiles,
+    // then a stack of dimension accordion bars.
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" /> Resolving policy...
+      <div className="overflow-y-auto h-full">
+        <div className="max-w-5xl mx-auto px-8 py-8 space-y-6">
+          <div className="space-y-3">
+            <div className="h-7 w-72 bg-slate-200 rounded animate-pulse" />
+            <div className="h-4 w-96 bg-slate-200 rounded animate-pulse" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-32 bg-slate-100 rounded-2xl border border-slate-200 animate-pulse" />
+            ))}
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 bg-slate-100 rounded-xl border border-slate-200 animate-pulse" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

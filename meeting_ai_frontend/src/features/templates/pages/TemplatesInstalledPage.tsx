@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Cpu, Loader2 } from "lucide-react";
+import { Cpu } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { templatesApi, type WorkspaceLink } from "../services/templatesApi";
 
 /**
@@ -50,9 +51,7 @@ export default function TemplatesInstalledPage() {
         </header>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-gray-400">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
-          </div>
+          <SkeletonCard className="h-64" />
         ) : error ? (
           <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
             {error}

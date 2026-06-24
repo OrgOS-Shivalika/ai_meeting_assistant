@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMeetingById, updateTask } from "../api";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components/Skeleton";
 import CategoryAssignControl from "../components/CategoryAssignControl";
 import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
@@ -373,12 +374,26 @@ export default function MeetingDetailPage() {
   }
 
   if (!meeting) {
+    // Detail page skeleton — title block, summary card, transcript +
+    // tasks side-by-side. Lands roughly where the real content does.
     return (
       <Layout>
-        <div className="flex justify-center items-center h-[60vh]">
-          <div className="relative w-10 h-10">
-            <div className="absolute inset-0 rounded-full border-3 border-gray-200" />
-            <div className="absolute inset-0 rounded-full border-t-3 border-[#4F46E5] animate-spin" />
+        <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+          <div className="space-y-3">
+            <Skeleton className="h-7 w-72" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 space-y-4">
+              <SkeletonCard className="h-32" />
+              <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                <SkeletonText lines={6} />
+              </div>
+            </div>
+            <div className="space-y-4">
+              <SkeletonCard className="h-44" />
+              <SkeletonCard className="h-32" />
+            </div>
           </div>
         </div>
       </Layout>

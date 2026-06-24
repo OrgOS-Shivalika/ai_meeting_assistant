@@ -5,8 +5,9 @@
 // affordance opens an inline modal for board creation.
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutGrid, Loader2, Plus, Sparkles } from "lucide-react";
+import { LayoutGrid, Plus, Sparkles } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { createBoard, fetchBoards } from "../api";
 import type { BoardSummary } from "../types";
 
@@ -120,8 +121,10 @@ export default function BoardListPage() {
 
         {/* List */}
         {loading ? (
-          <div className="flex justify-center items-center py-16">
-            <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-40" />
+            ))}
           </div>
         ) : error ? (
           <div className="text-center py-12 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">

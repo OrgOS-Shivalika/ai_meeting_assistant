@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Package, Sparkles, Users, Tag } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { templatesApi } from "../services/templatesApi";
 import type { BundlePreview, BundlePreviewItem } from "../services/templatesApi";
 
@@ -61,8 +62,21 @@ export default function BundlePreviewPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-gray-500">
-          <Loader2 className="animate-spin w-5 h-5 mr-2" /> Loading bundle…
+        <div className="px-8 py-8 max-w-5xl mx-auto space-y-6">
+          <Skeleton className="h-4 w-32" />
+          <div className="flex items-start gap-4">
+            <Skeleton className="h-12 w-12 rounded-xl" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-6 w-72" />
+              <Skeleton className="h-4 w-96" />
+            </div>
+            <Skeleton className="h-10 w-32" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-20" />
+            ))}
+          </div>
         </div>
       </Layout>
     );

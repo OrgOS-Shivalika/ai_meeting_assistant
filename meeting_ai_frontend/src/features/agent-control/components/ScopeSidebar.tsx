@@ -1,5 +1,6 @@
-import { ArrowLeft, Building2, ChevronRight, FolderOpen, Loader2, Users } from "lucide-react";
+import { ArrowLeft, Building2, ChevronRight, FolderOpen, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Skeleton } from "../../../shared/components/Skeleton";
 import type { ActiveScope, ScopeListItem, ScopesResponse } from "../types";
 
 /**
@@ -57,8 +58,19 @@ export default function ScopeSidebar({
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-20 text-gray-300">
-          <Loader2 className="w-6 h-6 animate-spin" />
+        // Mimics the real scope tree — workspace row + 3 category
+        // groups, each with 2 indented team rows.
+        <div className="py-6 px-3 space-y-6">
+          <Skeleton className="h-9 w-full" />
+          {Array.from({ length: 3 }).map((_, g) => (
+            <div key={g} className="space-y-2">
+              <Skeleton className="h-7 w-3/4" />
+              <div className="pl-4 space-y-2">
+                <Skeleton className="h-6 w-2/3" />
+                <Skeleton className="h-6 w-1/2" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

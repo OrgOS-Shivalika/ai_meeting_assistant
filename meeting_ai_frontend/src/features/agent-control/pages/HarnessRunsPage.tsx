@@ -8,7 +8,7 @@
 // the backend so no client-side filtering is needed.
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, ChevronRight, Loader2, RefreshCw, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
+import { ChevronRight, ChevronDown, RefreshCw, AlertCircle, CheckCircle2, XCircle } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { harnessApi, type HarnessRunSummary, type HarnessRunDetail } from "../services/harnessApi";
 
@@ -23,6 +23,40 @@ function fmtMs(ms: number | null | undefined): string {
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString();
+}
+
+// Shimmer bars matched to each table column's content width — keeps
+// the table from jumping in size between loading and loaded states.
+function RowSkeleton() {
+  return (
+    <tr className="border-t border-slate-100 animate-pulse">
+      <td className="px-4 py-3"><div className="h-3 w-3 bg-slate-200 rounded" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-32 bg-slate-200 rounded" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-40 bg-slate-200 rounded" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-28 bg-slate-200 rounded" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-4 bg-slate-200 rounded ml-auto" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-4 bg-slate-200 rounded ml-auto" /></td>
+      <td className="px-3 py-3"><div className="h-4 w-16 bg-slate-200 rounded-full" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-12 bg-slate-200 rounded ml-auto" /></td>
+    </tr>
+  );
+}
+
+// Mirrors the InvocationRow layout — chevron + label + status dot,
+// duration on the right. Slightly varied widths so it doesn't look
+// like a copy-paste loop.
+function InvocationSkeleton({ widthClass }: { widthClass: string }) {
+  return (
+    <div className="border-l-2 border-slate-200 pl-3 py-1.5 animate-pulse">
+      <div className="flex items-center gap-2 px-1 py-1">
+        <div className="h-3 w-3 bg-slate-200 rounded" />
+        <div className="h-3 w-6 bg-slate-200 rounded" />
+        <div className={`h-3 ${widthClass} bg-slate-200 rounded`} />
+        <div className="h-3 w-3 bg-slate-200 rounded-full" />
+        <div className="ml-auto h-3 w-12 bg-slate-200 rounded" />
+      </div>
+    </div>
+  );
 }
 
 function StatusPill({ ok, failed }: { ok: number; failed: number }) {
@@ -107,9 +141,13 @@ function ExpandedRun({ runId }: { runId: string }) {
   }, [runId]);
 
   if (loading) {
+    // Vary widths so the 3 skeleton rows don't look identical — feels
+    // closer to the real invocation list, where tool names differ.
     return (
-      <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
-        <Loader2 className="w-3 h-3 animate-spin" /> Loading invocations…
+      <div className="space-y-1 py-2">
+        <InvocationSkeleton widthClass="w-40" />
+        <InvocationSkeleton widthClass="w-28" />
+        <InvocationSkeleton widthClass="w-36" />
       </div>
     );
   }
@@ -217,11 +255,9 @@ export default function HarnessRunsPage() {
             </thead>
             <tbody>
               {loading && runs.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="text-center py-8 text-slate-500">
-                    <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" /> Loading…
-                  </td>
-                </tr>
+                <>
+                  {[0, 1, 2, 3, 4].map((i) => <RowSkeleton key={i} />)}
+                </>
               ) : runs.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center py-12 text-slate-500">

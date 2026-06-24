@@ -4,11 +4,11 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  Loader2,
   Pencil,
   Search,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { fetchAllTasks, updateTask } from "../api";
 import TaskAssignmentEditor, {
   type MeetingParticipant,
@@ -249,8 +249,12 @@ export default function ActionItemsPage() {
 
         {/* List */}
         {loading ? (
-          <div className="flex justify-center items-center py-16">
-            <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+          // Task rows are short and uniform — 5 thin cards is enough
+          // to communicate "list loading" without filling the viewport.
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-16" />
+            ))}
           </div>
         ) : error ? (
           <div className="text-center py-12 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">

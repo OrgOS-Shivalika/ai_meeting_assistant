@@ -22,7 +22,6 @@ import {
   Clock,
   ExternalLink,
   ListChecks,
-  Loader2,
   Network,
   Plus,
   Search as SearchIcon,
@@ -33,6 +32,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../../../shared/components/Layout";
+import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
 import {
   fetchAllTasks,
@@ -338,11 +338,23 @@ export default function DashboardPage() {
   // ---- Render ------------------------------------------------------------
 
   if (loading && meetings.length === 0) {
+    // Dashboard skeleton — headline strip + 4 stat tiles + main content.
     return (
       <Layout>
-        <div className="flex items-center justify-center h-[60vh] gap-2 text-sm text-slate-500">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          Loading dashboard…
+        <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-72" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonCard key={i} className="h-28" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <SkeletonCard className="h-80 lg:col-span-2" />
+            <SkeletonCard className="h-80" />
+          </div>
         </div>
       </Layout>
     );

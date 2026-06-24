@@ -1,4 +1,5 @@
 import Layout from "../../../shared/components/Layout";
+import { Skeleton } from "../../../shared/components/Skeleton";
 import { useMeetings } from "../hooks/useMeetings";
 import { useCategories } from "../hooks/useCategories";
 import MeetingRow from "../components/MeetingRow";
@@ -267,16 +268,79 @@ export default function MeetingsPage() {
   };
 
   if (loading) {
+    // Mirrors the real default view shape: header strip + 2 category
+    // sections, each with a section header (icon tile + title block +
+    // "View all" link) and a horizontal scroller of MeetingCard-sized
+    // placeholders (w-80 h-[280px]). Matches widths so nothing jumps
+    // when data lands.
     return (
       <Layout>
-        <div className="flex justify-center items-center h-[45vh]">
-          <div className="text-center">
-            <div className="relative w-8 h-8 mx-auto mb-2">
-              <div className="absolute inset-0 rounded-full border-2 border-slate-200" />
-              <div className="absolute inset-0 rounded-full border-t-2 border-indigo-600 animate-spin" />
+        <div className="px-3 py-6">
+          {/* Header strip */}
+          <div className="flex items-center justify-between gap-3 mb-6 mt-0">
+            <div className="space-y-2">
+              <Skeleton className="h-7 w-40" />
+              <Skeleton className="h-3 w-56" />
             </div>
-            <p className="text-xs text-slate-500">Loading meetings…</p>
+            <Skeleton className="h-8 w-36 shrink-0" />
           </div>
+
+          {/* Two category-section silhouettes */}
+          {[0, 1].map((section) => (
+            <section key={section} className="mb-9">
+              {/* Section header: 9x9 icon tile + 2-line text block + "View all" link */}
+              <div className="flex items-end justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Skeleton className="w-9 h-9 rounded-lg shrink-0" />
+                  <div className="space-y-1.5 min-w-0">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                </div>
+                <Skeleton className="h-3 w-16 shrink-0" />
+              </div>
+
+              {/* Horizontal "scroller" — 4 card silhouettes; container
+                  hides overflow so they appear to extend off-screen
+                  like the real scroller does. */}
+              <div className="flex gap-3 overflow-hidden pb-2 px-1">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="shrink-0 w-[20rem] md:w-[22rem] h-[280px] rounded-2xl bg-white border border-slate-200 p-4 animate-pulse"
+                  >
+                    {/* Top row: source icon + status pill */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="h-8 w-8 bg-slate-200 rounded-lg" />
+                      <div className="h-5 w-16 bg-slate-200 rounded-full" />
+                    </div>
+                    {/* Title (2 lines) */}
+                    <div className="space-y-2 mb-4">
+                      <div className="h-4 w-full bg-slate-200 rounded" />
+                      <div className="h-4 w-3/5 bg-slate-200 rounded" />
+                    </div>
+                    {/* Meta lines (date + duration) */}
+                    <div className="space-y-2 mb-5">
+                      <div className="h-3 w-32 bg-slate-200 rounded" />
+                      <div className="h-3 w-24 bg-slate-200 rounded" />
+                    </div>
+                    {/* Participant avatar stack */}
+                    <div className="flex items-center gap-2 mt-auto pt-3">
+                      <div className="flex -space-x-2">
+                        {[0, 1, 2].map((a) => (
+                          <div
+                            key={a}
+                            className="h-7 w-7 rounded-full bg-slate-200 ring-2 ring-white"
+                          />
+                        ))}
+                      </div>
+                      <div className="h-3 w-20 bg-slate-200 rounded ml-2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       </Layout>
     );

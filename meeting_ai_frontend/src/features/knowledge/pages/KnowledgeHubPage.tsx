@@ -25,6 +25,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Layout from "../../../shared/components/Layout";
+import { SkeletonCard } from "../../../shared/components/Skeleton";
 import ScopePicker, { type PickerScope } from "../components/ScopePicker";
 import SearchHitCard from "../components/SearchHitCard";
 import { useSearch } from "../hooks/useSearch";
@@ -196,10 +197,17 @@ export default function KnowledgeHubPage() {
           )}
 
           {loading && (
-            <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-500">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Searching…
-            </div>
+            // Hybrid: tiny status pill so users know it's searching,
+            // plus result-card placeholders so the page doesn't shrink.
+            <>
+              <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Searching…
+              </div>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonCard key={i} className="h-28" />
+              ))}
+            </>
           )}
 
           {error && !loading && (
