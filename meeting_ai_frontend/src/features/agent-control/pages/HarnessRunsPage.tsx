@@ -37,6 +37,7 @@ function RowSkeleton() {
       <td className="px-3 py-3"><div className="h-3 w-4 bg-slate-200 rounded ml-auto" /></td>
       <td className="px-3 py-3"><div className="h-3 w-4 bg-slate-200 rounded ml-auto" /></td>
       <td className="px-3 py-3"><div className="h-4 w-16 bg-slate-200 rounded-full" /></td>
+      <td className="px-3 py-3"><div className="h-3 w-14 bg-slate-200 rounded ml-auto" /></td>
       <td className="px-3 py-3"><div className="h-3 w-12 bg-slate-200 rounded ml-auto" /></td>
     </tr>
   );
@@ -207,7 +208,10 @@ export default function HarnessRunsPage() {
               Harness runs
             </h1>
             <p className="text-sm text-slate-500">
-              Every tool-calling loop, every invocation. One row per <code className="text-[12px] bg-slate-100 px-1 py-0.5 rounded">run_id</code>.
+              Every tool-calling loop, every invocation. One row per <code className="text-[12px] bg-slate-100 px-1 py-0.5 rounded">run_id</code>.{" "}
+              <Link to="/agent-control/metrics" className="text-indigo-600 hover:underline">
+                See aggregate metrics →
+              </Link>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -249,7 +253,7 @@ export default function HarnessRunsPage() {
                 <th className="text-right px-3 py-2 font-semibold">Iter</th>
                 <th className="text-right px-3 py-2 font-semibold">Tools</th>
                 <th className="text-left px-3 py-2 font-semibold">Status</th>
-               
+                <th className="text-right px-3 py-2 font-semibold">Tokens</th>
                 <th className="text-right px-3 py-2 font-semibold">Duration</th>
               </tr>
             </thead>
@@ -302,7 +306,9 @@ export default function HarnessRunsPage() {
                         <td className="px-3 py-2.5">
                           <StatusPill ok={r.ok} failed={r.failed} />
                         </td>
-                        
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                          {r.total_tokens ? r.total_tokens.toLocaleString() : "—"}
+                        </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{fmtMs(r.total_duration_ms)}</td>
                       </tr>
                       {open && (

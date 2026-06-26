@@ -332,8 +332,22 @@ class BriefingComposer:
 
         assigned: List[Dict[str, Any]] = []
         unassigned: List[Dict[str, Any]] = []
+        skipped_phantom = 0
         for t in state.active_tasks.values():
             if not t.is_active:
+                continue
+            # Align with the persistence gate in
+            # `StreamManager._trigger_live_cognition`: a brand-new
+            # detection with confidence < 0.4 is treated as noise and
+            # NOT persisted to the DB. Without this same filter here,
+            # the closing briefing was speaking tasks that never
+            # reached the Kanban — users heard "phantom" items they
+            # then couldn't find anywhere in the UI. Keep the threshold
+            # identical to the persistence side so the spoken brief
+            # matches what was saved.
+            is_one_shot = t.mention_count <= 1
+            if is_one_shot and t.confidence < 0.4:
+                skipped_phantom += 1
                 continue
             # Sanitize the owner BEFORE deciding which bucket. Upstream
             # sometimes puts type strings ("unassigned_task") or
@@ -359,6 +373,12 @@ class BriefingComposer:
                 assigned.append(entry)
             else:
                 unassigned.append(entry)
+        if skipped_phantom:
+            logger.info(
+                f"[BRIEFING] meeting={meeting_id} skipped {skipped_phantom} "
+                f"phantom task(s) from snapshot (one-shot detections below "
+                f"the 0.4 persistence threshold)"
+            )
         assigned.sort(key=lambda r: r.get("confidence", 0), reverse=True)
         unassigned.sort(key=lambda r: r.get("confidence", 0), reverse=True)
 

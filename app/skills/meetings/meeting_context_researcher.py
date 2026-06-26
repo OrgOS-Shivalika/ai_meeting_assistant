@@ -66,7 +66,11 @@ skill = SkillDefinition(
         "required": ["related_topics", "prior_context_summary", "confidence"],
     },
     emits_events=["meetings.context_researched"],
-    enabled_by_default=False,  # opt-in via Agent Control until proven out
+    # Now wired into meeting_scrum_agent's skill list so every
+    # post-meeting analysis under that agent will research prior
+    # context — but only if harness_enabled is "on" (otherwise the
+    # legacy single-shot path runs and the tool calls are skipped).
+    enabled_by_default=True,
 )
 
 register_skill(skill)

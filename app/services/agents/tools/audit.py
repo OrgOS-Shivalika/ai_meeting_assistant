@@ -94,6 +94,49 @@ def record_invocation(
     return row
 
 
+# Sentinel tool_name used to mark "this row represents a whole skill
+# execution, not a real tool call". Lets the observability page show
+# every skill that ran (even ones without tools), while the aggregate
+# can still count *real* tool calls by filtering this out.
+SKILL_RUN_SENTINEL = "_skill_run"
+
+
+def record_skill_run(
+    db: Session,
+    *,
+    organization_id: UUID,
+    run_id: UUID,
+    skill_id: str,
+    success: bool,
+    meeting_id: Optional[int] = None,
+    actor_user_id: Optional[UUID] = None,
+    result: Optional[Any] = None,
+    error_message: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+    tokens_used: Optional[int] = None,
+) -> AgentToolInvocation:
+    """Write a single 'skill executed' marker row. Shares the same
+    table as tool-call rows so the existing observability endpoints
+    pick it up by group, but uses `tool_name=_skill_run` so the
+    aggregate can exclude it from real-tool-call counts."""
+    return record_invocation(
+        db,
+        organization_id=organization_id,
+        run_id=run_id,
+        iteration=0,
+        tool_name=SKILL_RUN_SENTINEL,
+        success=success,
+        meeting_id=meeting_id,
+        actor_user_id=actor_user_id,
+        skill_id=skill_id,
+        args=None,
+        result=result,
+        error_message=error_message,
+        duration_ms=duration_ms,
+        tokens_used=tokens_used,
+    )
+
+
 def _truncate_result(result: Any, max_chars: int = 10_000) -> Optional[Any]:
     """JSONB-coerce a result. If the JSON form exceeds `max_chars`,
     stash a sentinel + the prefix instead — avoids ballooning the

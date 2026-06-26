@@ -84,8 +84,16 @@ class SkillExecutor:
                 f"{json.dumps(skill.output_schema, indent=2)}\n"
             )
 
+        # Anti-hallucination block + today's date — shared with the
+        # harness path (see app/services/agents/skill_guards.py). Both
+        # paths get the same guard prefix so a per-skill prompt that
+        # only says "process the input" still benefits from the
+        # platform-wide rules.
+        from app.services.agents.skill_guards import skill_guard_block
+
         # Assemble the layered prompt
         components = [
+            skill_guard_block(),
             "=== AI ORCHESTRATOR SYSTEM INSTRUCTIONS ===",
             "You are a specialized enterprise AI module executing a dedicated cognitive skill.",
             "",
@@ -179,15 +187,23 @@ class SkillExecutor:
             logger.warning(f"Skill retrieval failed: {e}")
             return ""
 
+    # Module-level container for the most recent legacy LLM call's
+    # token usage. execute_skill() reads this after _execute_model
+    # returns so it can attach the count to the returned dict — keeps
+    # the public method signature unchanged while still surfacing
+    # tokens to the orchestrator's audit write.
+    _last_tokens_used: Optional[int] = None
+
     @classmethod
     def _execute_model(cls, system_prompt: str, user_input: str, retrieval_context: str) -> str:
         """Calls the LLM provider."""
         client = _get_client()
-        
+
         user_content = user_input
         if retrieval_context:
             user_content = f"CONTEXT:\n{retrieval_context}\n\nINPUT:\n{user_input}"
 
+        cls._last_tokens_used = None
         try:
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -198,6 +214,9 @@ class SkillExecutor:
                 response_format={"type": "json_object"},
                 timeout=60
             )
+            usage = getattr(response, "usage", None)
+            if usage and getattr(usage, "total_tokens", None):
+                cls._last_tokens_used = usage.total_tokens
             return response.choices[0].message.content or "{}"
         except Exception as e:
             logger.error(f"LLM execution failed: {str(e)}")

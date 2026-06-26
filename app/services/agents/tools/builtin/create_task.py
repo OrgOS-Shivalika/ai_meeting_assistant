@@ -15,7 +15,15 @@ from app.services.kanban.positions import position_for_end
 
 
 def handler(args: dict, ctx: ToolContext) -> dict:
-    mid = int(args["meeting_id"])
+    # Resolve meeting_id from ctx by default — the harness sets it to
+    # the meeting currently being analyzed. An explicit args value
+    # overrides (e.g. a future skill creating cross-meeting tasks).
+    raw_mid = args.get("meeting_id", ctx.meeting_id)
+    if raw_mid is None:
+        raise ValueError(
+            "create_task requires a meeting_id — neither args nor ToolContext provided one"
+        )
+    mid = int(raw_mid)
     text = (args.get("task") or "").strip()
     if not text:
         raise ValueError("task text required")
@@ -77,13 +85,16 @@ register(Tool(
     parameters={
         "type": "object",
         "properties": {
-            "meeting_id": {"type": "integer", "description": "Meeting the task belongs to."},
+            # meeting_id intentionally omitted — the harness injects
+            # it via ToolContext, so the model doesn't need to remember
+            # or guess it. Pass it explicitly only when targeting a
+            # different meeting than the active one (rare).
             "task": {"type": "string", "description": "Task description (what needs to be done)."},
             "owner_name": {"type": "string", "description": "Optional owner name."},
             "due_date": {"type": "string", "description": "Optional ISO 8601 date (YYYY-MM-DD)."},
             "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
         },
-        "required": ["meeting_id", "task"],
+        "required": ["task"],
     },
     handler=handler,
     tags=["write", "tasks"],

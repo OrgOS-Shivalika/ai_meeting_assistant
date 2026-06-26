@@ -36,11 +36,23 @@ class AgentGraphOrchestrator:
         
         # 1. Identity & Capability Check
         enabled_ids = profile.enabled_agents or []
-        enabled_agents = [
-            AGENT_REGISTRY[aid] for sid, aid in enumerate(enabled_ids) 
-            if aid in AGENT_REGISTRY
-        ]
-        
+        enabled_agents = []
+        unknown = []
+        for aid in enabled_ids:
+            agent = AGENT_REGISTRY.get(aid)
+            if agent is None:
+                unknown.append(aid)
+            else:
+                enabled_agents.append(agent)
+        if unknown:
+            # Loud-skip: previously these silently disappeared, so users
+            # configured non-existent agents in Agent Control and never
+            # heard back. Now the log line names them.
+            logger.warning(
+                "⚠️  Skipping unknown agent ids (not in AGENT_REGISTRY): %s",
+                unknown,
+            )
+
         logger.info("🤖 Enabled Agents: %s", [a.id for a in enabled_agents])
 
         # 2. Context Builder
@@ -109,20 +121,69 @@ class AgentGraphOrchestrator:
         harness_flag = str(tools_cfg.get("harness_enabled", "off")).lower()
         harness_on = harness_flag in ("on", "true", "1", "yes")
 
+        # Lazy import — keeps audit dep off the legacy import path.
+        from app.services.agents.tools import audit
+        import time as _time
+
         skill_results = {}
         for skill in skills:
+            # Generate a run_id BEFORE invocation so both the harness's
+            # tool-call rows AND our skill_run summary row share it.
+            # That way the observability page groups all rows under
+            # one logical run per skill execution.
+            run_id = audit.new_run_id()
+            start = _time.monotonic()
+            tokens_for_summary = None
+            error_for_summary = None
+            success_for_summary = True
+            output: Any = None
             try:
                 if harness_on and skill.required_tools:
-                    logger.info("🛠️  Executing Skill via HARNESS: %s", skill.id)
-                    output = cls._run_skill_in_harness(db, skill, transcript, profile, meeting_id)
+                    logger.info("🛠️  Executing Skill via HARNESS: %s (run=%s)", skill.id, run_id)
+                    output, tokens_for_summary = cls._run_skill_in_harness(
+                        db, skill, transcript, profile, meeting_id, run_id=run_id,
+                    )
                 else:
-                    logger.info("🚀 Executing Skill: %s", skill.id)
+                    logger.info("🚀 Executing Skill: %s (run=%s)", skill.id, run_id)
                     output = SkillExecutor.execute_skill(db, skill, transcript, profile, meeting_id)
+                    # Pick up the token count the executor stashed
+                    # during its LLM call. Without this, legacy skill
+                    # sentinels showed total_tokens=0 on the
+                    # observability page even though tokens were spent.
+                    tokens_for_summary = SkillExecutor._last_tokens_used
+                # SkillExecutor returns {"error": "..."} when it fails
+                # internally instead of raising — flag that as a non-success.
+                if isinstance(output, dict) and "error" in output and not output.get("skill_id"):
+                    success_for_summary = False
+                    error_for_summary = str(output.get("error"))[:500]
                 skill_results[skill.id] = output
-
                 logger.debug("Skill %s output: %s", skill.id, output)
             except Exception as e:
+                success_for_summary = False
+                error_for_summary = str(e)[:500]
                 logger.error("Skill %s failed: %s", skill.id, str(e), exc_info=True)
+            finally:
+                # One row per skill execution, regardless of harness/legacy
+                # path. Carries the skill_id, success, duration, and tokens
+                # (when known from the harness). Same `run_id` as the tool
+                # rows above so they all group together in the UI.
+                try:
+                    audit.record_skill_run(
+                        db,
+                        organization_id=profile.organization_id,
+                        run_id=run_id,
+                        skill_id=skill.id,
+                        success=success_for_summary,
+                        meeting_id=meeting_id,
+                        result=output if success_for_summary else None,
+                        error_message=error_for_summary,
+                        duration_ms=int((_time.monotonic() - start) * 1000),
+                        tokens_used=tokens_for_summary,
+                    )
+                    db.commit()
+                except Exception as audit_err:
+                    logger.warning("skill_run audit write failed: %s", audit_err)
+                    db.rollback()
 
         return skill_results
 
@@ -134,12 +195,14 @@ class AgentGraphOrchestrator:
         transcript: str,
         profile: ResolvedBehaviorProfile,
         meeting_id: Optional[int],
-    ) -> Dict[str, Any]:
+        run_id=None,
+    ):
         """Bridge a SkillDefinition into the tool-calling harness.
 
-        Returns the harness's structured `output` (matching skill.output_schema)
-        when the loop terminated by answering; falls back to {error: ...}
-        when a rail tripped so downstream merger doesn't get a None.
+        Returns `(output, tokens_used)` so the caller can include the
+        token count on the skill_run summary row. The `output` matches
+        skill.output_schema when the loop terminated by answering; falls
+        back to {error: ...} when a rail tripped.
         """
         # Lazy import — keeps harness off the import path for legacy runs.
         from app.services.agents.harness import run_loop
@@ -157,11 +220,15 @@ class AgentGraphOrchestrator:
             organization_id=profile.organization_id,
             meeting_id=meeting_id,
             model=model,
+            run_id=run_id,
         )
         if result.stopped_reason != "answered":
-            return {
-                "error": f"harness stopped: {result.stopped_reason}",
-                "run_id": str(result.run_id),
-                "iterations": result.iterations,
-            }
-        return result.output
+            return (
+                {
+                    "error": f"harness stopped: {result.stopped_reason}",
+                    "run_id": str(result.run_id),
+                    "iterations": result.iterations,
+                },
+                result.tokens_used,
+            )
+        return result.output, result.tokens_used

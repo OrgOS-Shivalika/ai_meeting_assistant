@@ -90,13 +90,18 @@ def run_loop(
     max_iterations: int = MAX_ITERATIONS,
     token_budget: int = MAX_TOKENS_PER_LOOP,
     extra_system: str = "",
+    run_id: Optional[UUID] = None,
 ) -> HarnessResult:
     """Execute one tool-calling agent loop.
 
     Returns when the model emits a no-tool-calls message (it's "done")
     OR a rail trips (iteration / token budget exhausted).
+
+    `run_id` can be passed by the caller (e.g. the orchestrator that
+    also writes a `_skill_run` summary row); otherwise we mint one.
     """
-    run_id = audit.new_run_id()
+    if run_id is None:
+        run_id = audit.new_run_id()
     logger.info(
         f"[HARNESS] start run_id={run_id} skill={skill.id} meeting={meeting_id} "
         f"max_iter={max_iterations} token_budget={token_budget}"
@@ -335,7 +340,13 @@ def run_loop(
 
 
 def _compose_system_prompt(skill: SkillDefinition, extra: str) -> str:
+    # Anti-hallucination block + today's date — same guards the master
+    # analyzer carries. Without this, per-skill calls drifted into
+    # template-y output (see graph_orchestrator log Jun 25: model
+    # emitted "Congratulate the team on SOC 2" with due_date=2021-02-04).
+    from app.services.agents.skill_guards import skill_guard_block
     parts = [
+        skill_guard_block(),
         "You are an agent operating inside a meeting-intelligence platform.",
         "You have access to tools — call them as needed to fulfill the user's request.",
         "When you have enough information, reply with your final answer as JSON matching the skill's output schema.",

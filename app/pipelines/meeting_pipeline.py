@@ -153,6 +153,33 @@ class MeetingPipeline:
         db.commit()
 
     def save_tasks(self, db, meeting_id, tasks):
+        # Harness-aware short-circuit: if the action_items skill ran
+        # through the tool-calling harness, it ALREADY created tasks
+        # for this meeting via `create_task`. The master analyzer's
+        # `action_items` list (passed here) would then duplicate them
+        # — phrased slightly differently, so the per-text dedup below
+        # wouldn't always catch them. Skip when we see harness rows.
+        #
+        # Local import to keep models out of the pipeline's hot path
+        # for legacy callers that never touch the harness.
+        from app.db.models import AgentToolInvocation
+        harness_created = (
+            db.query(AgentToolInvocation.id)
+            .filter(
+                AgentToolInvocation.meeting_id == meeting_id,
+                AgentToolInvocation.tool_name == "create_task",
+                AgentToolInvocation.success.is_(True),
+            )
+            .first()
+        )
+        if harness_created is not None:
+            logger.info(
+                "save_tasks: skipping %d analyzer task(s) for meeting %s — "
+                "harness already created tasks via create_task.",
+                len(tasks), meeting_id,
+            )
+            return
+
         for t in tasks:
             task_text = t.get("task")
             if not task_text:
@@ -297,10 +324,15 @@ class MeetingPipeline:
             )
 
             # 2. Execute the Agent Graph
+            # meeting_id MUST be passed — the harness threads it through
+            # ToolContext to every tool. Without it, create_task can't
+            # resolve which meeting to attach the new task to and fails
+            # every call.
             result_obj = AgentGraphOrchestrator.run_meeting_analysis(
-                db, 
-                formatted, 
-                prof
+                db,
+                formatted,
+                prof,
+                meeting_id=meeting.id,
             )
 
             # result_obj is a typed ExtractionSummary instance

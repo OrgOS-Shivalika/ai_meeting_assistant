@@ -110,7 +110,10 @@ class PolicyResolver:
         }
 
         # 6. Connected Tools -> tools_and_integrations
-        allowed = ["search_knowledge_base"]
+        # Internal-only read/write tools are on by default. External
+        # integrations (slack/jira) gate on the intent toggles. Admins
+        # can still kill any of these via `denied_tools`.
+        allowed = ["search_knowledge_base", "lookup_meeting", "create_task", "update_task"]
         if intent.connected_tools.slack_enabled: allowed.append("slack_post")
         if intent.connected_tools.jira_enabled: allowed.append("jira_create_issue")
         

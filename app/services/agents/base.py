@@ -49,8 +49,12 @@ incident_agent = AgentOrchestrator(
 meeting_scrum_agent = AgentOrchestrator(
     id="meeting-scrum-agent",
     name="Meeting Scrum Orchestrator",
-    description="Coordinates summaries, action items, decisions, and agenda tracking.",
-    skills=["summaries", "action_items", "decisions", "sentiment_analysis", "agenda_tracking"]
+    description="Coordinates context research, summaries, action items, decisions, and agenda tracking.",
+    # `meeting_context_researcher` runs first so its brief is available
+    # to downstream skills via the harness audit log. It declares
+    # required_tools, so under harness_enabled=on it routes through
+    # run_loop() and writes invocations to agent_tool_invocations.
+    skills=["meeting_context_researcher", "summaries", "action_items", "decisions", "sentiment_analysis", "agenda_tracking"]
 )
 
 product_agent = AgentOrchestrator(
@@ -102,8 +106,12 @@ technical_analyst_agent = AgentOrchestrator(
 action_item_agent = AgentOrchestrator(
     id="action-item-manager",
     name="Action Item Orchestrator",
-    description="Legacy alias for action items.",
-    skills=["action_items"]
+    # Legacy alias kept so workspaces with this id in enabled_agents
+    # don't break, but its skill list is now empty — action_items now
+    # lives under meeting-scrum-agent only, otherwise the harness path
+    # would create tasks twice (once per agent) for the same skill.
+    description="Legacy alias for action items (de-duplicated — action_items now lives under meeting-scrum-agent).",
+    skills=[]
 )
 
 # ---------------------------------------------------------------------------

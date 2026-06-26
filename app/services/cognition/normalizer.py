@@ -1,5 +1,9 @@
-from typing import Dict, Any, List
+import logging
+from typing import Dict, Any, List, Optional
 from app.services.cognition.models import CognitionFragment
+
+logger = logging.getLogger(__name__)
+
 
 class CognitionNormalizer:
     """Translates raw skill outputs and agent results into standardized CognitionFragments."""
@@ -9,17 +13,56 @@ class CognitionNormalizer:
         """Maps varied keys from LLM output to standard schema keys."""
         if not isinstance(data, dict):
             return data
-            
+
         out = data.copy()
         for target_key, variants in mapping.items():
             if target_key in out and out[target_key]:
                 continue # Already has the correct key
-                
+
             for variant in variants:
                 if variant in out and out[variant]:
                     out[target_key] = out[variant]
                     break
         return out
+
+    @classmethod
+    def _ensure_required_field(
+        cls,
+        item: Dict[str, Any],
+        required_key: str,
+        skill_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Last-resort coercion when a skill returned a dict that's
+        missing the required field even after _map_keys.
+
+        Strategy: take the first non-empty string value in the dict
+        and use it as the required field's value. If no string-ish
+        value exists, drop the fragment entirely — better to lose one
+        item than crash the whole pipeline on pydantic validation.
+
+        Was added after a `decisions` skill run returned dicts shaped
+        like {proposal, status}, {focus, status}, {replication_issue,
+        status} — none of which matched DECISION_MAP variants, so the
+        ExtractionSummary build crashed with "decision: Field required".
+        """
+        if required_key in item and item[required_key]:
+            return item
+        for key, value in item.items():
+            if key == required_key:
+                continue
+            if isinstance(value, str) and value.strip():
+                logger.warning(
+                    "normalizer: skill=%s missing %r, coerced from %r=%r",
+                    skill_id, required_key, key, value[:80],
+                )
+                coerced = dict(item)
+                coerced[required_key] = value
+                return coerced
+        logger.warning(
+            "normalizer: skill=%s dropped malformed item (no usable string field): %r",
+            skill_id, list(item.keys()),
+        )
+        return None
 
     @classmethod
     def normalize_skill_results(cls, skill_results: Dict[str, Any]) -> List[CognitionFragment]:
@@ -44,20 +87,26 @@ class CognitionNormalizer:
 
             if "action_items" in result and isinstance(result["action_items"], list):
                 for item in result["action_items"]:
-                    # Robust key mapping for tasks
                     mapped_item = cls._map_keys(item, TASK_MAP) if isinstance(item, dict) else {"task": str(item)}
+                    mapped_item = cls._ensure_required_field(mapped_item, "task", skill_id) if isinstance(mapped_item, dict) else mapped_item
+                    if mapped_item is None:
+                        continue
                     fragments.append(CognitionFragment(type="action_item", content=mapped_item, source_skill=skill_id))
 
             if "decisions" in result and isinstance(result["decisions"], list):
                 for item in result["decisions"]:
-                    # Robust key mapping for decisions
                     mapped_item = cls._map_keys(item, DECISION_MAP) if isinstance(item, dict) else {"decision": str(item)}
+                    mapped_item = cls._ensure_required_field(mapped_item, "decision", skill_id) if isinstance(mapped_item, dict) else mapped_item
+                    if mapped_item is None:
+                        continue
                     fragments.append(CognitionFragment(type="decision", content=mapped_item, source_skill=skill_id))
 
             if "risks" in result and isinstance(result["risks"], list):
                 for item in result["risks"]:
-                    # Robust key mapping for risks
                     mapped_item = cls._map_keys(item, RISK_MAP) if isinstance(item, dict) else {"risk": str(item)}
+                    mapped_item = cls._ensure_required_field(mapped_item, "risk", skill_id) if isinstance(mapped_item, dict) else mapped_item
+                    if mapped_item is None:
+                        continue
                     fragments.append(CognitionFragment(type="risk", content=mapped_item, source_skill=skill_id))
 
                     
@@ -121,14 +170,23 @@ class CognitionNormalizer:
         
         for item in data.get("action_items") or []:
             mapped_item = cls._map_keys(item, TASK_MAP) if isinstance(item, dict) else {"task": str(item)}
+            mapped_item = cls._ensure_required_field(mapped_item, "task", source) if isinstance(mapped_item, dict) else mapped_item
+            if mapped_item is None:
+                continue
             fragments.append(CognitionFragment(type="action_item", content=mapped_item, source_skill=source))
-            
+
         for item in data.get("decisions") or []:
             mapped_item = cls._map_keys(item, DECISION_MAP) if isinstance(item, dict) else {"decision": str(item)}
+            mapped_item = cls._ensure_required_field(mapped_item, "decision", source) if isinstance(mapped_item, dict) else mapped_item
+            if mapped_item is None:
+                continue
             fragments.append(CognitionFragment(type="decision", content=mapped_item, source_skill=source))
-            
+
         for item in data.get("risks") or []:
             mapped_item = cls._map_keys(item, RISK_MAP) if isinstance(item, dict) else {"risk": str(item)}
+            mapped_item = cls._ensure_required_field(mapped_item, "risk", source) if isinstance(mapped_item, dict) else mapped_item
+            if mapped_item is None:
+                continue
             fragments.append(CognitionFragment(type="risk", content=mapped_item, source_skill=source))
             
         return fragments

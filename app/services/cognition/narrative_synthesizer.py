@@ -28,21 +28,37 @@ class NarrativeSynthesizer:
         for s in summaries:
             inputs.append(f"Skill: {s.source_skill} (Authority: {get_skill_authority(s.source_skill)}) | Content: {s.content}")
 
+        # The previous prompt asked for an "executive report" in
+        # "markdown format" — the model interpreted that as an invitation
+        # to add a template header with placeholders like
+        # "# Executive Meeting Summary Report / ## Date: [Insert Date]
+        # / ### Attendees: [Insert Attendee Names]". Those placeholders
+        # ended up in `meeting.summary` verbatim because we never inject
+        # date or attendees into this prompt — there's nothing for the
+        # model to fill them with.
+        #
+        # New prompt: ban headers, ban placeholders, demand a short
+        # plain-prose paragraph grounded in the fragments. Same shape
+        # the master analyzer's summary section asks for (2-3 sentences).
         prompt = f"""
-You are a senior executive assistant. Your task is to synthesize multiple meeting summary fragments into a single, cohesive, high-quality executive report.
+You merge multiple meeting summary fragments into ONE short, faithful narrative.
 
-Rules:
-1. Do NOT just concatenate the summaries.
-2. Use the "Master Analyzer" or high-authority skills as the primary narrative thread.
-3. Inject specialized domain insights from technical or compliance skills where relevant.
-4. Maintain a consistent, professional, and concise tone.
-5. The final output must be a single cohesive narrative (markdown format).
+Hard rules:
+- 2-4 sentences. Plain prose. No more.
+- NO headers, NO markdown (#, ##, ###), NO bullet lists, NO bold.
+- NEVER use placeholder tokens like "[Insert Date]", "[Date]",
+  "[Attendees]", "[Owner]", or any other fill-in-the-blank text.
+  If a value isn't in the fragments, just don't mention that field.
+- Do NOT invent facts. Only restate what the fragments say.
+- Lead with the master/analyzer fragment; add specialized insights
+  from other fragments only if they add new substance.
+- Past tense, third person, no opening boilerplate ("The meeting was
+  held to...", "Attendees gathered to discuss...").
 
 Input Fragments:
 {"\n".join(inputs)}
 
-Output:
-Provide only the final synthesized narrative.
+Output: just the paragraph. No preamble, no closing line.
 """
         try:
             client = _get_client()
