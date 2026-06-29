@@ -55,6 +55,13 @@ logger = setup_logger(__name__)
 MAX_ITERATIONS = 8
 MAX_TOKENS_PER_LOOP = 30_000
 PER_TOOL_TIMEOUT_SECONDS = 10
+# Retry-storm guard. If the SAME tool fails with the SAME error this
+# many times in a row, bail. Without this the model would happily
+# burn through max_iterations × token budget re-invoking a broken
+# tool with identical args (see meeting 4725 — 6 consecutive
+# create_task calls all failing the same schema check across 3
+# iterations before the loop hit max_iter naturally).
+MAX_SAME_FAILURE_REPEATS = 3
 DEFAULT_MODEL = "gpt-4o-mini"
 
 
@@ -68,7 +75,7 @@ class HarnessResult:
     iterations: int
     tokens_used: int
     tool_calls: int
-    stopped_reason: str  # "answered" | "max_iter" | "max_tokens" | "error"
+    stopped_reason: str  # "answered" | "max_iter" | "max_tokens" | "error" | "retry_storm"
     messages: list[dict] = field(default_factory=list)
 
 
@@ -137,6 +144,11 @@ def run_loop(
     client = _get_client()
     tokens_used = 0
     tool_call_count = 0
+    # Retry-storm tracker — keyed by (tool_name, error_message_prefix).
+    # Reset to 0 whenever ANY successful tool call lands OR a different
+    # (tool, error) shows up. So a model that's making real progress
+    # never trips it; a model stuck on the same broken arg burst does.
+    same_failure_count: dict[tuple[str, str], int] = {}
 
     for iteration in range(max_iterations):
         # --- Rail 2: token budget ---
@@ -217,6 +229,21 @@ def run_loop(
                 messages=messages,
             )
 
+        # Inline retry-storm tracker. Same (tool_name, error_prefix)
+        # firing N times in a row → bail out. Truncating the error
+        # message to 80 chars collapses suffix variance (line numbers,
+        # field names) so "schema: None is not of type 'string'" on
+        # different fields counts as the same storm.
+        def _bump_failure(tool_name: str, error_msg: str) -> bool:
+            key = (tool_name, (error_msg or "")[:80])
+            same_failure_count[key] = same_failure_count.get(key, 0) + 1
+            return same_failure_count[key] >= MAX_SAME_FAILURE_REPEATS
+
+        def _record_success() -> None:
+            same_failure_count.clear()
+
+        storm_hit = False
+
         # Dispatch each tool call. Per-call: validate, time-box,
         # audit-log the outcome, and feed the result back into messages.
         for tc in tool_calls:
@@ -227,7 +254,8 @@ def run_loop(
                 args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
             except json.JSONDecodeError as e:
                 args = {}
-                _append_tool_error(messages, tc.id, name, f"args were not valid JSON: {e}")
+                err_msg = f"args were not valid JSON: {e}"
+                _append_tool_error(messages, tc.id, name, err_msg)
                 audit.record_invocation(
                     db,
                     organization_id=organization_id,
@@ -241,11 +269,15 @@ def run_loop(
                     args={"_raw": raw_args[:500]},
                     error_message=str(e),
                 )
+                if _bump_failure(name, str(e)):
+                    storm_hit = True
+                    break
                 continue
 
             # --- Rail 5: deny-list at dispatch (defense in depth) ---
             validator = validators.get(name)
             if validator is None:
+                err_msg = "tool not in skill's allow-list"
                 _append_tool_error(messages, tc.id, name, f"tool {name!r} is not allowed for skill {skill.id}")
                 audit.record_invocation(
                     db,
@@ -258,14 +290,18 @@ def run_loop(
                     actor_user_id=actor_user_id,
                     skill_id=skill.id,
                     args=args,
-                    error_message="tool not in skill's allow-list",
+                    error_message=err_msg,
                 )
+                if _bump_failure(name, err_msg):
+                    storm_hit = True
+                    break
                 continue
 
             # --- Rail 4: arg validation ---
             try:
                 validator.validate(args)
             except ValidationError as e:
+                err_msg = f"schema: {e.message}"
                 _append_tool_error(messages, tc.id, name, f"args failed schema: {e.message}")
                 audit.record_invocation(
                     db,
@@ -278,8 +314,11 @@ def run_loop(
                     actor_user_id=actor_user_id,
                     skill_id=skill.id,
                     args=args,
-                    error_message=f"schema: {e.message}",
+                    error_message=err_msg,
                 )
+                if _bump_failure(name, err_msg):
+                    storm_hit = True
+                    break
                 continue
 
             # --- Rail 3: per-tool timeout (wall clock) ---
@@ -302,6 +341,7 @@ def run_loop(
                     duration_ms=duration_ms,
                 )
                 _append_tool_result(messages, tc.id, name, result)
+                _record_success()
             except Exception as e:
                 duration_ms = int((time.monotonic() - start) * 1000)
                 logger.warning(f"[HARNESS] tool {name} failed: {e}")
@@ -320,8 +360,26 @@ def run_loop(
                     duration_ms=duration_ms,
                 )
                 _append_tool_error(messages, tc.id, name, str(e))
+                if _bump_failure(name, str(e)):
+                    storm_hit = True
+                    break
 
         db.commit()  # Flush this iteration's audit rows; harness can resume.
+
+        if storm_hit:
+            logger.warning(
+                f"[HARNESS] retry storm — bailing run_id={run_id} after "
+                f"{MAX_SAME_FAILURE_REPEATS} repeated failures on the same tool"
+            )
+            return HarnessResult(
+                output=None,
+                run_id=run_id,
+                iterations=iteration + 1,
+                tokens_used=tokens_used,
+                tool_calls=tool_call_count,
+                stopped_reason="retry_storm",
+                messages=messages,
+            )
 
     # --- Rail 1: max iterations ---
     logger.warning(f"[HARNESS] max iterations reached run_id={run_id}")

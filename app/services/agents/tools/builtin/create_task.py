@@ -90,8 +90,15 @@ register(Tool(
             # or guess it. Pass it explicitly only when targeting a
             # different meeting than the active one (rare).
             "task": {"type": "string", "description": "Task description (what needs to be done)."},
-            "owner_name": {"type": "string", "description": "Optional owner name."},
-            "due_date": {"type": "string", "description": "Optional ISO 8601 date (YYYY-MM-DD)."},
+            # owner_name + due_date accept `null` explicitly — Sachiv's
+            # anti-hallucination rules tell the model to pass null when
+            # the transcript didn't name an owner or a date. Previously
+            # the schema was {"type":"string"} only, so a perfectly
+            # correct `null` failed validation and the harness looped
+            # (retry storm). Allowing null AND string lets the model do
+            # the right thing on the first try.
+            "owner_name": {"type": ["string", "null"], "description": "Owner name. Use null if not stated in the transcript."},
+            "due_date": {"type": ["string", "null"], "description": "ISO 8601 date (YYYY-MM-DD). Use null if no date was stated."},
             "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
         },
         "required": ["task"],

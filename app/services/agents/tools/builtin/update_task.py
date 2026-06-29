@@ -71,14 +71,17 @@ register(Tool(
         "type": "object",
         "properties": {
             "task_id": {"type": "integer", "description": "ID of the task to update."},
-            "owner_name": {"type": "string", "description": "New owner (or null/empty to unassign)."},
+            # owner_name + due_date allow null so the model can unassign
+            # or clear without tripping schema validation. The handler
+            # already does the right thing with None (lines above).
+            "owner_name": {"type": ["string", "null"], "description": "New owner. Pass null to unassign."},
             "status": {
                 "type": "string",
                 "enum": ["todo", "in_progress", "in_review", "done", "archived"],
                 "description": "New status. 'done' also marks the task complete.",
             },
             "priority": {"type": "string", "enum": ["low", "medium", "high"]},
-            "due_date": {"type": "string", "description": "ISO 8601 date or null to clear."},
+            "due_date": {"type": ["string", "null"], "description": "ISO 8601 date. Pass null to clear."},
         },
         "required": ["task_id"],
     },

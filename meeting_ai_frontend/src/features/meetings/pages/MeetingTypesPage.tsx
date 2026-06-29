@@ -223,10 +223,6 @@ export default function MeetingTypesPage() {
                   onClick={() => goToType(cat.id)}
                   className="group text-left bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all overflow-hidden"
                 >
-                  <div
-                    className="h-1.5 w-full"
-                    style={{ backgroundColor: cat.color || "#4F46E5" }}
-                  />
                   <div className="p-5">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex items-center gap-3 min-w-0">

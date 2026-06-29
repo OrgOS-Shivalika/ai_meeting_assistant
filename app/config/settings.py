@@ -133,9 +133,19 @@ class Settings:
     # Rerank weights — Phase 5 ships hand-tuned defaults. 5F's eval
     # harness learns better values; Phase 6 replaces these with a
     # learned scorer.
-    RAG_RERANK_W_SIMILARITY = float(os.getenv("RAG_RERANK_W_SIMILARITY", "0.7"))
+    #
+    # 2026-06-29 retune: bumped recency from 0.1 → 0.2 because /ask was
+    # routinely interleaving 30-day-old chunks with same-week ones at
+    # similar similarity (margin ~0.05 was too thin to survive vector
+    # noise). Pulled similarity from 0.7 → 0.6 to keep the total at 1.0.
+    # New behavior:
+    #   - High-similarity old beats moderate-similarity recent (correct)
+    #   - Tie / close similarity → recent wins decisively (intended)
+    #   - Old(sim=0.6) vs Recent(sim=0.5): recent now wins (was: old)
+    # Override via env if a workspace wants a different bias.
+    RAG_RERANK_W_SIMILARITY = float(os.getenv("RAG_RERANK_W_SIMILARITY", "0.6"))
     RAG_RERANK_W_ANCHOR = float(os.getenv("RAG_RERANK_W_ANCHOR", "0.2"))
-    RAG_RERANK_W_RECENCY = float(os.getenv("RAG_RERANK_W_RECENCY", "0.1"))
+    RAG_RERANK_W_RECENCY = float(os.getenv("RAG_RERANK_W_RECENCY", "0.2"))
 
     # ---------------------------------------------------------------------
     # Phase 6 — Importance scoring + reranking

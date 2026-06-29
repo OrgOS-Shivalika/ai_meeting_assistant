@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>imagine.bo — 18-Month Execution Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0D13; --bg2:#0E121A; --panel:#131826; --panel2:#192030;
+    --line:#262D3D; --line-soft:rgba(255,255,255,.06);
+    --ink:#ECEEF4; --ink2:#A8AFC0; --ink3:#7B8398;
+    --gold:#E0AE5A; --gold-soft:rgba(224,174,90,.13); --gold-line:rgba(224,174,90,.35);
+    --p1:#7E94CC; --p1-soft:rgba(126,148,204,.12);
+    --p2:#56AEB8; --p2-soft:rgba(86,174,184,.12);
+    --p3:#E0AE5A; --p3-soft:rgba(224,174,90,.12);
+    --pos:#5FB888; --neg:#D6776E;
+    --sans:"Inter",system-ui,sans-serif;
+    --disp:"Space Grotesk","Inter",sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --nav-w:256px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:15px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  body::before{ /* ambient top glow, very subtle */
+    content:"";position:fixed;inset:0 0 auto 0;height:420px;pointer-events:none;z-index:0;
+    background:radial-gradient(120% 100% at 78% -10%, rgba(224,174,90,.10), transparent 60%);
+  }
+  a{color:inherit;text-decoration:none}
+  .mono{font-family:var(--mono)}
+
+  /* ---------- layout ---------- */
+  .wrap{display:flex;min-height:100vh;position:relative;z-index:1}
+  .nav{
+    width:var(--nav-w);flex:0 0 var(--nav-w);position:sticky;top:0;height:100vh;
+    border-right:1px solid var(--line);padding:30px 22px;display:flex;flex-direction:column;gap:26px;
+    background:linear-gradient(180deg,var(--bg2),var(--bg));
+  }
+  .brand{display:flex;flex-direction:column;gap:9px}
+  .brand .logo{font-family:var(--disp);font-weight:700;font-size:18px;letter-spacing:-.01em}
+  .brand .logo b{color:var(--gold);font-weight:700}
+  .brand .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink3);line-height:1.5}
+  .toc{display:flex;flex-direction:column;gap:1px;margin-top:2px}
+  .toc a{
+    display:flex;gap:12px;align-items:baseline;padding:8px 11px;border-radius:8px;
+    color:var(--ink2);font-size:13.5px;transition:background .18s,color .18s;
+  }
+  .toc a .n{font-family:var(--mono);font-size:11px;color:var(--ink3);min-width:20px;transition:color .18s}
+  .toc a:hover{background:var(--panel);color:var(--ink)}
+  .toc a.is-active{background:var(--gold-soft);color:var(--ink)}
+  .toc a.is-active .n{color:var(--gold)}
+  .nav .foot{margin-top:auto;font-family:var(--mono);font-size:10px;color:var(--ink3);line-height:1.7;letter-spacing:.02em}
+
+  .main{flex:1 1 auto;min-width:0;padding:0 clamp(20px,5vw,76px)}
+  .col{max-width:940px;margin:0 auto}
+
+  /* ---------- hero ---------- */
+  .hero{padding:84px 0 30px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);margin:0 0 20px}
+  h1{font-family:var(--disp);font-weight:700;font-size:clamp(34px,5.4vw,58px);line-height:1.02;letter-spacing:-.025em;margin:0}
+  h1 .light{color:var(--ink2);font-weight:400}
+  .lede{font-size:clamp(16px,2vw,19px);color:var(--ink2);max-width:760px;margin:22px 0 0;line-height:1.55}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .readout{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin:42px 0 8px;
+    border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--line-soft);
+  }
+  .metric{background:var(--bg2);padding:20px 22px}
+  .metric .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:9px}
+  .metric .val{font-family:var(--disp);font-weight:600;font-size:25px;letter-spacing:-.01em;line-height:1.05}
+  .metric .val .ar{color:var(--ink3);font-weight:400;margin:0 5px}
+  .metric .val .accent{color:var(--gold)}
+  .metric .sub{font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:6px}
+
+  /* ---------- chart (signature) ---------- */
+  .chart-card{margin:30px 0 8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,var(--panel),var(--bg2));padding:22px 22px 12px}
+  .chart-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .chart-title{font-family:var(--disp);font-weight:600;font-size:16px}
+  .chart-sub{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-top:3px}
+  .legend{display:flex;gap:16px;font-family:var(--mono);font-size:11px;color:var(--ink2);align-items:center;flex-wrap:wrap}
+  .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:7px;vertical-align:middle}
+  .legend .s i{background:var(--gold)} .legend .m i{background:var(--p2);height:0;border-top:2px dashed var(--p2);width:16px}
+  svg{display:block;width:100%;height:auto}
+  .ph-tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;fill:var(--ink3);text-transform:uppercase}
+
+  /* ---------- sections ---------- */
+  section{padding:54px 0;border-top:1px solid var(--line);scroll-margin-top:18px}
+  .sec-head{margin-bottom:26px}
+  .sec-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3);display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .sec-eyebrow .num{color:var(--gold)}
+  .sec-eyebrow .rule{flex:1;height:1px;background:var(--line)}
+  h2{font-family:var(--disp);font-weight:600;font-size:clamp(23px,3vw,31px);letter-spacing:-.02em;margin:0;line-height:1.12}
+  h3{font-family:var(--disp);font-weight:600;font-size:17px;letter-spacing:-.01em;margin:30px 0 12px}
+  p{margin:0 0 14px}
+  .muted{color:var(--ink2)}
+  strong{color:var(--ink);font-weight:600}
+  em{color:var(--gold);font-style:normal;font-weight:500} /* emphasis as accent, not italic */
+
+  /* ---------- tables ---------- */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:18px 0;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+  thead th{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);
+    text-align:left;padding:13px 15px;border-bottom:1px solid var(--line);background:var(--bg2);white-space:nowrap;vertical-align:bottom;font-weight:500;
+  }
+  tbody td{padding:12px 15px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink2)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:rgba(255,255,255,.018)}
+  td .ag{font-family:var(--mono);font-size:12.5px;color:var(--gold);font-weight:500;white-space:nowrap}
+  td.num,th.num{font-family:var(--mono);text-align:right;white-space:nowrap;color:var(--ink)}
+  .pos{color:var(--pos);font-family:var(--mono)} .neg{color:var(--neg);font-family:var(--mono)}
+  .row-flag td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
+  .strong-row td{background:rgba(224,174,90,.05)}
+  .strong-row td{color:var(--ink)}
+  caption{caption-side:bottom;text-align:left;font-family:var(--mono);font-size:11px;color:var(--ink3);padding:11px 15px;line-height:1.6}
+  .ph-pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;white-space:nowrap;display:inline-block}
+  .ph-pill.p1{background:var(--p1-soft);color:var(--p1)} .ph-pill.p2{background:var(--p2-soft);color:var(--p2)} .ph-pill.p3{background:var(--p3-soft);color:var(--p3)}
+
+  /* ---------- callouts ---------- */
+  .callout{border-radius:12px;padding:17px 20px;margin:18px 0;border:1px solid var(--line);background:var(--panel2);font-size:14px}
+  .callout .ttl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:9px}
+  .callout .ttl::before{content:"";width:7px;height:7px;border-radius:50%}
+  .callout p:last-child{margin-bottom:0}
+  .c-flag{border-color:var(--gold-line);background:linear-gradient(180deg,var(--gold-soft),transparent)}
+  .c-flag .ttl{color:var(--gold)} .c-flag .ttl::before{background:var(--gold)}
+  .c-unlock{border-color:rgba(95,184,136,.4);background:linear-gradient(180deg,rgba(95,184,136,.10),transparent)}
+  .c-unlock .ttl{color:var(--pos)} .c-unlock .ttl::before{background:var(--pos)}
+  .c-decision{border-color:rgba(86,174,184,.4);background:linear-gradient(180deg,rgba(86,174,184,.10),transparent)}
+  .c-decision .ttl{color:var(--p2)} .c-decision .ttl::before{background:var(--p2)}
+
+  /* ---------- phase blocks ---------- */
+  .phase{border:1px solid var(--line);border-radius:14px;padding:24px 24px 22px;margin:20px 0;background:var(--panel);border-top:3px solid var(--pc)}
+  .phase.p1{--pc:var(--p1)} .phase.p2{--pc:var(--p2)} .phase.p3{--pc:var(--p3)}
+  .phase-top{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  .phase-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--pc)}
+  .phase h3{margin:6px 0 0;font-size:19px}
+  .phase-delta{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--bg2);border:1px solid var(--line);padding:6px 12px;border-radius:8px;white-space:nowrap}
+  .phase-delta b{color:var(--pc)}
+  .obj{color:var(--ink2);margin:14px 0 16px}
+  .blk{margin:14px 0}
+  .blk .h{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
+  .seq{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+  .seq li{padding-left:64px;position:relative;font-size:13.5px;color:var(--ink2)}
+  .seq li .m{position:absolute;left:0;top:1px;font-family:var(--mono);font-size:11px;color:var(--pc);font-weight:500}
+  .hires{display:flex;flex-wrap:wrap;gap:7px}
+  .hires span{font-family:var(--mono);font-size:11.5px;background:var(--bg2);border:1px solid var(--line);border-radius:7px;padding:4px 9px;color:var(--ink2)}
+  .gate{border:1px dashed var(--gold-line);background:var(--gold-soft);border-radius:10px;padding:14px 16px;margin-top:14px;font-size:13.5px}
+  .gate .h{color:var(--gold)}
+
+  /* ---------- agent index inline ---------- */
+  .ag-i{font-family:var(--mono);color:var(--gold);font-weight:500}
+
+  /* ---------- thesis ---------- */
+  .thesis{font-family:var(--disp);font-weight:400;font-size:clamp(19px,2.6vw,25px);line-height:1.45;letter-spacing:-.01em;color:var(--ink);max-width:880px}
+  .thesis b{font-weight:600;color:var(--gold)}
+  .endnote{margin-top:40px;padding-top:22px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--ink3);letter-spacing:.03em}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:1000px){
+    .wrap{flex-direction:column}
+    .nav{position:sticky;top:0;height:auto;width:100%;flex:0 0 auto;flex-direction:column;gap:14px;padding:16px 18px;z-index:30;
+      background:rgba(10,13,19,.92);backdrop-filter:blur(12px);border-right:0;border-bottom:1px solid var(--line)}
+    .nav .foot{display:none}
+    .brand{flex-direction:row;justify-content:space-between;align-items:center}
+    .brand .tag{display:none}
+    .toc{flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+    .toc a{white-space:nowrap;padding:7px 12px}
+    .toc a .n{display:none}
+    .hero{padding:42px 0 18px}
+    .readout{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:560px){
+    .readout{grid-template-columns:1fr}
+    .metric .val{font-size:22px}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+    .reveal.in{opacity:1;transform:none}
+  }
+  :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- SIDEBAR -->
+  <nav class="nav" aria-label="Contents">
+    <div class="brand">
+      <span class="logo"><b>imagine</b>.bo</span>
+      <span class="tag">18-Month Execution Plan<br>DSA-led · v3</span>
+    </div>
+    <div class="toc" id="toc">
+      <a href="#s0"><span class="n">00</span><span>The two numbers</span></a>
+      <a href="#s1"><span class="n">01</span><span>System architecture</span></a>
+      <a href="#s2"><span class="n">02</span><span>18-month trajectory</span></a>
+      <a href="#s3"><span class="n">03</span><span>Phase execution</span></a>
+      <a href="#s4"><span class="n">04</span><span>Unit economics</span></a>
+      <a href="#s5"><span class="n">05</span><span>Human capacity</span></a>
+      <a href="#s6"><span class="n">06</span><span>KPIs</span></a>
+      <a href="#s7"><span class="n">07</span><span>Decisions</span></a>
+      <a href="#s8"><span class="n">08</span><span>Thesis</span></a>
+    </div>
+    <div class="foot">Constraints: capital + human capacity<br>Engine: DSAs · Horizon: 18 months</div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+   <div class="col">
+
+    <!-- HERO -->
+    <header class="hero">
+      <p class="eyebrow">imagine.bo · Go-to-market operating plan</p>
+      <h1>Build the machine,<br><span class="light">not the customer base.</span></h1>
+      <p class="lede">An 18-month path to <b>50,000 engaged sellers</b> through a network of <b>DSAs</b> — firms with their own salaried teams, led by the lending-DSA network you're already building the HDFC agent for. Ten agent-default nodes; a team that stays at 26 because the DSAs supervise their own people.</p>
+
+      <div class="readout">
+        <div class="metric"><div class="lab">Engaged sellers · M18</div><div class="val">40<span class="ar">→</span><span class="accent">50,000</span></div><div class="sub">= DSA employees selling</div></div>
+        <div class="metric"><div class="lab">Active SMBs · M18</div><div class="val">16<span class="ar">→</span><span class="accent">~100K</span></div><div class="sub">2.5M by ~M30–36</div></div>
+        <div class="metric"><div class="lab">Cash-flow breakeven</div><div class="val"><span class="accent">~M11–12</span></div><div class="sub">payouts scale behind revenue</div></div>
+        <div class="metric"><div class="lab">Total external GTM</div><div class="val">~<span class="accent">₹28–38M</span></div><div class="sub">≈ $340–460K of the seed</div></div>
+        <div class="metric"><div class="lab">imagine.bo headcount</div><div class="val"><span class="accent">26</span><span class="ar">@</span>scale</div><div class="sub">DSAs self-manage sellers</div></div>
+        <div class="metric"><div class="lab">Contribution · per SMB</div><div class="val">₹<span class="accent">218</span><span class="ar">·</span>Y1</div><div class="sub">₹362 (75%) Year 2+</div></div>
+      </div>
+
+      <!-- SIGNATURE CHART -->
+      <div class="chart-card reveal" id="chartCard">
+        <div class="chart-head">
+          <div>
+            <div class="chart-title">18-month trajectory</div>
+            <div class="chart-sub">cumulative · phase bands warm toward profitability · breakeven marked</div>
+          </div>
+          <div class="legend">
+            <span class="s"><i></i>Engaged sellers</span>
+            <span class="m"><i></i>Active SMBs</span>
+          </div>
+        </div>
+        <svg id="traj" viewBox="0 0 920 400" role="img" aria-label="Trajectory of engaged sellers and active SMBs across 18 months, with cash-flow breakeven near month 11.">
+          <defs>
+            <linearGradient id="gSell" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#E0AE5A" stop-opacity=".34"/>
+              <stop offset="100%" stop-color="#E0AE5A" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <g id="bands"></g>
+          <g id="grid"></g>
+          <path id="area" fill="url(#gSell)" stroke="none"></path>
+          <path id="lineSmb" fill="none" stroke="#56AEB8" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"></path>
+          <path id="lineSell" fill="none" stroke="#E0AE5A" stroke-width="2.4" stroke-linecap="round"></path>
+          <g id="marks"></g>
+        </svg>
+      </div>
+    </header>
+
+    <!-- SECTION 0 -->
+    <section id="s0">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">00</span> The two numbers that govern everything <span class="rule"></span></div>
+        <h2>50K sellers is the lever. 2.5M SMBs is the yield.</h2>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Milestone</th><th class="num">Target</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td>Engaged sellers <span class="muted">(DSA employees actively selling)</span></td><td class="num">50,000</td><td><strong>Month 18</strong></td></tr>
+            <tr><td>Active SMBs <span class="muted">(on-platform, paying)</span></td><td class="num">~100,000</td><td>Month 18</td></tr>
+            <tr><td>Active SMBs → 2.5M</td><td class="num">2,500,000</td><td><strong>~Month 30–36</strong> — as the base matures at ~50 SMBs/seller</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">Read this first: 50K sellers is the M18 lever. <em>2.5M SMBs is not an M18 outcome</em> — it is the downstream yield of a mature selling base. We build the machine (DSAs + 50K sellers) by M18; the machine produces 2.5M over the following 12–18 months.</p>
+
+      <h3>The structural shift — solving both constraints</h3>
+      <p class="muted"><strong>Today:</strong> ₹4,000 paid → 5 engaged partners = <strong>₹800 CAC/partner</strong>, paid upfront.</p>
+      <p class="muted"><strong>DSA model:</strong> you sign a <strong>DSA firm</strong>, and its existing salaried sellers become your engaged sellers <em>on day one</em> — no per-seller acquisition cost, no training-from-zero. You pay the DSA commission on production; <strong>the DSA pays and manages its own employees.</strong> Upfront seller-CAC → near zero, and the DSA's management layer absorbs supervision that would otherwise need imagine.bo headcount.</p>
+      <div class="callout c-unlock">
+        <div class="ttl">Highest-leverage move</div>
+        <p>The DSAs you're already building the HDFC lending agent for <strong>are the same firms</strong> — established sales teams with warm SMB books. Same agent, same customer, second product (website + loan). Recruit that network first.</p>
+      </div>
+    </section>
+
+    <!-- SECTION 1 -->
+    <section id="s1">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">01</span> System architecture <span class="rule"></span></div>
+        <h2>Ten nodes — each an agent layer and a human layer.</h2>
+      </div>
+      <p class="muted">Deterministic-first (~85% code / ~15% LLM), MAO orchestration. One meta-orchestrator, <span class="ag-i">Sutradhaar</span>, sequences hand-offs across nodes with typed schemas. Two leverage axes: <strong>supply</strong> (sign DSAs → their sellers sell) and <strong>demand</strong> (referral loop compounds SMBs).</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Node</th><th>Agent</th><th>What the agent does</th><th>Human layer</th><th>Human is for</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Awareness &amp; demand</td><td><span class="ag">Prachar</span></td><td>Det: budget rules, audience splits, A/B of the two hooks. LLM: creative, copy.</td><td>Growth lead</td><td>Spend ceilings, weekly review</td></tr>
+            <tr class="row-flag"><td class="num">2</td><td><strong>DSA recruitment</strong></td><td><span class="ag">Setu</span></td><td>Det: source DSA firms via Apollo/Clay → enrich → ICP-score → sequence → book call. LLM: personalisation.</td><td><strong>Partnerships BD</strong></td><td><strong>Close the DSA contract, set payout tier, sign</strong> — the one irreplaceable function</td></tr>
+            <tr><td class="num">3</td><td>Seller onboarding</td><td><span class="ag">Diksha</span></td><td>Det: cohort-onboard a DSA's whole team — webinar, certification, dashboard, drip. LLM: live Q&amp;A.</td><td>DSA Account Mgr</td><td>Support the DSA's own managers, who drive first-sale ≤14d</td></tr>
+            <tr><td class="num">4</td><td>Lead gen &amp; distribution</td><td><span class="ag">Khoj</span></td><td>Det: ingest leads, qualify, route by geo/vertical, enforce 30-day give-then-earn. LLM: intent scoring.</td><td>Lead ops</td><td>Disputes, quality audit</td></tr>
+            <tr><td class="num">5</td><td>SMB engagement</td><td><span class="ag">Sampark</span></td><td>Det: FSM shows templates, captures name/intent/company/phone/email, emits typed build-spec.</td><td>DSA seller</td><td>Discovery call (AI-assisted)</td></tr>
+            <tr><td class="num">6</td><td>Build &amp; iterate</td><td><span class="ag">Nirmaan</span></td><td>Det: template assembly, one feedback loop. LLM: copy/section generation. Core engine.</td><td>Build QA</td><td>Edge-case review</td></tr>
+            <tr class="row-flag"><td class="num">7</td><td><strong>Conversion / paywall</strong></td><td><span class="ag">Sauda</span></td><td>Det: paywall logic, dynamic offers, payment links, follow-up. LLM: WhatsApp objection handling. <strong>Owns the paywall-drop-off fix.</strong></td><td>DSA seller</td><td>High-value close, escalation</td></tr>
+            <tr><td class="num">8</td><td>Deployment</td><td><span class="ag">Tainat</span></td><td>Det: deploy, DNS, credentials, live-check, trigger onboarding.</td><td>Support</td><td>Technical edge cases</td></tr>
+            <tr class="row-flag"><td class="num">9</td><td><strong>Referral / network effect</strong></td><td><span class="ag">Chakra</span></td><td>Det: 1-month-free referral tracking, route referred lead back to originating seller, gamify.</td><td>Community mgr</td><td>Nurture top sellers/DSAs</td></tr>
+            <tr><td class="num">10</td><td>Retention &amp; expansion</td><td><span class="ag">Vriddhi</span></td><td>Det: churn signals, upsell triggers (Debut→Growth→Enterprise), DSA tier graduation.</td><td>Account mgmt</td><td>Top DSAs + top SMBs</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout c-flag">
+        <div class="ttl">Why the paywall node is flagged</div>
+        <p>Your seed analysis found a 100% paywall drop-off (paywall fired before value). The build-then-paywall sequence fixes the <em>ordering</em>; <span class="ag-i">Sauda</span> must convert it. Target: 0% → 30%+ paywall-pass by M6.</p>
+      </div>
+    </section>
+
+    <!-- SECTION 2 -->
+    <section id="s2">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">02</span> 18-month trajectory <span class="rule"></span></div>
+        <h2>The master table behind the curve.</h2>
+      </div>
+      <p class="muted">Visualised in the trajectory at the top. Engaged sellers follow an S-curve; SMBs lag the ramp; team stays lean because DSAs self-manage; cash crosses breakeven ~M11–12.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th class="num">M</th><th>Phase</th><th class="num">Sellers</th><th class="num">Net-new</th><th class="num">DSAs</th><th class="num">SMBs</th><th class="num">Team</th><th class="num">Net cash/mo</th></tr></thead>
+          <tbody>
+            <tr><td class="num">0</td><td>—</td><td class="num">40</td><td class="num">—</td><td class="num">0</td><td class="num">16</td><td class="num">3</td><td class="num">baseline</td></tr>
+            <tr><td class="num">1</td><td><span class="ph-pill p1">I Foundation</span></td><td class="num">80</td><td class="num">40</td><td class="num">2</td><td class="num">30</td><td class="num">5</td><td class="num neg">−12L</td></tr>
+            <tr><td class="num">2</td><td><span class="ph-pill p1">I</span></td><td class="num">150</td><td class="num">70</td><td class="num">5</td><td class="num">60</td><td class="num">7</td><td class="num neg">−15L</td></tr>
+            <tr><td class="num">3</td><td><span class="ph-pill p1">I</span></td><td class="num">300</td><td class="num">150</td><td class="num">10</td><td class="num">130</td><td class="num">9</td><td class="num neg">−17L</td></tr>
+            <tr><td class="num">4</td><td><span class="ph-pill p1">I</span></td><td class="num">550</td><td class="num">250</td><td class="num">20</td><td class="num">280</td><td class="num">11</td><td class="num neg">−19L</td></tr>
+            <tr><td class="num">5</td><td><span class="ph-pill p1">I</span></td><td class="num">1,000</td><td class="num">450</td><td class="num">35</td><td class="num">550</td><td class="num">12</td><td class="num neg">−21L</td></tr>
+            <tr><td class="num">6</td><td><span class="ph-pill p1">I</span></td><td class="num">1,800</td><td class="num">800</td><td class="num">60</td><td class="num">1,200</td><td class="num">13</td><td class="num neg">−21L</td></tr>
+            <tr><td class="num">7</td><td><span class="ph-pill p2">II Scale</span></td><td class="num">3,000</td><td class="num">1,200</td><td class="num">100</td><td class="num">2,200</td><td class="num">14</td><td class="num neg">−19L</td></tr>
+            <tr><td class="num">8</td><td><span class="ph-pill p2">II</span></td><td class="num">4,800</td><td class="num">1,800</td><td class="num">150</td><td class="num">3,800</td><td class="num">16</td><td class="num neg">−15L</td></tr>
+            <tr><td class="num">9</td><td><span class="ph-pill p2">II</span></td><td class="num">7,200</td><td class="num">2,400</td><td class="num">230</td><td class="num">6,000</td><td class="num">17</td><td class="num neg">−9L</td></tr>
+            <tr><td class="num">10</td><td><span class="ph-pill p2">II</span></td><td class="num">10,500</td><td class="num">3,300</td><td class="num">340</td><td class="num">9,000</td><td class="num">19</td><td class="num neg">−3L</td></tr>
+            <tr class="strong-row"><td class="num">11</td><td><span class="ph-pill p2">II</span></td><td class="num">14,500</td><td class="num">4,000</td><td class="num">480</td><td class="num">13,000</td><td class="num">20</td><td class="num pos">+5L</td></tr>
+            <tr><td class="num">12</td><td><span class="ph-pill p2">II</span></td><td class="num">19,000</td><td class="num">4,500</td><td class="num">650</td><td class="num">18,000</td><td class="num">21</td><td class="num pos">+13L</td></tr>
+            <tr><td class="num">13</td><td><span class="ph-pill p3">III Compound</span></td><td class="num">24,000</td><td class="num">5,000</td><td class="num">850</td><td class="num">26,000</td><td class="num">22</td><td class="num pos">+24L</td></tr>
+            <tr><td class="num">14</td><td><span class="ph-pill p3">III</span></td><td class="num">29,500</td><td class="num">5,500</td><td class="num">1,050</td><td class="num">36,000</td><td class="num">23</td><td class="num pos">+38L</td></tr>
+            <tr><td class="num">15</td><td><span class="ph-pill p3">III</span></td><td class="num">35,000</td><td class="num">5,500</td><td class="num">1,200</td><td class="num">48,000</td><td class="num">24</td><td class="num pos">+54L</td></tr>
+            <tr><td class="num">16</td><td><span class="ph-pill p3">III</span></td><td class="num">41,000</td><td class="num">6,000</td><td class="num">1,350</td><td class="num">62,000</td><td class="num">25</td><td class="num pos">+74L</td></tr>
+            <tr><td class="num">17</td><td><span class="ph-pill p3">III</span></td><td class="num">46,000</td><td class="num">5,000</td><td class="num">1,450</td><td class="num">80,000</td><td class="num">25</td><td class="num pos">+98L</td></tr>
+            <tr class="strong-row"><td class="num">18</td><td><span class="ph-pill p3">III</span></td><td class="num">50,000+</td><td class="num">4,000+</td><td class="num">1,550</td><td class="num">~100,000</td><td class="num">26</td><td class="num pos">+125L</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">Blended ratio at maturity: <em>~32 sellers per DSA</em> (large lending-DSA networks carry 50–100+; small ones 10–20). Landing bigger DSAs compresses the count needed — 50K sellers could come from ~700 large DSAs or ~2,000 small ones. The imagine.bo team is <strong>smaller</strong> than a channel-of-individuals model (26 vs 28) because DSAs supervise their own people.</p>
+    </section>
+
+    <!-- SECTION 3 -->
+    <section id="s3">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">03</span> Phase execution <span class="rule"></span></div>
+        <h2>Three phases — prove, scale, compound.</h2>
+      </div>
+
+      <!-- PHASE I -->
+      <div class="phase p1">
+        <div class="phase-top">
+          <div><div class="phase-eyebrow">Phase I · M1–M6</div><h3>Foundation &amp; Proof</h3></div>
+          <div class="phase-delta"><b>40 → 1,800</b> sellers</div>
+        </div>
+        <p class="obj"><strong>Objective:</strong> build the agent stack, sign the first ~60 DSAs (lead with the HDFC lending-DSA network), prove one DSA-onboarding playbook is repeatable. Do <em>not</em> scale spend until the playbook converts.</p>
+        <div class="blk"><div class="h">Node build sequence</div>
+          <ul class="seq">
+            <li><span class="m">M1–2</span>Stand up <span class="ag-i">Setu</span> (sourcing lending/insurance DSA firms) + <span class="ag-i">Diksha</span> (cohort onboarding — a DSA's whole team in one batch). First 2–5 anchor DSAs signed by founders, prioritising the HDFC DSA orbit.</li>
+            <li><span class="m">M2–3</span><span class="ag-i">Sampark</span> FSM live (template-show → capture). <span class="ag-i">Nirmaan</span> wired to one-iteration loop. <span class="ag-i">Sauda</span> v1 paywall with payment links — kill the pre-value paywall.</li>
+            <li><span class="m">M4–5</span><span class="ag-i">Khoj</span> lead-distribution live (30-day give-then-earn enforced). <span class="ag-i">Chakra</span> referral loop instrumented.</li>
+            <li><span class="m">M6</span><span class="ag-i">Tainat</span> + <span class="ag-i">Vriddhi</span> v1. <span class="ag-i">Sutradhaar</span> runs the full chain end-to-end for one DSA cohort, no manual hand-offs.</li>
+          </ul>
+        </div>
+        <div class="blk"><div class="h">DSA motion — the engine</div>
+          <p class="muted">Founders + first BD hire close DSA firms face-to-face. Offer = production payout (§04) + co-branded enablement + a ready agent stack their sellers plug into. Sign agreements, not handshakes. Each anchor commits its team + a target (a 15-seller DSA → 30+ SMBs in 90 days). The DSA's managers run their own people.</p>
+        </div>
+        <div class="blk"><div class="h">Hiring → 13</div>
+          <div class="hires"><span>+1 Partnerships BD</span><span>+1 DSA Account Mgr</span><span>+1 Growth/Ads</span><span>+1 Build QA</span><span>+1 Eng</span><span>+1 Content</span><span>+1 Lead ops</span><span>+1 Support</span></div>
+        </div>
+        <div class="blk"><div class="h">Capital</div><p class="muted">~₹8–11M for the phase. Ads ramp ₹1L→5L/mo, targeted at DSA-firm decision-makers + SMB awareness their sellers leverage.</p></div>
+        <div class="gate"><div class="h" style="font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px">Exit gate — pass before Phase II</div>(1) paywall-pass ≥25%; (2) ≥3 DSAs producing without founder involvement; (3) referral loop ≥15% of new SMB leads; (4) one DSA fully self-onboarded via <span class="ag-i">Diksha</span>. If not met, hold spend and fix the leaking node.</div>
+      </div>
+
+      <!-- PHASE II -->
+      <div class="phase p2">
+        <div class="phase-top">
+          <div><div class="phase-eyebrow">Phase II · M7–M12</div><h3>Scale the DSA Network</h3></div>
+          <div class="phase-delta"><b>1,800 → 19,000</b> sellers</div>
+        </div>
+        <p class="obj"><strong>Objective:</strong> replicate the proven onboarding playbook at volume; land larger regional lending-DSA networks; let agents + DSA self-management absorb the load so imagine.bo headcount barely moves.</p>
+        <div class="blk"><div class="h">Node scaling</div>
+          <ul class="seq">
+            <li><span class="m">Setu</span>Fully automated DSA-firm sourcing; founders exit. Two supply levers in parallel: <strong>(a)</strong> sign more DSAs, <strong>(b)</strong> help existing DSAs add seller headcount.</li>
+            <li><span class="m">Diksha</span>On-demand + multi-cohort onboarding; a new DSA's full team self-onboards in days.</li>
+            <li><span class="m">Sauda+Chakra</span>Compounding starts — referral-sourced SMBs hit 25–35% of closures. Referred lead auto-routes to the originating seller in minutes.</li>
+            <li><span class="m">Vriddhi</span>DSA tier graduation (Bronze→Platinum by production); higher tiers unlock better payout/lead priority, pulling DSAs to grow their seller count.</li>
+          </ul>
+        </div>
+        <div class="blk"><div class="h">DSA motion</div><p class="muted">Move upmarket — land large regional lending-DSA networks (50–100+ sellers each) so seller count compounds per signing. ~650 DSAs by M12. Productise the DSA kit so onboarding a firm is near-zero marginal human time.</p></div>
+        <div class="blk"><div class="h">Hiring → 21</div><div class="hires"><span>+1 Partnerships BD</span><span>+2 DSA Account Mgr</span><span>+1 Eng</span><span>+1 Community</span><span>+1 Growth</span></div></div>
+        <div class="blk"><div class="h">Discipline check</div><p class="muted">5K → 19K sellers on <strong>+8 heads</strong> — the DSA-self-management thesis proving out (vs +10 in the individual-channel model). <strong>Breakeven ~M11–12.</strong></p></div>
+        <div class="gate"><div class="h" style="font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px">Exit gate</div>(1) breakeven crossed; (2) referral loop ≥30% of new leads; (3) ≥10 large DSAs (50+ sellers) live; (4) CAC-payback per SMB &lt;3 months.</div>
+      </div>
+
+      <!-- PHASE III -->
+      <div class="phase p3">
+        <div class="phase-top">
+          <div><div class="phase-eyebrow">Phase III · M13–M18</div><h3>Compound &amp; Optimise</h3></div>
+          <div class="phase-delta"><b>19,000 → 50,000+</b> sellers</div>
+        </div>
+        <p class="obj"><strong>Objective:</strong> referral flywheel + DSAs scaling their own headcount do the lifting; imagine.bo optimises rather than pushes. Geographic + vertical expansion.</p>
+        <div class="blk"><div class="h">Node optimisation</div>
+          <ul class="seq">
+            <li><span class="m">Chakra</span>Referral loop drives &gt;40% of new SMBs. Supply growth shifts to existing DSAs hiring more sellers (cheaper than net-new firms). The flywheel, not paid spend, is primary.</li>
+            <li><span class="m">Khoj+Vriddhi</span>Shift to quality + retention — churn control matters more than raw adds; upsell lifts ARPU and Year-1 margin.</li>
+            <li><span class="m">Prachar</span>Reallocate ad budget from acquisition to brand + reactivation of dormant sellers.</li>
+          </ul>
+        </div>
+        <div class="blk"><div class="h">DSA motion</div><p class="muted">Vertical playbooks (retail, services, F&amp;B, professional services) and regional expansion into tier-2/3 cities, where ₹16/day lands hardest and lending DSAs are dense.</p></div>
+        <div class="blk"><div class="h">Hiring → 26</div><div class="hires"><span>+1 Eng</span><span>+2 Account/DSA mgmt</span><span>+1 Data/analytics</span><span>flat after M16</span></div></div>
+        <div class="blk"><div class="h">Capital</div><p class="muted">Self-funding; positive cash funds the push toward 2.5M SMBs post-M18.</p></div>
+        <div class="gate"><div class="h" style="font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px">Exit</div>50,000+ engaged sellers; ~100K active SMBs; flywheel self-sustaining; clear line of sight to 2.5M at ~50 SMBs/seller.</div>
+      </div>
+    </section>
+
+    <!-- SECTION 4 -->
+    <section id="s4">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">04</span> Unit economics &amp; commission <span class="rule"></span></div>
+        <h2>One payout to the DSA. No master layer.</h2>
+      </div>
+      <p class="muted">You pay one entity — the <strong>DSA firm</strong> — which compensates its own employees. The previously-separate "seller 10%" and "recruiter 30% override" collapse into a <strong>single DSA payout</strong>, because the DSA is simultaneously the employer of sellers and the contracting partner.</p>
+
+      <h3>DSA payout — your locked economics</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Component</th><th class="num">Rate</th><th>Duration</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Acquisition payout</td><td class="num">30% of SMB revenue</td><td><strong>Year 1 only</strong> (rolling, per-SMB)</td><td>Drives sign-up + first-year selling velocity</td></tr>
+            <tr><td>Recurring trail</td><td class="num">10% of SMB revenue</td><td>Ongoing</td><td>Keeps DSA invested in retention</td></tr>
+            <tr class="strong-row"><td><strong>DSA all-in</strong></td><td class="num">40% Y1 → 10% Y2+</td><td>—</td><td><strong>DSA pays its own sellers from this</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">imagine.bo <strong>bills the SMB directly</strong> — retention + referral data stays with you (feeds <span class="ag-i">Vriddhi</span> and <span class="ag-i">Chakra</span>). Sellers are paid by their DSA, not by imagine.bo.</p>
+
+      <h3>Per-SMB waterfall — ₹480/mo (₹16/day entry), universal</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Line</th><th class="num">Year 1</th><th class="num">Year 2+</th></tr></thead>
+          <tbody>
+            <tr><td>Gross SMB subscription</td><td class="num">₹480</td><td class="num">₹480</td></tr>
+            <tr><td>− DSA payout (40% Y1 / 10% trail)</td><td class="num neg">−192</td><td class="num neg">−48</td></tr>
+            <tr><td>− Payments (~2%)</td><td class="num neg">−10</td><td class="num neg">−10</td></tr>
+            <tr><td>− COGS (infra/WhatsApp/support)</td><td class="num neg">−60</td><td class="num neg">−60</td></tr>
+            <tr class="strong-row"><td><strong>imagine.bo contribution</strong></td><td class="num pos">₹218 · 45%</td><td class="num pos">₹362 · 75%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout c-flag">
+        <div class="ttl">The override sunset is your margin engine</div>
+        <p>The 30% acquisition slice applies to each SMB's <em>first 12 months</em> — rolling, not a calendar cutoff. It's expensive exactly when you want selling velocity (Phases I–II, when nearly every SMB is fresh Year-1) and <strong>auto-decays into margin in Phase III</strong> as early cohorts cross 12 months. Forecast it as a 12-month trailing liability per SMB cohort — peaks in Phase II, inflects down in Phase III.</p>
+      </div>
+      <div class="callout c-flag">
+        <div class="ttl">Margin sensitivity</div>
+        <p>Year-1 contribution is ~₹218/SMB. Through M18 the base is <em>mostly</em> Year-1 (S-curve → most SMBs closed in M13–18 are brand new), so blended contribution ≈ <strong>~₹215/SMB through M18</strong>, expanding toward ₹362 as cohorts age past 12 months (~M24+). The model is <strong>volume- and churn-sensitive</strong> until the base ages. Two levers widen margin earlier: <span class="ag-i">Vriddhi</span> upsell lifting ARPU above ₹480, and the override sunset.</p>
+      </div>
+      <div class="callout c-decision">
+        <div class="ttl">One number to set — payout depth</div>
+        <p><strong>40% Y1 / 10% trail (recommended):</strong> matches your locked economics; leaves the DSA enough to pay <em>salaried</em> sellers + margin — essential, since DSA sellers are employees, not commission-only. → imagine.bo ₹218 Y1 (45%).</p>
+        <p style="margin-top:8px"><strong>30% Y1 / 10% trail (leaner):</strong> lifts imagine.bo to <strong>₹266 Y1 (55%)</strong>, but may make it hard for a DSA to cover salaries at low volume → slower seller activation. Use only for high-volume DSAs.</p>
+      </div>
+
+      <h3>Capital</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Item</th><th class="num">M1–6</th><th class="num">M7–12</th><th class="num">M13–18</th></tr></thead>
+          <tbody>
+            <tr><td>Payroll</td><td class="num">₹4–5M</td><td class="num">₹11–13M</td><td class="num">₹14–15M</td></tr>
+            <tr><td>Ads (DSA-firm + awareness)</td><td class="num">₹1.5–2.5M</td><td class="num">₹4–6M</td><td class="num">₹3.5–4.5M</td></tr>
+            <tr><td>Tooling (Apollo, Clay, BSP, infra, API)</td><td class="num">₹0.7–1.2M</td><td class="num">₹1.5–2M</td><td class="num">₹2–2.5M</td></tr>
+            <tr><td>DSA payouts</td><td class="num">minimal</td><td class="num">netted from rev</td><td class="num">decaying</td></tr>
+            <tr class="strong-row"><td><strong>Net external capital</strong></td><td class="num">~₹8–11M</td><td class="num">~₹9–14M</td><td class="num pos">self-funding</td></tr>
+          </tbody>
+          <caption>Breakeven ~M11–12. Total external GTM capital: ~₹28–38M (~$340–460K) — modestly better than the channel-individual model (no master erosion, smaller team). All commission paid on production, netted from revenue, never upfront. Prachar enforces a hard monthly ad ceiling.</caption>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 5 -->
+    <section id="s5">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">05</span> Human capacity <span class="rule"></span></div>
+        <h2>26 people run 50K sellers.</h2>
+      </div>
+      <p class="muted"><strong>Principle:</strong> agents do all scale-work; DSAs supervise their own sellers; imagine.bo humans touch only the DSA relationship, escalations, and QA. Nodes 1, 3–10 are agent-default with human-on-exception; node 2 (DSA BD) is few-high-value-deals rather than many-small.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Function</th><th class="num">M6</th><th class="num">M12</th><th class="num">M18</th><th>Why it stays small</th></tr></thead>
+          <tbody>
+            <tr><td>Leadership (Raahull/Sushil/Karthik)</td><td class="num">3</td><td class="num">3</td><td class="num">3</td><td>—</td></tr>
+            <tr><td>Partnerships BD (sign DSAs)</td><td class="num">2</td><td class="num">3</td><td class="num">4</td><td>Each signing onboards a whole seller team</td></tr>
+            <tr><td>DSA Account Mgr</td><td class="num">2</td><td class="num">4</td><td class="num">5</td><td>Manage the DSA, not individuals</td></tr>
+            <tr><td>Build QA / Support</td><td class="num">2</td><td class="num">3</td><td class="num">4</td><td><span class="ag-i">Nirmaan</span>/<span class="ag-i">Tainat</span> self-serve</td></tr>
+            <tr><td>Growth / Ads</td><td class="num">1</td><td class="num">2</td><td class="num">2</td><td><span class="ag-i">Prachar</span> runs campaigns</td></tr>
+            <tr><td>Lead ops</td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td><span class="ag-i">Khoj</span> auto-routes</td></tr>
+            <tr><td>Account / Community</td><td class="num">0</td><td class="num">2</td><td class="num">4</td><td>Humans on top DSAs only</td></tr>
+            <tr><td>Eng (agents)</td><td class="num">2</td><td class="num">3</td><td class="num">3</td><td>Build once, scale infinitely</td></tr>
+            <tr class="strong-row"><td><strong>Total</strong></td><td class="num">13</td><td class="num">21</td><td class="num">26</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout c-unlock">
+        <div class="ttl">The DSA dividend</div>
+        <p>In a channel-of-individuals model, imagine.bo would need a large Partner Success team chasing thousands of solo sellers. The DSA model externalises that to each firm's existing managers — the single biggest reason headcount stays at 26.</p>
+      </div>
+    </section>
+
+    <!-- SECTION 6 -->
+    <section id="s6">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">06</span> KPIs <span class="rule"></span></div>
+        <h2>What to track, weekly.</h2>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Node</th><th>Primary KPI</th><th class="num">M6 target</th><th class="num">M18 target</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ag">Prachar</span></td><td>Cost per qualified DSA-firm lead</td><td class="num">&lt;₹3,000</td><td class="num">&lt;₹1,500</td></tr>
+            <tr><td><span class="ag">Setu</span></td><td>DSA agreement close rate</td><td class="num">15%</td><td class="num">30%</td></tr>
+            <tr><td><span class="ag">Diksha</span></td><td>DSA team activation ≤14 days</td><td class="num">40%</td><td class="num">70%</td></tr>
+            <tr><td><span class="ag">Khoj</span></td><td>Lead → first-sale (per seller)</td><td class="num">20%</td><td class="num">45%</td></tr>
+            <tr><td><span class="ag">Sampark</span></td><td>Requirement-capture completion</td><td class="num">60%</td><td class="num">85%</td></tr>
+            <tr><td><span class="ag">Nirmaan</span></td><td>Build → feedback → deploy cycle</td><td class="num">&lt;72h</td><td class="num">&lt;24h</td></tr>
+            <tr class="strong-row"><td><span class="ag">Sauda</span></td><td><strong>Paywall-pass rate</strong></td><td class="num">25%</td><td class="num">40%</td></tr>
+            <tr><td><span class="ag">Tainat</span></td><td>Deploy success first-try</td><td class="num">90%</td><td class="num">99%</td></tr>
+            <tr class="strong-row"><td><span class="ag">Chakra</span></td><td><strong>% leads from referral</strong></td><td class="num">15%</td><td class="num">&gt;40%</td></tr>
+            <tr><td><span class="ag">Vriddhi</span></td><td>SMB 6-mo retention</td><td class="num">—</td><td class="num">80%+</td></tr>
+            <tr><td>—</td><td>Avg sellers per active DSA</td><td class="num">12</td><td class="num">32</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 7 -->
+    <section id="s7">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">07</span> Decisions <span class="rule"></span></div>
+        <h2>Resolved before signing DSAs.</h2>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th class="num">#</th><th>Decision</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td><strong>Commission depth</strong> — 30% acquisition payout (Y1) + 10% recurring trail = 40% all-in Y1, routed to the DSA. Self-correcting via the per-SMB sunset.</td><td><span class="ph-pill p3">Locked</span></td></tr>
+            <tr><td class="num">2</td><td><strong>SMB billing &amp; seller pay</strong> — imagine.bo bills the SMB; the DSA is paid on production and pays its own sellers. Retention + referral data stays with you.</td><td><span class="ph-pill p3">Locked</span></td></tr>
+            <tr><td class="num">3</td><td><strong>Master / override-on-override</strong> — none. DSA model only: single payout to the DSA, which compensates sellers internally. The previously-open "master %" is moot.</td><td><span class="ph-pill p2">Resolved by design</span></td></tr>
+            <tr><td class="num">4</td><td><strong>Lead allocation</strong> — campaign leads given only during a seller's first 30 days; thereafter self-source + earn via referral. <span class="ag-i">Khoj</span> enforces the window.</td><td><span class="ph-pill p3">Locked</span></td></tr>
+            <tr><td class="num">5</td><td><strong>Ad budget</strong> — hard monthly cap enforced by <span class="ag-i">Prachar</span>; raised only when paywall-pass and DSA close-rate gates clear.</td><td><span class="ph-pill p3">Locked</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout c-decision">
+        <div class="ttl">The only number still to set</div>
+        <p>DSA all-in payout depth — <strong>40% Y1 (recommended, lets DSAs pay salaried sellers)</strong> vs 30% Y1 (leaner, +10pts margin to you, for high-volume DSAs only). Decide before signing the first agreement; it goes straight into the DSA contract template.</p>
+      </div>
+    </section>
+
+    <!-- SECTION 8 -->
+    <section id="s8">
+      <div class="sec-head">
+        <div class="sec-eyebrow"><span class="num">08</span> Thesis <span class="rule"></span></div>
+      </div>
+      <p class="thesis">Build the <b>DSA recruitment machine</b>, not the customer base, in 18 months. DSAs — firms with their own salaried sellers, led by the lending-DSA network you're already building the HDFC agent for — convert a capital-fatal ₹40M upfront-CAC problem into a single production-based payout that scales <b>behind</b> revenue, while the DSAs' own managers supervise their people so your team never balloons. Ten agent-default nodes under <b>Sutradhaar</b> let just <b>26 people</b> operate 50K sellers; the only humans who matter at scale are the ~4 signing DSAs. Fix the paywall ordering and instrument the referral loop early — by Phase III those two drive <b>&gt;40%</b> of growth. The 40% Year-1 payout is front-loaded for velocity and auto-decays into margin as each cohort crosses 12 months — Year-1 contribution is deliberately thin (~₹218/SMB) and the model is volume- and churn-sensitive until cohorts age. <b>50K sellers by M18; 2.5M SMBs as that base matures through M30–36.</b></p>
+      <div class="endnote">imagine.bo · 18-month execution plan · DSA-led · constraints: capital + human capacity</div>
+    </section>
+
+   </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---- trajectory chart ---- */
+  try{
+    var sellers=[40,80,150,300,550,1000,1800,3000,4800,7200,10500,14500,19000,24000,29500,35000,41000,46000,50000];
+    var smbs   =[16,30,60,130,280,550,1200,2200,3800,6000,9000,13000,18000,26000,36000,48000,62000,80000,100000];
+    var W=920,H=400,padL=54,padR=66,padT=34,padB=46;
+    var pw=W-padL-padR, ph=H-padT-padB;
+    var maxS=50000, maxM=100000;
+    function x(i){return padL + (i/18)*pw;}
+    function yS(v){return padT+ph - (v/maxS)*ph;}
+    function yM(v){return padT+ph - (v/maxM)*ph;}
+    function line(arr,yf){var d="";for(var i=0;i<arr.length;i++){d+=(i?"L":"M")+x(i).toFixed(1)+" "+yf(arr[i]).toFixed(1)+" ";}return d.trim();}
+
+    var svg=document.getElementById("traj");
+    var NS="http://www.w3.org/2000/svg";
+    function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+
+    // phase bands
+    var bands=document.getElementById("bands");
+    var bdef=[[0,6,"rgba(126,148,204,.07)","Phase I"],[6,12,"rgba(86,174,184,.07)","Phase II"],[12,18,"rgba(224,174,90,.07)","Phase III"]];
+    bdef.forEach(function(b){
+      bands.appendChild(el("rect",{x:x(b[0]),y:padT,width:x(b[1])-x(b[0]),height:ph,fill:b[2]}));
+      var t=el("text",{x:(x(b[0])+x(b[1]))/2,y:padT+14,"text-anchor":"middle","class":"ph-tag"});t.textContent=b[3];bands.appendChild(t);
+    });
+
+    // grid + axes
+    var grid=document.getElementById("grid");
+    [0,25000,50000].forEach(function(v){
+      var yy=yS(v);
+      grid.appendChild(el("line",{x1:padL,y1:yy,x2:W-padR,y2:yy,stroke:"rgba(255,255,255,.05)","stroke-width":1}));
+      var t=el("text",{x:padL-9,y:yy+3,"text-anchor":"end","class":"ph-tag",fill:"#E0AE5A"});t.textContent=v?(v/1000+"K"):"0";grid.appendChild(t);
+    });
+    [50000,100000].forEach(function(v){
+      var t=el("text",{x:W-padR+9,y:yM(v)+3,"text-anchor":"start","class":"ph-tag",fill:"#56AEB8"});t.textContent=(v/1000+"K");grid.appendChild(t);
+    });
+    // x ticks
+    [0,6,12,18].forEach(function(m){
+      var t=el("text",{x:x(m),y:H-16,"text-anchor":"middle","class":"ph-tag"});t.textContent="M"+m;grid.appendChild(t);
+    });
+
+    // breakeven marker (~M11)
+    var bx=x(11);
+    grid.appendChild(el("line",{x1:bx,y1:padT+6,x2:bx,y2:padT+ph,stroke:"rgba(95,184,136,.5)","stroke-width":1,"stroke-dasharray":"3 3"}));
+    var bt=el("text",{x:bx+6,y:padT+20,"class":"ph-tag",fill:"#5FB888"});bt.textContent="breakeven ~M11";grid.appendChild(bt);
+
+    // paths
+    var area=document.getElementById("area");
+    area.setAttribute("d", line(sellers,yS)+" L "+x(18).toFixed(1)+" "+yS(0).toFixed(1)+" L "+x(0).toFixed(1)+" "+yS(0).toFixed(1)+" Z");
+    var ls=document.getElementById("lineSell"); ls.setAttribute("d", line(sellers,yS));
+    var lm=document.getElementById("lineSmb"); lm.setAttribute("d", line(smbs,yM));
+
+    // endpoint + boundary dots/labels
+    var marks=document.getElementById("marks");
+    function dot(cx,cy,c){marks.appendChild(el("circle",{cx:cx,cy:cy,r:4,fill:c,stroke:"#0A0D13","stroke-width":2}));}
+    function lab(cx,cy,txt,c,anchor,dy){var t=el("text",{x:cx,y:cy+(dy||0),"text-anchor":anchor||"middle",fill:c,"font-family":"JetBrains Mono, monospace","font-size":"11.5","font-weight":"600"});t.textContent=txt;marks.appendChild(t);}
+    // phase-boundary seller dots
+    dot(x(6),yS(1800),"#E0AE5A"); dot(x(12),yS(19000),"#E0AE5A");
+    lab(x(6),yS(1800)-12,"1.8K","#E0AE5A","middle");
+    lab(x(12),yS(19000)-12,"19K","#E0AE5A","middle");
+    // endpoints
+    dot(x(18),yS(50000),"#E0AE5A"); lab(x(18)-6,yS(50000)-12,"50,000 sellers","#E0AE5A","end");
+    dot(x(18),yM(100000),"#56AEB8"); lab(x(18)-6,yM(100000)+18,"100K SMBs","#56AEB8","end");
+
+    // draw animation
+    if(!reduce){
+      [ls,lm].forEach(function(p){
+        var len=p.getTotalLength();
+        p.style.strokeDasharray=(p===lm?"5 4":len);
+        if(p===ls){p.style.strokeDashoffset=len; p.getBoundingClientRect();
+          p.style.transition="stroke-dashoffset 1.5s cubic-bezier(.22,1,.36,1)"; p.style.strokeDashoffset="0";}
+      });
+      area.style.opacity=0; area.getBoundingClientRect();
+      area.style.transition="opacity 1.4s ease .25s"; area.style.opacity=1;
+      marks.style.opacity=0; marks.getBoundingClientRect();
+      marks.style.transition="opacity .6s ease 1.2s"; marks.style.opacity=1;
+    }
+  }catch(e){ /* table remains the source of truth */ }
+
+  /* ---- scrollspy ---- */
+  try{
+    var links=[].slice.call(document.querySelectorAll("#toc a"));
+    var map={};
+    links.forEach(function(a){map[a.getAttribute("href").slice(1)]=a;});
+    var secs=[].slice.call(document.querySelectorAll("section[id]"));
+    var io=new IntersectionObserver(function(ents){
+      ents.forEach(function(en){
+        if(en.isIntersecting){
+          links.forEach(function(l){l.classList.remove("is-active");});
+          var a=map[en.target.id]; if(a)a.classList.add("is-active");
+        }
+      });
+    },{rootMargin:"-45% 0px -50% 0px",threshold:0});
+    secs.forEach(function(s){io.observe(s);});
+  }catch(e){}
+
+  /* ---- reveal ---- */
+  try{
+    if(!reduce){
+      var rev=new IntersectionObserver(function(ents){
+        ents.forEach(function(en){if(en.isIntersecting){en.target.classList.add("in");rev.unobserve(en.target);}});
+      },{threshold:.15});
+      document.querySelectorAll(".reveal").forEach(function(n){rev.observe(n);});
+    }else{
+      document.querySelectorAll(".reveal").forEach(function(n){n.classList.add("in");});
+    }
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
