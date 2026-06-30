@@ -60,6 +60,51 @@ class AskRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# POST /rag/ask-live  +  GET /rag/ask-live/prefetch
+# Memory Phase 2 — in-meeting Q&A side-panel
+# ---------------------------------------------------------------------------
+
+
+class AskLiveRequest(BaseModel):
+    """In-meeting panel ask. Thinner than AskRequest:
+    - meeting_id is REQUIRED (the panel always knows it)
+    - scope is auto-derived from the meeting's (category, team)
+    - no conversation_id (single-turn for now)
+    - top_k tuning exposed so the panel can choose a tighter budget
+
+    `extra='ignore'` because the frontend useChatStream hook may send
+    extra fields (scope, sources, etc.) from the AskRequest shape — we
+    accept them silently rather than forcing the frontend to construct
+    a different body for each endpoint.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    query: str = Field(min_length=1, max_length=2000)
+    meeting_id: int   # NOT UUID — meetings.id is an INTEGER PK
+    top_k_facts: int = Field(default=5, ge=0, le=10)
+    top_k_chunks: int = Field(default=5, ge=0, le=15)
+
+
+class PrefetchedFact(BaseModel):
+    """One fact shown in the panel's 'Recently in this team' strip."""
+    id: UUID
+    fact: str
+    fact_type: str
+    subject: Optional[str] = None
+    source_meeting_id: Optional[int] = None
+    source_meeting_title: Optional[str] = None
+    last_referenced_at: datetime
+
+
+class AskLivePrefetchResponse(BaseModel):
+    """Returned by GET /rag/ask-live/prefetch?meeting_id=... — used by
+    the panel to render context chips on open, before the user types."""
+    facts: list[PrefetchedFact]
+    scope_type: Optional[Literal["team", "category"]] = None
+    scope_id: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
 # Conversations CRUD
 # ---------------------------------------------------------------------------
 

@@ -34,6 +34,11 @@ const BASE_URL = import.meta.env.VITE_API_URL || "";
 
 interface AskOptions extends AskRequest {
   conversation_id?: string | null;
+  /** Phase 2 memory — when set, POST to this endpoint instead of
+   * /rag/ask. Used by the in-meeting AskAssistantPanel to hit
+   * /rag/ask-live. Body still matches the AskRequest shape; the
+   * server picks the right scope from `meeting_id`. */
+  endpoint?: string;
 }
 
 interface UseChatStreamResult {
@@ -144,9 +149,13 @@ export function useChatStream(): UseChatStreamResult {
     setStreaming(true);
     setTransportError(null);
 
-    // Build the URL — POST /rag/ask, or the multi-turn variant when
-    // conversation_id is set. Both endpoints accept the same body.
-    const url = opts.conversation_id
+    // Build the URL. Priority order:
+    //   1. opts.endpoint  — explicit override (Phase 2 panel hits /rag/ask-live)
+    //   2. conversation_id — multi-turn variant
+    //   3. /rag/ask        — single-shot default
+    const url = opts.endpoint
+      ? `${BASE_URL.replace(/\/$/, "")}${opts.endpoint}`
+      : opts.conversation_id
       ? `${BASE_URL.replace(/\/$/, "")}/rag/conversations/${opts.conversation_id}/messages`
       : `${BASE_URL.replace(/\/$/, "")}/rag/ask`;
 

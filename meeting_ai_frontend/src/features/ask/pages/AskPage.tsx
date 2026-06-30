@@ -260,7 +260,7 @@ export default function AskPage() {
 
   return (
     <Layout>
-      <div className="flex h-full -m-6">
+      <div className="flex h-full">
         <ConversationSidebar
           conversations={conversations}
           activeId={activeId}
@@ -273,7 +273,7 @@ export default function AskPage() {
         <div className="flex-1 flex flex-col bg-slate-50">
           {/* Header */}
           <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-linear-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             <div>

@@ -33,8 +33,9 @@ from app.db.models import (
 )
 from app.dependencies.auth import get_current_user
 from app.schemas.rag_api_schema import (
-    AskRequest, ConversationCreateRequest, ConversationDetail,
-    ConversationSummary, RunDetail, RunSummary,
+    AskLivePrefetchResponse, AskLiveRequest, AskRequest,
+    ConversationCreateRequest, ConversationDetail, ConversationSummary,
+    PrefetchedFact, RunDetail, RunSummary,
 )
 from app.services.rag.ask_pipeline import ask_stream, event_to_sse_bytes
 from app.utils.logger import setup_logger
@@ -109,6 +110,65 @@ def _scope_from_meeting(
     return None, None
 
 
+def _build_live_state_block(meeting_id_str: str) -> str:
+    """Memory Phase 2 — format the in-process MeetingState into a text
+    block the synthesizer can prepend to the answer context.
+
+    Returns "" when:
+      - No state exists (meeting never had live cognition fire)
+      - State exists but has no rolling summary AND no live tasks AND
+        no live decisions (nothing useful to inject)
+
+    Reads from `state_store._states` directly via get_state — does NOT
+    invent state for unknown meetings (get_state has a side effect of
+    creating empty state otherwise). Falls back gracefully on any error.
+    """
+    from app.services.meeting_memory.meeting_state_store import state_store
+
+    state = state_store._states.get(meeting_id_str)
+    if state is None:
+        return ""
+
+    lines: list[str] = []
+
+    if state.summary:
+        lines.append(f"Rolling summary so far: {state.summary}")
+
+    # Live tasks — show up to 10 most-recent. "Most recent" via insertion
+    # order on the dict (Python preserves it).
+    if state.active_tasks:
+        tasks = list(state.active_tasks.values())[-10:]
+        lines.append("Tasks captured in this meeting:")
+        for t in tasks:
+            owner = getattr(t, "owner", None) or "unassigned"
+            due = (
+                getattr(t, "due_date", None)
+                or getattr(t, "deadline", None)
+                or "no date stated"
+            )
+            status = getattr(t, "status", "detected")
+            lines.append(f"  - {t.task} (owner: {owner}, due: {due}, status: {status})")
+
+    if state.active_decisions:
+        decisions = list(state.active_decisions.values())[-10:]
+        lines.append("Decisions captured in this meeting:")
+        for d in decisions:
+            text = getattr(d, "decision", None) or str(d)
+            decided_by = getattr(d, "decided_by", None) or "unspecified"
+            rev = getattr(d, "reversibility", None) or "unspecified"
+            lines.append(f"  - {text} (decided by: {decided_by}, reversibility: {rev})")
+
+    if not lines:
+        return ""
+
+    return (
+        "=== CURRENT MEETING — LIVE STATE (happening right now) ===\n"
+        "This is what's being said in the meeting the user is asking from.\n"
+        "Treat as the freshest signal. NOT citable.\n"
+        + "\n".join(lines)
+    )
+
+
 @router.post("/ask")
 def ask(
     payload: AskRequest,
@@ -179,6 +239,150 @@ def ask(
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",  # nginx: disable buffering
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Memory Phase 2 — in-meeting Q&A side-panel
+#
+# /ask-live is a thin pre-scoped wrapper around ask_stream:
+#   - meeting_id is required (the panel always has it)
+#   - scope is auto-derived from the meeting's (team, category)
+#   - everything else (planner, retrieval, memory wire-in already
+#     baked into ask_stream from Phase 1, synth) is shared with /ask
+#
+# /ask-live/prefetch returns 5 recent same-scope facts so the panel
+# can render context chips on open without a streaming round-trip.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/ask-live")
+def ask_live(
+    payload: AskLiveRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """In-meeting panel ask — SSE, same event shape as /rag/ask.
+
+    Reuses ask_stream entirely; the only difference is scope is pinned
+    from `meeting_id` so the panel doesn't have to know about scope
+    mechanics. The memory wire-in inside ask_stream (added in Phase 1)
+    automatically picks up prior facts for this meeting's scope.
+    """
+    # Cross-org 404 — match the convention in /rag/ask.
+    from app.db.models import Meeting
+    m = db.query(Meeting).filter(
+        Meeting.id == payload.meeting_id,
+        Meeting.organization_id == user.organization_id,
+    ).first()
+    if m is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    scope_type, scope_id = _scope_from_meeting(
+        db, organization_id=user.organization_id,
+        meeting_id=payload.meeting_id,
+    )
+
+    # Memory Phase 2 — short-term layer. When the meeting is still in
+    # progress, the freshest signal is what was just said — held in the
+    # in-process MeetingState (rolling summary + live tasks + live
+    # decisions). Format it into a block that the synthesizer renders
+    # ABOVE prior facts and chunks. For completed meetings this is "".
+    live_block = ""
+    if m.status in ("processing", "in_progress", "active"):
+        try:
+            live_block = _build_live_state_block(str(m.id))
+        except Exception as exc:
+            logger.warning("ask-live: live state injection skipped: %s", exc)
+
+    def _generate():
+        from app.db.database import SessionLocal
+        inner_db = SessionLocal()
+        try:
+            for event in ask_stream(
+                inner_db,
+                organization_id=user.organization_id,
+                user_id=user.id,
+                query_text=payload.query,
+                requested_scope_type=scope_type,
+                requested_scope_id=scope_id,
+                conversation_id=None,
+                sources="meetings",  # in-meeting panel = meeting context only
+                top_k_final=payload.top_k_chunks,
+                rerank_strategy=None,  # use settings default (recency-tuned)
+                live_state_block=live_block,
+            ):
+                yield event_to_sse_bytes(event)
+        finally:
+            inner_db.close()
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/ask-live/prefetch", response_model=AskLivePrefetchResponse)
+def ask_live_prefetch(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pre-warm the in-meeting panel with the 5 most-recently-referenced
+    facts for this meeting's (team, category) scope. Used on panel open
+    to show context chips before the user types — feels instant."""
+    from app.db.models import Meeting
+    m = db.query(Meeting).filter(
+        Meeting.id == meeting_id,
+        Meeting.organization_id == user.organization_id,
+    ).first()
+    if m is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    from app.services.memory.access import MemoryAccess
+    facts = MemoryAccess.search(
+        db,
+        organization_id=user.organization_id,
+        query="",                       # empty -> recency order
+        category_id=m.category_id,
+        team_id=m.team_id,
+        window="short_term",
+        limit=5,
+        bump=False,                     # prefetch != real consumption
+    )
+
+    # Resolve source meeting titles in ONE batched query for chip labels.
+    source_ids = {f.source_meeting_id for f in facts if f.source_meeting_id}
+    title_map: dict[int, str] = {}
+    if source_ids:
+        rows = db.query(Meeting.id, Meeting.title).filter(
+            Meeting.id.in_(source_ids),
+            Meeting.organization_id == user.organization_id,
+        ).all()
+        title_map = {r.id: r.title for r in rows}
+
+    scope_type = "team" if m.team_id else ("category" if m.category_id else None)
+    scope_id = m.team_id or m.category_id
+
+    return AskLivePrefetchResponse(
+        scope_type=scope_type,
+        scope_id=scope_id,
+        facts=[
+            PrefetchedFact(
+                id=f.id,
+                fact=f.fact,
+                fact_type=f.fact_type,
+                subject=f.subject,
+                source_meeting_id=f.source_meeting_id,
+                source_meeting_title=title_map.get(f.source_meeting_id),
+                last_referenced_at=f.last_referenced_at,
+            )
+            for f in facts
+        ],
     )
 
 

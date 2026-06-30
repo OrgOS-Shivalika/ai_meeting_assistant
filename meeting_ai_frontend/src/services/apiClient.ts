@@ -28,11 +28,12 @@ export async function apiClient(endpoint: string, options: RequestInit = {}) {
     // throwing here would surface the raw FastAPI detail to whatever
     // UI catches the error.
     localStorage.removeItem("token");
-    // Avoid an infinite reload loop if we're already on /login.
+    // Already on /login? Then this is a login attempt with bad creds —
+    // fall through to the normal !res.ok throw so the form can show it.
     if (!window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";
+      return new Promise(() => {});
     }
-    return new Promise(() => {});
   }
 
   if (!res.ok) {

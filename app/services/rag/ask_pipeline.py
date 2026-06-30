@@ -182,6 +182,10 @@ def ask_stream(
     embedder: Embedder | None = None,
     rerank_strategy: Optional[str] = None,
     agent_profile_slug: Optional[str] = None,
+    # Memory Phase 2 — pre-formatted live-meeting state block. /rag/ask-live
+    # passes this when the meeting is in-progress; the synthesizer renders
+    # it ABOVE prior_facts + chunks. Empty string for completed meetings.
+    live_state_block: str = "",
 ) -> Iterator[dict]:
     """Run plan -> retrieve -> stream synth -> audit. Yields event dicts.
 
@@ -316,6 +320,51 @@ def ask_stream(
         }}
         return
     retr_ms = int((time.monotonic() - t_retr_start) * 1000)
+
+    # Memory wire-in — distilled facts answer "who owns X?" / "what did we
+    # decide about Y?" with one row instead of synthesizing across 5 chunks.
+    # Facts go in a parallel bundle field (NOT citations) so the existing
+    # citation validator is untouched. Synth prompt renders them ABOVE
+    # chunks in the context. Wrapped non-fatal — a memory miss degrades
+    # to pre-memory /ask behavior.
+    try:
+        from app.services.memory.access import MemoryAccess
+        cat_id = (
+            plan.effective_scope_id
+            if plan.effective_scope_type == "category" else None
+        )
+        team_id = (
+            plan.effective_scope_id
+            if plan.effective_scope_type == "team" else None
+        )
+        bundle.prior_facts = MemoryAccess.search(
+            db, organization_id=organization_id, query=query_text,
+            category_id=cat_id, team_id=team_id, limit=5, bump=True,
+        )
+        if bundle.prior_facts:
+            logger.info(
+                "💭 Memory wire-in (/ask): injected %d facts (scope=%s/%s)",
+                len(bundle.prior_facts), cat_id, team_id,
+            )
+    except Exception as exc:
+        logger.warning("memory wire-in (/ask) skipped: %s", exc)
+        if not hasattr(bundle, "prior_facts"):
+            bundle.prior_facts = []
+
+    # Memory Phase 2 — stamp the live-meeting state block (if any) onto
+    # the bundle. /rag/ask-live passes this when the meeting is still
+    # in-progress; for completed meetings (and /rag/ask) it's "" and the
+    # synthesizer renders nothing. Also forces has_context=True so the
+    # synth doesn't take its no-context fast path when live state is the
+    # only signal we have.
+    if live_state_block:
+        bundle.live_state_block = live_state_block
+        if not bundle.has_context:
+            bundle.has_context = True
+        logger.info(
+            "💭 Memory wire-in (/ask): live state injected (%d chars)",
+            len(live_state_block),
+        )
 
     yield {"event": "retrieved", "data": {
         "chunks": len(bundle.chunks),

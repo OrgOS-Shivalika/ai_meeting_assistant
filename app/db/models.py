@@ -2530,6 +2530,183 @@ class AgentToolInvocation(Base):
 
 
 # ---------------------------------------------------------------------------
+# Memory Phase 1A — org_memory_facts
+#
+# Distilled facts emitted by MeetingMemoryEngine after each completed
+# meeting. The retrieval API (MemoryAccess) reads from this table to
+# answer in-meeting "who owns X?" / "what did we decide about Y?"
+# queries against prior meetings of the same (category, team) scope.
+#
+# Lifecycle:
+#   active     -> visible to search; the canonical default
+#   superseded -> a newer fact replaced it; superseded_by_id MUST be set
+#   archived   -> hidden from search (user said "this is junk")
+#
+# Schema mirrors MeetingChunk conventions: inline scope (category_id,
+# team_id) for cheap filtering, archive_status partial indexes, HNSW
+# cosine vector index matching meeting_chunks/document_chunks. See
+# alembic revision b8j2f4g5h6i for the migration.
+# ---------------------------------------------------------------------------
+
+
+class OrgMemoryFact(Base):
+    __tablename__ = "org_memory_facts"
+    __table_args__ = (
+        CheckConstraint(
+            "fact_type IN ('ownership','decision','open_question',"
+            "'risk','preference','pattern','event')",
+            name="ck_memory_facts_fact_type",
+        ),
+        CheckConstraint(
+            "archive_status IN ('active','archived','superseded')",
+            name="ck_memory_facts_archive_status",
+        ),
+        CheckConstraint(
+            "importance_score >= 0 AND importance_score <= 1",
+            name="ck_memory_facts_importance_range",
+        ),
+        CheckConstraint(
+            "confidence_score >= 0 AND confidence_score <= 1",
+            name="ck_memory_facts_confidence_range",
+        ),
+        CheckConstraint(
+            "(archive_status <> 'superseded') OR "
+            "(superseded_by_id IS NOT NULL)",
+            name="ck_memory_facts_superseded_has_target",
+        ),
+        CheckConstraint(
+            "superseded_by_id IS NULL OR superseded_by_id <> id",
+            name="ck_memory_facts_no_self_supersede",
+        ),
+        Index(
+            "ix_memory_facts_scope_active",
+            "organization_id", "category_id", "team_id", "last_referenced_at",
+            postgresql_ops={"last_referenced_at": "DESC"},
+            postgresql_where=text("archive_status = 'active'"),
+        ),
+        Index(
+            "ix_memory_facts_type_active",
+            "organization_id", "fact_type",
+            postgresql_where=text("archive_status = 'active'"),
+        ),
+        Index(
+            "ix_memory_facts_subject_active",
+            text("organization_id"), text("lower(subject)"),
+            postgresql_where=text(
+                "archive_status = 'active' AND subject IS NOT NULL"
+            ),
+        ),
+        Index(
+            "ix_memory_facts_source_meeting", "source_meeting_id",
+            postgresql_where=text("source_meeting_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_memory_facts_superseded_by", "superseded_by_id",
+            postgresql_where=text("superseded_by_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_memory_facts_embedding_hnsw", "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"m": "16", "ef_construction": "64"},
+            postgresql_where=text(
+                "archive_status = 'active' AND embedding IS NOT NULL"
+            ),
+        ),
+    )
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Inline scope — denormalized from source_meeting for fast filter.
+    category_id = Column(
+        Integer,
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    team_id = Column(
+        Integer,
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    fact = Column(Text, nullable=False)
+    fact_type = Column(String(24), nullable=False)
+    subject = Column(String(128), nullable=True)
+
+    source_meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_excerpt = Column(Text, nullable=True)
+
+    importance_score = Column(
+        Float, nullable=False, default=0.5, server_default="0.5",
+    )
+    confidence_score = Column(
+        Float, nullable=False, default=0.7, server_default="0.7",
+    )
+    last_referenced_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    access_count = Column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+
+    # NULLABLE — see "embedding window" rationale in the migration.
+    embedding = Column(Vector(1536), nullable=True)
+    embedding_model = Column(String(64), nullable=True)
+
+    archive_status = Column(
+        String(16), nullable=False,
+        default="active", server_default="active",
+    )
+    superseded_by_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("org_memory_facts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    metadata_json = Column(JSONB, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    organization = relationship("Organization")
+    category = relationship("Category")
+    team = relationship("Team")
+    source_meeting = relationship("Meeting", foreign_keys=[source_meeting_id])
+    superseded_by = relationship(
+        "OrgMemoryFact",
+        remote_side="OrgMemoryFact.id",
+        foreign_keys=[superseded_by_id],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase 8A — Global template registry (platform-owned, immutable assets)
 #
 # Five tables. All platform-owned: no `organization_id`. Read by the

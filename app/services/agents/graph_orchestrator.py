@@ -59,6 +59,35 @@ class AgentGraphOrchestrator:
         from app.services.behavior.meeting_context import _format_dimensions
         behavior_context = _format_dimensions(profile.to_dict())
 
+        # Memory wire-in — inject up to 8 prior facts for this meeting's
+        # (category, team) scope so the master analyzer has cross-meeting
+        # continuity. Filtered to high-signal types (ownership/decision/
+        # open_question/risk/pattern) and excludes preference/event for
+        # token budget. Wrapped non-fatal: a memory miss never fails a
+        # meeting; the analyzer just sees an empty block.
+        try:
+            from app.services.memory.access import MemoryAccess
+            from app.services.memory.prompt_blocks import render_facts_block
+            prior_facts = (
+                MemoryAccess.search_for_meeting(
+                    db, meeting_id=meeting_id, query="", limit=8,
+                    bump=False,  # context read, not user consumption
+                )
+                if meeting_id else []
+            )
+            facts_block = render_facts_block(prior_facts, title="Prior Org Context")
+            if facts_block:
+                behavior_context = (
+                    f"{behavior_context}\n\n{facts_block}"
+                    if behavior_context else facts_block
+                )
+                logger.info(
+                    "💭 Memory wire-in (analyzer): injected %d facts for meeting=%s",
+                    len(prior_facts), meeting_id,
+                )
+        except Exception as exc:
+            logger.warning("memory wire-in (analyzer) skipped: %s", exc)
+
         # 3. Master Execution (Phase 2 Hybrid)
         # We still rely on TranscriptAnalyzer as the primary runner for core schema
         # to prevent regressions while we migrate entirely to skills.

@@ -372,11 +372,122 @@ Two clean demo points:
 
 ---
 
-## 11. Companion artifact (in progress)
+## 11. Companion artifact (workflow result)
 
-A workflow (`w3upn0h83`) is running 9 parallel design specialists + 2 adversarial reviewers (bug-hunter + simplifier) on this plan. When it returns, I'll either:
+Workflow `w3upn0h83` completed with partial success: **6 of 11 agents returned** before a session limit cut the rest. Successful: schema, distiller, retrieval API, wire-in, improvement loop, in-meeting panel. **Failed (rerun later):** cost analysis, migration plan, observability, both adversarial reviewers (bug-hunter + simplifier).
 
-- Append a "Pressure-tested decisions" appendix to this doc listing what survived adversarial review
-- Or write a separate `memory_implementation_playbook.md` with the deep-code level findings (exact migration SQL, exact ORM class, exact prompt template, exact wire-in diffs)
+The high-level phasing in sections 3–7 still stands. Below is the implementation-level refinements that **override or sharpen** the sketch I wrote above — these are the parts you'd otherwise discover the hard way during implementation.
 
-Either way the high-level plan above stands — the workflow only refines the implementation specifics, not the goals or the phasing.
+---
+
+## 12. Pressure-tested implementation refinements (Appendix from workflow)
+
+### 12.1 Schema overrides (D1) — what differs from §4.1
+
+| Plan §4.1 said | Refined design says | Why |
+|---|---|---|
+| `ivfflat (lists=100)` | **HNSW** with `m=16, ef_construction=64` | Matches `meeting_chunks` / `document_chunks` convention. HNSW also gives better recall on small tables (ivfflat clustering needs a populated table to tune). |
+| `embedding vector(1536)` (implicitly NOT NULL) | **NULLABLE** with `embedding_model VARCHAR(64)` companion column | If the batch embed call partially fails, persist the (expensive) distilled facts anyway; back-fill cron repairs NULL rows. Mirrors `Meeting.embedding_status` decoupling pattern. |
+| Index on all rows | **Partial indexes** `WHERE archive_status='active'` on scope, type, subject, embedding | Active rows are 95%+ of reads. Halves index size, doubles cache hit rate. |
+| `subject VARCHAR(128)` | Same, with functional index `lower(subject) WHERE archive_status='active'` | Case-insensitive subject lookup at ~5ms. |
+| Migration revision left blank | **`b8j2f4g5h6i` down_revision `a7i1e3f4g5h`** | Chains after the agent_tool_invocations migration we already have. |
+| `ON DELETE SET NULL` on source_meeting | Same + extra reasoning: **denormalize source_excerpt onto the row** | Excerpt survives meeting deletion (retention purge) so the fact stays self-explanatory. |
+
+**One added column not in the original sketch:** `metadata_json JSONB` — never queried, used by observability + improvement loop (stash `prompt_version`, `run_id`, `dedup_similarity_at_insert`). Untyped on purpose.
+
+**Effort to ship D1:** 0.5 days (single migration + ORM class).
+
+### 12.2 Distiller refinements (D2) — what differs from §4.3
+
+The two-band cosine policy is the important refinement:
+
+| Match band | Action | Applies to fact_types |
+|---|---|---|
+| **distance < 0.15 (sim > 0.85)** | exact-dup → `bump_access()` on existing, skip insert | All types |
+| **distance 0.15–0.30 (sim 0.70–0.85)** | **supersede candidate** → mark old `archive_status='superseded'` + write new with `superseded_by_id` | **ONLY** `ownership`, `decision`, `event` |
+| **distance > 0.30** | distinct fact → insert | All types |
+
+Rationale: ownership and decisions are last-writer-wins (Sarah → Mike means Mike now owns it). Risks/questions/preferences are additive — two risks shouldn't supersede each other.
+
+**Idempotency belt + suspenders:**
+- **DB belt:** `UNIQUE PARTIAL INDEX (source_meeting_id, md5(fact)) WHERE archive_status='active'` — catches race-condition re-runs deterministically; catch `IntegrityError` in Python and continue
+- **Code suspenders:** early `SELECT COUNT(*) WHERE source_meeting_id=? AND archive_status='active'` returns 0 → fresh run; > 0 → re-run, decide policy
+
+**Versioned prompt is mandatory** — `MEMORY_ENGINE_PROMPT_VERSION = "v1"` constant, stored on every emitted fact's `metadata_json` as `{"prompt_version": "v1", "run_id": ...}`. Phase 3's improvement loop needs this to target the distiller prompt as a knob.
+
+**LLM call config (finalized):** `model="gpt-4o-mini"`, `temperature=0.2`, `response_format={"type":"json_object"}`, `max_tokens=1200`, `timeout=30`. Per-meeting cost ≈ **$0.0009** (verified by D2 token math).
+
+**Pipeline hook location:** between lines 411 and 413 of `meeting_pipeline.py` (after cleanup `try/except` closes, before embedding dispatch fires). One contiguous `try/except`, non-fatal.
+
+### 12.3 MemoryAccess refinements (D3) — what differs from §4.4
+
+| Plan §4.4 sketch | Refined design |
+|---|---|
+| Returns lightweight dicts | **Returns ORM objects** — three call sites need different field projections; ORM rows live in the Session identity map (cheaper than re-querying) |
+| Always bumps `access_count` | **OPT-IN per call (`bump=True`)** + uses a `db.begin_nested()` SAVEPOINT so a bump failure can never fail the read |
+| No similarity floor | **Cosine sim floor at 0.30** — drops everything below, returns `[]` if all below. Without this, ivfflat happily returns 10 results for any garbage query and the synth thinks there's recall when there isn't. |
+| No fallback when embedder unavailable | **ILIKE fallback** on `fact + subject` when `query=""` OR `Embedder()` raises (OPEN_API_KEY missing, network down) — keeps observability page + `get_recent()` working under OpenAI outage |
+
+### 12.4 Wire-in refinements (D4) — what differs from §4.5
+
+| Surface | Plan said | Refined design |
+|---|---|---|
+| Master analyzer | Inject top-N facts | Top-**8**, **scope = team AND category** (not org-wide — goal #1 is per-scope continuity, org-wide pollutes the prompt) |
+| `/ask` synth | Inject top-5 facts | Same — but **facts go in a NEW parallel `prior_facts` field on the bundle, NEVER in `citations[]`** — synthesizer.py line 14 commits to "only chunks are citable"; mixing them breaks the citation validator |
+| Briefing | Top-3 facts referenced aloud | Top-3 — **filtered to fact_types `decision` + `open_question` ONLY**. Ownership/preference/risk/event/pattern feel awkward when read aloud. |
+| Token budget | (not specified) | **Caps: 8 / 5 / 3 facts per surface** (analyzer / ask / briefing), shared rendering helper `app/services/memory/prompt_blocks.py::render_facts_block(facts, max_chars=2400)` so token-cost tuning lives in one place |
+
+All four wire-ins wrap in `try/except: return ""` so memory-layer outage degrades to today's behavior, never breaks a meeting or an `/ask`.
+
+### 12.5 Improvement loop refinements (D5) — what differs from §6
+
+| Aspect | Plan said | Refined design |
+|---|---|---|
+| Lifecycle | proposed → shadow → promoted → retained / rolled_back / rejected | **Same**, but `state` is a single column on one table — no separate promoted/audit tables |
+| Concurrency control | (not specified) | **Unique partial index `(org, target_dimension, target_field, scope_type, scope_id) WHERE state IN ('proposed','promoted')`** — enforces "one active proposal per knob" at the DB level. Two simultaneous proposers can't collide. |
+| Target whitelist | "Lowest-risk targets first" | **DB CHECK constraint** restricting `target_dimension` to `{master_prompt, tools_and_integrations}` — hard guardrail; a misconfigured proposer can never propose changing a forbidden knob (like tool Python code) |
+| Measurement window | "N=3 meetings" | N=3 trailing meetings in the **same scope** + early-trip guardrail at 2× tolerance — N=1 too noisy for prompt changes, N>3 makes user wait too long |
+| Apply mechanism | (not specified) | Piggybacks on existing `behavior.overrides.set_override()` — **proposal stores `previous_value_json` snapshot before applying** so rollback restores exactly what was there. Reuses existing override infrastructure; no parallel write path. |
+| Approval UI | "minimum viable" | **Single ProposalsPage with three tabs** (Pending / Promoted / Resolved). [Approve] [Reject] [Edit] in Pending; [Rollback] in Promoted (admin-only). |
+
+**Effort to ship Phase 3:** 5.5 days (closer to the 5d sketch).
+
+### 12.6 In-meeting panel refinements (D6) — what differs from §5
+
+| Plan said | Refined design |
+|---|---|
+| New endpoint `/ask-live` | **REUSE `/rag/ask` SSE event contract** — new endpoint `/rag/ask-live` is a thin wrapper that (a) auto-scopes from `meeting_id`, (b) prepends a `LIVE_STATE` block from `MeetingStateStore`, (c) **emits a synthetic `plan` event instead of running the planner** (we already have scope, no need for entity NER), (d) skips graph expansion + importance rerank for sub-1s first token |
+| Always-open vs collapsed | **Default-collapsed (thin right-edge tab)** + `Cmd+K` opens it; transcript and tasks shouldn't compete for visual real estate |
+| Pre-fetch | (not specified) | **New endpoint `GET /rag/ask-live/prefetch?meeting_id=`** returns the top-5 facts for the meeting's scope so the panel feels instant on first open (no streaming wait) |
+| During live meeting | Hand-waved | When `meeting.status='processing'`, server **injects MeetingState** (live tasks + decisions captured so far) into the context — answers reflect what was just said, not just prior meetings |
+| Citations | (not specified) | Reuse `MessageBubble` + `CitationChip` components from `/ask` page — only NEW frontend code is `AskAssistantPanel.tsx` + a single prefetch hook |
+
+**Backend changes are surgical:** ~80 LOC in `app/api/rag_router.py` + a `app/services/rag/live_pipeline.py` wrapper that calls the existing `ask_pipeline` with options to skip graph + skip rerank.
+
+---
+
+## 13. What's still TBD (workflow agents that hit session limit)
+
+These got cut off and need a follow-up workflow rerun:
+
+| Dimension | What we don't have yet | Implication |
+|---|---|---|
+| **D7 — Cost + performance analysis** | No quantified scaling envelope. We know per-meeting cost is ≈ $0.0009 (D2) but no model for: token cost per /ask at scale, embedding storage growth per year per org, when HNSW lists/ef_search need retuning, what fact-count threshold breaks the <100ms in-meeting target | **Not a blocker for Phase 1.** Can be measured empirically post-deploy from `agent_tool_invocations` + a new `memory_engine_runs` table. Run the cost-perf agent again before scaling beyond ~10 active orgs. |
+| **D8 — Migration + backfill plan** | No formal rollout sequence: should we backfill the distiller across existing meetings or start clean? Feature-flag default on/off? Where does the toggle live? | **Required before Phase 1 ships.** Quick decision: ship with **no backfill** (memory starts now), **opt-in flag** on `tools_and_integrations.memory_enabled` default `"off"`, enable per-org via Agent Control. Re-run D8 to formalize. |
+| **D9 — Observability + admin UX** | No detail on the `/memory` admin page, per-meeting "facts produced" card, archive UI, distiller health metrics | **Not a blocker for Phase 1.** Phase 1 ships with audit log visibility only (rows in `org_memory_facts`); `/memory` page is a Phase 1.5 UX polish. |
+| **A1 — Bug + risk hunt** | No adversarial review found multi-tenancy leaks, race conditions, hallucination paths I might have missed | **Soft blocker.** I have my own risk list per dimension (52 risks total across the 6 successful designs), but no second-pair-of-eyes. Rerun A1 against the consolidated playbook before writing code. |
+| **A2 — Simplifier review** | No "what if we don't need this?" pressure-test | **Recommended.** A simpler-alternatives pass might collapse 3 layers into 1 for the improvement loop, or replace embeddings with text-search at v1 scale. |
+
+**Decision:** ship Phase 1 with what we have (D1+D2+D3+D4 are the build blockers and they're complete). Rerun the workflow for D7/D8/D9/A1/A2 before starting Phase 2. The blockers I CAN'T defer (D8 specifically — rollout strategy) get a manual one-paragraph decision above, formalized later.
+
+---
+
+## 14. Scratchpad reference
+
+The full design dump (all 6 successful agents' verbatim output including ~8KB of code/SQL each) lives at:
+
+```
+C:/Users/HP/AppData/Local/Temp/claude/.../scratchpad/design_dump.md
+```
+
+When you're ready to implement Phase 1A (schema), grab the full alembic migration body from D1 in that file — it's complete + commented + ready to drop into `alembic/versions/b8j2f4g5h6i_phase15_org_memory_facts.py`.

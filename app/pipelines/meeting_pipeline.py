@@ -355,6 +355,24 @@ class MeetingPipeline:
             # round-trip instead of needing a manual page refresh.
             self.save_tasks(db, meeting.id, result_json.get("action_items", []))
 
+            # Memory Phase 1 — distill durable facts from this meeting.
+            # Best-effort, wrapped non-fatal: a distiller failure must NEVER
+            # fail a completed meeting. Cost ≈ $0.001/meeting (one
+            # gpt-4o-mini call + N embeddings). Idempotent: a retry skips
+            # if any active facts already exist for this meeting.
+            try:
+                from app.services.memory.engine import MeetingMemoryEngine
+                distill_report = MeetingMemoryEngine.distill_for_meeting(db, meeting.id)
+                logger.info(
+                    "💭 MemoryEngine meeting=%s report=%s",
+                    meeting.id, distill_report,
+                )
+            except Exception as mem_err:
+                logger.error(
+                    "MeetingMemoryEngine failed for meeting=%s (non-fatal): %s",
+                    meeting.id, mem_err,
+                )
+
             # Phase 9.3 — Compliance Runtime Gating & 9.5 Automation.
             try:
                 from app.services.compliance.runtime import ComplianceRuntime

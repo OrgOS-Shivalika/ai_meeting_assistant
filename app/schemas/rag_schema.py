@@ -219,6 +219,19 @@ class RetrievalBundle:
     has_context: bool
     duration_ms: int = 0
     debug: dict[str, Any] = field(default_factory=dict)
+    # Memory Phase 1E — distilled prior facts from org_memory_facts. NOT
+    # cited (no [N] tag); rendered above chunks in the synth context so
+    # the LLM treats them as authoritative org context, not new evidence.
+    # Typed `list[Any]` so the schema file doesn't need to import the
+    # ORM (avoids a circular import); the runtime objects are OrgMemoryFact.
+    prior_facts: list[Any] = field(default_factory=list)
+    # Memory Phase 2 — formatted live-meeting state block (rolling
+    # summary + live tasks + live decisions). Populated by /rag/ask-live
+    # when the meeting is still processing/in_progress; empty string for
+    # completed meetings (synthesizer renders nothing in that case).
+    # NOT cited. Rendered ABOVE prior_facts in the synth context so the
+    # LLM treats the in-progress conversation as the freshest signal.
+    live_state_block: str = ""
 
 
 # ---------------------------------------------------------------------------

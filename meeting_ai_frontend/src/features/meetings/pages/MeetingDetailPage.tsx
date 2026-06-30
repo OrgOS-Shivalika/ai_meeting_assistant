@@ -5,6 +5,7 @@ import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components/Skeleton";
 import CategoryAssignControl from "../components/CategoryAssignControl";
 import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
+import AskAssistantPanel from "../components/AskAssistantPanel";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
 import {
   Calendar,
@@ -144,6 +145,10 @@ export default function MeetingDetailPage() {
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [savingTaskId, setSavingTaskId] = useState<number | null>(null);
   const [taskOverrides, setTaskOverrides] = useState<Record<number, TaskOverride>>({});
+  // Memory Phase 2 — in-meeting AskAssistantPanel state. Closed by default
+  // so the meeting content (transcript, tasks) gets the full visual focus.
+  // Cmd+K toggles, ? opens, Esc closes (wired inside the panel).
+  const [askPanelOpen, setAskPanelOpen] = useState(false);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -709,6 +714,39 @@ export default function MeetingDetailPage() {
               <div className="absolute bottom-0 left-0 h-0.5 bg-indigo-500 animate-progress" style={{ width: '100%' }} />
             </div>
           </div>
+        )}
+
+        {/* Memory Phase 2 — in-meeting Q&A panel. Two render modes:
+              closed → returns a floating right-edge tab (position:fixed)
+              open   → returns the full panel, here mounted as a fixed
+                       overlay on the right so we don't disturb the
+                       existing grid layout. Cmd+K toggles. */}
+        {askPanelOpen ? (
+          <div className="fixed right-4 top-20 bottom-4 w-[420px] z-40 pointer-events-auto">
+            <AskAssistantPanel
+              meeting={{
+                id: meeting.id,
+                status: meeting.status,
+                team: meeting.team,
+                category: meeting.category,
+              }}
+              open
+              onOpen={() => setAskPanelOpen(true)}
+              onClose={() => setAskPanelOpen(false)}
+            />
+          </div>
+        ) : (
+          <AskAssistantPanel
+            meeting={{
+              id: meeting.id,
+              status: meeting.status,
+              team: meeting.team,
+              category: meeting.category,
+            }}
+            open={false}
+            onOpen={() => setAskPanelOpen(true)}
+            onClose={() => setAskPanelOpen(false)}
+          />
         )}
       </div>
     </Layout>

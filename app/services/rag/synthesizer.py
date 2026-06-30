@@ -169,6 +169,26 @@ def build_context_blocks(bundle: RetrievalBundle) -> tuple[str, dict[int, Citati
     lines: list[str] = []
     index_map: dict[int, Citation] = {}
 
+    # Memory Phase 2 — render LIVE-MEETING state ABOVE everything else.
+    # This is the freshest signal: what's being said RIGHT NOW in the
+    # meeting the user is asking from. Populated by /rag/ask-live when
+    # the meeting is in-progress; empty string for completed meetings.
+    # Not citable.
+    live_block = getattr(bundle, "live_state_block", "") or ""
+    if live_block:
+        lines.append(live_block.strip())
+        lines.append("")
+
+    # Memory Phase 1E — render distilled facts ABOVE chunks. Facts are
+    # NOT citable (no [N] tag); the LLM treats them as authoritative
+    # org context. Citation validator only looks at chunks → index_map
+    # stays untouched, zero risk of citation regression.
+    prior_facts = getattr(bundle, "prior_facts", None) or []
+    if prior_facts:
+        from app.services.memory.prompt_blocks import render_facts_block
+        lines.append(render_facts_block(prior_facts, title="Prior Org Facts"))
+        lines.append("")
+
     # Chunks: numbered [1]..[N]
     for idx, chunk in enumerate(bundle.chunks, start=1):
         if chunk.source_type == "meeting":
