@@ -9,3 +9,4 @@ Public surface:
 See /memory_plan_second.md for the active plan.
 """
 from app.services.memory.access import MemoryAccess  # noqa: F401
+from app.services.memory.long_term import LongTermMemory  # noqa: F401

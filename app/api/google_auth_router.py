@@ -1,4 +1,4 @@
-import token
+import secrets
 
 from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -16,17 +16,78 @@ logger = setup_logger(__name__)
 router = APIRouter(prefix="/auth/google")
 
 
+def _allowed_origins() -> set[str]:
+    """Origins the app trusts to be a legitimate frontend host — reuses
+    CORS_ORIGINS so there's ONE source of truth. When you add a new
+    ngrok/tunnel URL, add it to CORS_ORIGINS and both CORS + OAuth follow.
+    settings.CORS_ORIGINS is already a list (split at load time)."""
+    raw = getattr(settings, "CORS_ORIGINS", None) or []
+    return {str(o).strip().rstrip("/") for o in raw if str(o).strip()}
+
+
+def _pick_redirect_uri(request: Request) -> str:
+    """Derive the OAuth redirect_uri from the current request so a manager
+    hitting the ngrok URL gets sent back to ngrok, and a dev on localhost
+    gets sent back to localhost.
+
+    Same-origin GETs often omit the Origin header, so we ALSO look at
+    Host / X-Forwarded-Host (set by ngrok / any reverse proxy). Falls
+    back to settings.GOOGLE_REDIRECT_URI when nothing usable is present
+    (server-to-server call, curl without headers).
+
+    '*' in the allow-list is treated as "trust any origin". Google
+    itself enforces redirect_uri against the registered list in Cloud
+    Console, so an attacker origin just makes Google reject the flow —
+    no credential leak."""
+    allowed = _allowed_origins()
+
+    # 1. Origin header — most reliable when browsers send it (POSTs,
+    #    cross-origin fetches, some GETs).
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    if origin and ("*" in allowed or origin in allowed):
+        return f"{origin}/auth/google/callback"
+
+    # 2. Host / X-Forwarded-Host — always present, and ngrok/cloud
+    #    proxies populate X-Forwarded-Host with the public host. Combine
+    #    with X-Forwarded-Proto (or default to https for non-localhost).
+    fwd_host = (request.headers.get("x-forwarded-host") or "").strip()
+    fwd_proto = (request.headers.get("x-forwarded-proto") or "").strip()
+    host = fwd_host or (request.headers.get("host") or "").strip()
+    if host:
+        if fwd_proto:
+            scheme = fwd_proto
+        elif "localhost" in host or host.startswith("127.") or host.startswith("0.0.0.0"):
+            scheme = "http"
+        else:
+            scheme = "https"
+        derived = f"{scheme}://{host}"
+        if "*" in allowed or derived in allowed:
+            return f"{derived}/auth/google/callback"
+
+    return settings.GOOGLE_REDIRECT_URI
+
+
 @router.get("/login")
-def login():
+def login(request: Request):
+    redirect_uri = _pick_redirect_uri(request)
+    logger.info(
+        "Google /login origin=%r host=%r x-fwd-host=%r x-fwd-proto=%r allowed=%s -> redirect_uri=%s",
+        request.headers.get("origin"),
+        request.headers.get("host"),
+        request.headers.get("x-forwarded-host"),
+        request.headers.get("x-forwarded-proto"),
+        sorted(_allowed_origins()),
+        redirect_uri,
+    )
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "prompt":"consent",        # 🔥 forces re-consent
         "access_type":"offline",   # 🔥 ensures refresh_token
         "include_granted_scopes":"false",  # 🔥 VERY IMPORTANT
         "response_type":"code",
         "scope":" ".join(SCOPES),
-        "state":token
+        "state": secrets.token_urlsafe(24),
     }
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
     return {"auth_url": auth_url}
@@ -46,17 +107,20 @@ def exchange_code(
     logger.info(f"User from JWT: {user.email} (ID: {user.id})")
     
     try:
-        # Manual exchange using requests to avoid PKCE/state issues
+        # Manual exchange using requests to avoid PKCE/state issues.
+        # redirect_uri MUST exactly match the one Google saw at /login —
+        # so we derive it from the current Origin header the same way.
+        redirect_uri = _pick_redirect_uri(request)
         token_url = "https://oauth2.googleapis.com/token"
         data = {
             "code": code,
             "client_id": settings.GOOGLE_CLIENT_ID,
             "client_secret": settings.GOOGLE_CLIENT_SECRET,
-            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
-        
-        logger.info(f"Exchanging code with redirect_uri: {settings.GOOGLE_REDIRECT_URI}")
+
+        logger.info(f"Exchanging code with redirect_uri: {redirect_uri}")
         response = requests.post(token_url, data=data)
         tokens = response.json()
         

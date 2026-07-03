@@ -295,6 +295,44 @@ def ask_live(
         except Exception as exc:
             logger.warning("ask-live: live state injection skipped: %s", exc)
 
+    # Memory Phase 3 — long-term layer. The full record of recent
+    # meetings in this scope: their summaries + their tasks. Complements
+    # the short-term distilled facts (which are curated bullets) with
+    # the raw texture of "what actually happened." Wrapped non-fatal.
+    long_term_block = ""
+    try:
+        from app.services.memory.long_term import LongTermMemory
+        from app.services.memory.prompt_blocks import render_long_term_block
+        # No days filter — long-term reaches EVERY meeting in this
+        # scope, not just the recent 60 days. The prompt formatter
+        # itself caps output at 3500 chars, so a large scope just means
+        # "newest N summaries that fit"; older meetings are still
+        # reachable via chunk RAG and typed lookups.
+        summaries = LongTermMemory.recent_summaries(
+            db,
+            organization_id=user.organization_id,
+            category_id=m.category_id,
+            team_id=m.team_id,
+            days=None,
+            limit=25,  # formatter truncates on chars, this is a safety valve
+        )
+        tasks = LongTermMemory.tasks_in_scope(
+            db,
+            organization_id=user.organization_id,
+            category_id=m.category_id,
+            team_id=m.team_id,
+            days=None,
+            limit=50,
+        )
+        long_term_block = render_long_term_block(summaries, tasks)
+        if long_term_block:
+            logger.info(
+                "💭 ask-live: long-term block ready (%d summaries, %d tasks, %d chars)",
+                len(summaries), len(tasks), len(long_term_block),
+            )
+    except Exception as exc:
+        logger.warning("ask-live: long-term injection skipped: %s", exc)
+
     def _generate():
         from app.db.database import SessionLocal
         inner_db = SessionLocal()
@@ -311,6 +349,7 @@ def ask_live(
                 top_k_final=payload.top_k_chunks,
                 rerank_strategy=None,  # use settings default (recency-tuned)
                 live_state_block=live_block,
+                long_term_block=long_term_block,
             ):
                 yield event_to_sse_bytes(event)
         finally:

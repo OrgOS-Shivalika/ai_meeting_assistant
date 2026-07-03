@@ -186,6 +186,11 @@ def ask_stream(
     # passes this when the meeting is in-progress; the synthesizer renders
     # it ABOVE prior_facts + chunks. Empty string for completed meetings.
     live_state_block: str = "",
+    # Memory Phase 3 — pre-formatted long-term memory block: recent
+    # meeting summaries + tasks in scope. /rag/ask-live builds this from
+    # LongTermMemory and passes it; the synthesizer renders it BELOW
+    # short-term facts and ABOVE chunks. Empty string skips rendering.
+    long_term_block: str = "",
 ) -> Iterator[dict]:
     """Run plan -> retrieve -> stream synth -> audit. Yields event dicts.
 
@@ -364,6 +369,19 @@ def ask_stream(
         logger.info(
             "💭 Memory wire-in (/ask): live state injected (%d chars)",
             len(live_state_block),
+        )
+
+    # Memory Phase 3 — long-term block from /rag/ask-live (recent meeting
+    # summaries + tasks). Also force has_context so a query with only
+    # long-term signal still gets synthesized instead of hitting the
+    # no-context fast path.
+    if long_term_block:
+        bundle.long_term_block = long_term_block
+        if not bundle.has_context:
+            bundle.has_context = True
+        logger.info(
+            "💭 Memory wire-in (/ask): long-term injected (%d chars)",
+            len(long_term_block),
         )
 
     yield {"event": "retrieved", "data": {

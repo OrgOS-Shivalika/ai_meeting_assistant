@@ -232,6 +232,12 @@ class RetrievalBundle:
     # NOT cited. Rendered ABOVE prior_facts in the synth context so the
     # LLM treats the in-progress conversation as the freshest signal.
     live_state_block: str = ""
+    # Memory Phase 3 — long-term memory block: recent meeting summaries
+    # + relevant tasks from prior meetings in the same scope. Answers
+    # "what did we discuss in the last N meetings?" / "what's open?"
+    # questions that the distilled facts (short-term) can't cover. NOT
+    # cited. Rendered BELOW facts and ABOVE chunks in the synth context.
+    long_term_block: str = ""
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from requests import Session
 from typing import Optional
@@ -172,6 +173,34 @@ def create_meeting(
     user = Depends(get_current_user)
 ):
     _validate_category_team(db, user, request.category_id, request.team_id)
+
+    # Idempotency guard — same user firing /inject-bot again for the SAME URL
+    # while the previous bot is still working is almost always a double-click,
+    # a page reload, or a retry loop. Return the in-flight row instead of
+    # creating a duplicate bot. 10-minute window lets a legitimate retry after
+    # a bot failure still create a new meeting (the old row will have flipped
+    # to 'failed' by then).
+    if request.meeting_url:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        recent = (
+            db.query(Meeting)
+            .filter(
+                Meeting.user_id == user.id,
+                Meeting.meeting_url == request.meeting_url,
+                Meeting.status.in_(("pending", "processing")),
+                Meeting.created_at >= cutoff,
+            )
+            .order_by(Meeting.created_at.desc())
+            .first()
+        )
+        if recent:
+            logger.info(
+                "🛑 /inject-bot dedup: user=%s already has meeting %s "
+                "processing url=%s (created %s)",
+                user.email, recent.id, request.meeting_url, recent.created_at,
+            )
+            return {"job_id": None, "meeting_id": recent.id, "deduped": True}
+
     job_id = str(uuid.uuid4())
 
     meeting = Meeting(

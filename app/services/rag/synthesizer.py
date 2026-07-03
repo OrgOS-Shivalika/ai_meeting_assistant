@@ -189,6 +189,15 @@ def build_context_blocks(bundle: RetrievalBundle) -> tuple[str, dict[int, Citati
         lines.append(render_facts_block(prior_facts, title="Prior Org Facts"))
         lines.append("")
 
+    # Memory Phase 3 — long-term memory block (recent meeting summaries
+    # + relevant tasks). Rendered AFTER live state + short-term facts
+    # (fresh/curated signals win) but BEFORE chunks (the LLM sees the
+    # gestalt before diving into transcript fragments). NOT citable.
+    long_term_block = getattr(bundle, "long_term_block", "") or ""
+    if long_term_block:
+        lines.append(long_term_block.strip())
+        lines.append("")
+
     # Chunks: numbered [1]..[N]
     for idx, chunk in enumerate(bundle.chunks, start=1):
         if chunk.source_type == "meeting":

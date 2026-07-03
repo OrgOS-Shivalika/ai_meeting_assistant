@@ -59,7 +59,7 @@ class Settings:
     # ---- Networking / CORS ------------------------------------------------
     CORS_ORIGINS = os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:5173,http://localhost:8000,http://127.0.0.1:8000",
+        "*",
     ).split(",")
 
     # ---- Google OAuth -----------------------------------------------------

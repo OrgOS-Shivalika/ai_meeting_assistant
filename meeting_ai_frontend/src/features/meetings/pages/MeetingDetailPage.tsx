@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchMeetingById, updateTask } from "../api";
+import { fetchMeetingById, updateMeeting, updateTask } from "../api";
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components/Skeleton";
 import CategoryAssignControl from "../components/CategoryAssignControl";
@@ -134,6 +134,31 @@ const parseStoredTranscript = (blob: string): LiveFinal[] => {
 export default function MeetingDetailPage() {
   const { id } = useParams();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+
+  const commitTitle = useCallback(async () => {
+    if (!meeting) return;
+    const next = titleDraft.trim();
+    // Empty or unchanged → cancel silently.
+    if (!next || next === (meeting.title || "").trim()) {
+      setIsEditingTitle(false);
+      return;
+    }
+    setIsSavingTitle(true);
+    try {
+      const updated = await updateMeeting(meeting.id, { title: next });
+      setMeeting((prev) => (prev ? { ...prev, title: updated.title } : prev));
+      setIsEditingTitle(false);
+    } catch (err) {
+      console.error("Failed to rename meeting", err);
+      // Leave editor open on failure so user can retry.
+    } finally {
+      setIsSavingTitle(false);
+    }
+  }, [meeting, titleDraft]);
   const [error, setError] = useState<string | null>(null);
   const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
   
@@ -460,7 +485,32 @@ export default function MeetingDetailPage() {
                   </span>
                 )}
               </div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-tight">{title}</h1>
+              {isEditingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  type="text"
+                  value={titleDraft}
+                  disabled={isSavingTitle}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitTitle(); }
+                    else if (e.key === "Escape") { e.preventDefault(); setIsEditingTitle(false); }
+                  }}
+                  autoFocus
+                  maxLength={200}
+                  className="text-2xl font-bold text-slate-900 tracking-tight leading-tight bg-white border border-indigo-300 rounded px-2 py-0.5 outline-none focus:ring-2 focus:ring-indigo-200 w-full max-w-2xl disabled:opacity-60"
+                />
+              ) : (
+                <h1
+                  className="text-2xl font-bold text-slate-900 tracking-tight leading-tight group inline-flex items-center gap-2 cursor-text"
+                  onClick={() => { setTitleDraft(meeting.title || ""); setIsEditingTitle(true); }}
+                  title="Click to rename"
+                >
+                  <span>{title}</span>
+                  <Pencil className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                </h1>
+              )}
               <div className="flex items-center gap-4 text-xs font-medium text-slate-500 flex-wrap">
                 <div className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /><span>{dateStr}</span></div>
                 {durationStr && <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /><span>{durationStr}</span></div>}
