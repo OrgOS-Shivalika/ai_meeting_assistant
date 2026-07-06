@@ -11,5 +11,9 @@ meeting_ai_frontend/dist/
 .planning/
 *.log
 .env
+.env.*
 .pytest_cache/
 .ruff_cache/
+tests/
+scripts/
+alembic/versions/__pycache__/
