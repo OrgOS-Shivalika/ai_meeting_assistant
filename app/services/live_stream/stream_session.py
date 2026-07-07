@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone
 from app.services.live_stream.live_chunk_models import LiveTranscriptChunk
 from app.services.live_stream.speaker_buffer import SpeakerBuffer
