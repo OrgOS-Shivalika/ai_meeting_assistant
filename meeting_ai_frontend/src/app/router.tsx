@@ -28,6 +28,7 @@ import BoardListPage from "../features/kanban/pages/BoardListPage";
 import BoardLayout from "../features/kanban/pages/BoardLayout";
 import BoardPage from "../features/kanban/pages/BoardPage";
 import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
+import SettingsPage from "../features/settings/pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -128,6 +129,10 @@ export const router = createBrowserRouter([
       {
         path: "/reports",
         element: <ReportsPage />,
+      },
+      {
+        path: "/settings",
+        element: <SettingsPage />,
       },
       {
         path: "/boards",

@@ -3,6 +3,7 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import type { IncomingMessage } from 'http'
+import path from 'path'
 
 // In dev, every API path gets proxied to the FastAPI server. The frontend
 // continues to call relative paths (no host hardcoded) and the browser sees
@@ -92,6 +93,9 @@ export default defineConfig(({ mode }) => {
       react(),
       babel({ presets: [reactCompilerPreset()] })
     ],
+    resolve: {
+      alias: { '@': path.resolve(__dirname, './src') },
+    },
     server: {
       allowedHosts: [
         'viral-salami-thimble.ngrok-free.dev',

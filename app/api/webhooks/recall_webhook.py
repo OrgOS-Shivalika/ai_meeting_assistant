@@ -143,7 +143,10 @@ async def process_transcript_event(meeting_id: int, payload: dict):
     gap_ms = int((_now - _last) * 1000) if _last else -1
     _LAST_EVENT_AT[meeting_id] = _now
 
-    logger.info(
+    # Per-utterance log downgraded to debug — this fires many times per
+    # second during a live meeting and floods the terminal. Errors and
+    # slow-handler warnings below still surface at info/warning.
+    logger.debug(
         f"[LIVE TRANSCRIPT] Meeting {meeting_id} | {event} | Final: {is_final} | "
         f"lang={lang_code} | gap_ms={gap_ms} | "
         f"subs={len(manager.active_connections.get(meeting_id, []))} | "
@@ -329,9 +332,7 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
         payload = await request.json()
         event = payload.get("event", "unknown")
 
-        # Super loud logging for debugging
-        print(f"\n>>> WEBHOOK RECEIVED: event={event}, meeting_id={meeting_id}")
-        logger.info(f"Webhook from Recall | event={event} | meeting_id={meeting_id}")
+        logger.debug(f"Webhook from Recall | event={event} | meeting_id={meeting_id}")
 
         # Dispatch table — Phase 12A added bot.status_change and
         # participant_events.{join,leave}. Transcript handlers stay on
@@ -347,7 +348,6 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
 
         return {"status": "ok"}
     except Exception as e:
-        print(f"!!! ERROR IN WEBHOOK: {e}")
         logger.error(f"Error handling recall webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal Server Error")
 

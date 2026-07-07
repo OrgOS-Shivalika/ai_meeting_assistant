@@ -33,6 +33,9 @@ import {
 import ConversationSidebar from "../components/ConversationSidebar";
 import MessageBubble from "../components/MessageBubble";
 import { useChatStream } from "../hooks/useChatStream";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type {
   ChatTurn,
   ConversationDetail,
@@ -299,13 +302,14 @@ export default function AskPage() {
                 </p>
                 <div className="grid grid-cols-2 gap-2 max-w-md mx-auto">
                   {STARTERS.map((s) => (
-                    <button
+                    <Button
                       key={s}
+                      variant="outline"
                       onClick={() => handleSend(s)}
-                      className="text-left text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+                      className="justify-start h-auto py-2 text-xs font-medium whitespace-normal text-left"
                     >
                       {s}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -324,16 +328,19 @@ export default function AskPage() {
               {/* Scope + sources pills */}
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setScope("auto")}
-                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                    className={cn(
+                      "h-7 px-3 text-[10px] font-bold uppercase tracking-wider",
                       scope === "auto"
-                        ? "bg-white text-indigo-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
+                        ? "bg-white text-indigo-600 shadow-sm hover:bg-white"
+                        : "text-slate-500 hover:text-slate-700",
+                    )}
                   >
                     Auto
-                  </button>
+                  </Button>
                 </div>
                 <ScopePicker
                   scope={toPickerScope(scope)}
@@ -355,24 +362,27 @@ export default function AskPage() {
                 <div className="flex-1" />
                 <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
                   {SOURCES_PILLS.map((p) => (
-                    <button
+                    <Button
                       key={p.value}
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setSources(p.value)}
-                      className={`px-2.5 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                      className={cn(
+                        "h-7 px-2.5 text-[10px] font-bold uppercase tracking-wider",
                         sources === p.value
-                          ? "bg-white text-indigo-600 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
+                          ? "bg-white text-indigo-600 shadow-sm hover:bg-white"
+                          : "text-slate-500 hover:text-slate-700",
+                      )}
                     >
                       {p.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
 
               {/* Input row */}
               <div className="relative">
-                <textarea
+                <Textarea
                   ref={inputRef}
                   rows={2}
                   value={query}
@@ -380,25 +390,22 @@ export default function AskPage() {
                   onKeyDown={handleKeyDown}
                   placeholder="Ask a question…"
                   disabled={streaming}
-                  className="w-full resize-none bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 pr-14 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
+                  className="resize-none rounded-xl bg-slate-50 pr-14 py-3"
                 />
-                {streaming ? (
-                  <button
-                    onClick={abort}
-                    className="absolute bottom-3 right-3 w-9 h-9 rounded-lg bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
-                    title="Stop generating"
-                  >
+                <Button
+                  size="icon"
+                  variant={streaming ? "destructive" : "default"}
+                  onClick={streaming ? abort : () => handleSend(query)}
+                  disabled={!streaming && !query.trim()}
+                  title={streaming ? "Stop generating" : "Send"}
+                  className="absolute bottom-3 right-3 h-9 w-9 rounded-lg"
+                >
+                  {streaming ? (
                     <Square className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleSend(query)}
-                    disabled={!query.trim()}
-                    className="absolute bottom-3 right-3 w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
-                  >
+                  ) : (
                     <ArrowUp className="w-4 h-4" />
-                  </button>
-                )}
+                  )}
+                </Button>
               </div>
               <p className="text-[10px] text-slate-400 mt-1.5 text-center">
                 Enter to send · Shift+Enter for newline

@@ -88,7 +88,7 @@ class RecallService:
         self,
         meeting_url: str,
         meeting_id: int,
-        bot_name: str = "AI Note Taker",
+        bot_name: str = "OrgOS Note Taker",
         *,
         language: Optional[str] = None,
     ):
