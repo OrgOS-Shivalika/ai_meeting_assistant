@@ -5,6 +5,7 @@ from app.api.ws_router import manager
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
 from app.utils.logger import setup_logger
+from typing import Optional
 import json
 from datetime import datetime
 
