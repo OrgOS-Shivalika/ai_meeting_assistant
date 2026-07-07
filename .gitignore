@@ -34,6 +34,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Un-ignore the frontend's src/lib — the `lib/` rule above is from the
+# Python virtualenv template and would otherwise swallow shadcn utils.
+!meeting_ai_frontend/src/lib/
+!meeting_ai_frontend/src/lib/**
 parts/
 sdist/
 var/
