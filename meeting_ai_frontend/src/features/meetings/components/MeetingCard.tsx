@@ -1,9 +1,10 @@
 import type { Meeting } from "../types";
 import { useNavigate } from "react-router-dom";
-import { MoreVertical, Calendar, Users } from "lucide-react";
+import { MoreVertical, Calendar, Users, ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import MeetingSourceIcon from "./MeetingSourceIcon";
 import AIMemoryStatusDot from "./AIMemoryStatusDot";
+import { cn } from "@/lib/utils";
 
 const AVATAR_COLORS = [
   "bg-indigo-500",
@@ -36,6 +37,13 @@ interface MeetingCardProps {
   isDeleting?: boolean;
 }
 
+const STATUS = {
+  completed: { label: "Completed", cls: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
+  failed:    { label: "Failed",    cls: "bg-red-50 text-red-700",         dot: "bg-red-500" },
+  pending:   { label: "Pending",   cls: "bg-amber-50 text-amber-700",     dot: "bg-amber-500" },
+  processing:{ label: "Processing",cls: "bg-indigo-50 text-indigo-700",   dot: "bg-indigo-500" },
+} as const;
+
 export default function MeetingCard({
   meeting,
   onDelete,
@@ -43,14 +51,11 @@ export default function MeetingCard({
 }: MeetingCardProps) {
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
-  const [, setCopied] = useState(false);
 
   const handleCopyLink = async () => {
     if (!meeting.meeting_url) return;
     try {
       await navigator.clipboard.writeText(meeting.meeting_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch (err) {
       console.error("Copy failed", err);
     }
@@ -74,37 +79,11 @@ export default function MeetingCard({
     handleCopyLink();
   };
 
-  const statusConfig = {
-    completed: {
-      label: "Completed",
-      badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-      dot: "bg-emerald-500",
-    },
-    failed: {
-      label: "Failed",
-      badge: "bg-red-50 text-red-700 ring-1 ring-red-200",
-      dot: "bg-red-500",
-    },
-    pending: {
-      label: "Pending",
-      badge: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-      dot: "bg-amber-500",
-    },
-    processing: {
-      label: "Processing",
-      badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200",
-      dot: "bg-indigo-500",
-    },
-  };
-
-  const status =
-    statusConfig[meeting.status as keyof typeof statusConfig] ||
-    statusConfig.pending;
+  const status = STATUS[meeting.status as keyof typeof STATUS] || STATUS.pending;
   const createdDate = new Date(meeting.created_at || Date.now());
   const dateStr = createdDate.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    year: "numeric",
   });
   const timeStr = createdDate.toLocaleTimeString(undefined, {
     hour: "2-digit",
@@ -114,58 +93,55 @@ export default function MeetingCard({
   return (
     <div
       onClick={() => navigate(`/meeting/${meeting.id}`)}
-      className="group relative bg-white rounded-lg border border-slate-100 hover:border-slate-200 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden h-full flex flex-col"
+      className="group relative bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-colors cursor-pointer h-full flex flex-col"
     >
-      {/* Accent Bar – modernized with a subtle gradient */}
-      {/* <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-transform duration-300 origin-left group-hover:scale-x-110" /> */}
-
       <div className="p-4 flex flex-col flex-1">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div className="flex-1 min-w-0">
-            {meeting.category && (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded mb-2"
-                style={{
-                  backgroundColor: `${meeting.category.color || "#4F46E5"}10`,
-                  color: meeting.category.color || "#4F46E5",
-                  borderColor: `${meeting.category.color || "#4F46E5"}30`,
-                  borderWidth: 1,
-                }}
-              >
-                {meeting.category.name}
-                {meeting.team && <span className="opacity-60"> · {meeting.team.name}</span>}
-              </span>
+        {/* Category pill */}
+        {meeting.category && (
+          <span
+            className="self-start inline-flex items-center text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded mb-2.5"
+            style={{
+              backgroundColor: `${meeting.category.color || "#4F46E5"}14`,
+              color: meeting.category.color || "#4F46E5",
+            }}
+          >
+            {meeting.category.name}
+            {meeting.team && (
+              <span className="opacity-60"> · {meeting.team.name}</span>
             )}
-            <h3 className="text-sm font-semibold text-slate-900 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors">
-              {meeting.title || "Untitled Meeting"}
-            </h3>
-            {meeting.summary && (
-              <p className="mt-1.5 text-xs text-slate-500 line-clamp-2 leading-relaxed">
-                {meeting.summary}
-              </p>
-            )}
-          </div>
+          </span>
+        )}
+
+        {/* Title + menu */}
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h3 className="text-[14px] font-semibold text-slate-900 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors flex-1">
+            {meeting.title || "Untitled meeting"}
+          </h3>
           <button
             onClick={(e) => {
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="p-1.5 hover:bg-slate-50 rounded-md transition-colors shrink-0 group/menu"
+            className="p-1 -mr-1 -mt-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
             title="More options"
           >
-            <MoreVertical className="w-4 h-4 text-slate-400 group-hover/menu:text-slate-600" />
+            <MoreVertical className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Meta Info */}
-        <div className="space-y-2.5 mb-4 flex-1">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <div className="p-1 bg-slate-50 rounded group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-              <Calendar className="w-3 h-3" />
-            </div>
+        {/* Summary */}
+        {meeting.summary && (
+          <p className="text-[12px] text-slate-500 line-clamp-2 leading-relaxed mb-3">
+            {meeting.summary}
+          </p>
+        )}
+
+        {/* Meta */}
+        <div className="flex-1 space-y-1.5 mb-3">
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
             <span>{dateStr}</span>
-            <span className="text-slate-300">/</span>
+            <span className="text-slate-300">·</span>
             <span>{timeStr}</span>
           </div>
           <MeetingSourceIcon url={meeting.meeting_url} showLabel size="sm" />
@@ -173,40 +149,42 @@ export default function MeetingCard({
 
         {/* Participants */}
         {meeting.participants && meeting.participants.length > 0 && (
-          <div className="flex items-center gap-2 mb-4">
-            <div className="p-1 bg-slate-50 rounded group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-              <Users className="w-3 h-3 text-slate-500" />
-            </div>
-            <div className="flex -space-x-1">
+          <div className="flex items-center gap-2 mb-3">
+            <Users className="w-3 h-3 text-slate-400 shrink-0" />
+            <div className="flex -space-x-1.5">
               {meeting.participants.slice(0, 5).map((p) => (
                 <div
                   key={p.id}
                   title={p.name}
-                  className={`w-5 h-5 rounded-full ring-2 ring-white flex items-center justify-center text-[8px] font-semibold text-white ${colorFor(p.name)}`}
+                  className={cn(
+                    "w-5 h-5 rounded-full ring-2 ring-white flex items-center justify-center text-[8px] font-semibold text-white",
+                    colorFor(p.name),
+                  )}
                 >
                   {initialsOf(p.name)}
                 </div>
               ))}
               {meeting.participants.length > 5 && (
-                <div className="w-5 h-5 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[8px] font-semibold text-slate-600">
+                <div className="w-5 h-5 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[9px] font-semibold text-slate-600">
                   +{meeting.participants.length - 5}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide ml-1">
-              {meeting.participants.length} attended
+            <span className="text-[11px] text-slate-500">
+              {meeting.participants.length}
             </span>
           </div>
         )}
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-auto">
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${status.dot} shadow-[0_0_6px_currentColor]`}
-            />
+          <div className="flex items-center gap-1.5">
+            <span className={cn("w-1.5 h-1.5 rounded-full", status.dot)} />
             <span
-              className={`text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-md ${status.badge}`}
+              className={cn(
+                "text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded",
+                status.cls,
+              )}
             >
               {status.label}
             </span>
@@ -215,17 +193,17 @@ export default function MeetingCard({
               graphStatus={meeting.graph_status}
             />
           </div>
-          <div className="flex items-center gap-1 text-xs font-medium text-indigo-600 opacity-0 group-hover:opacity-100 transition-all translate-x-1 group-hover:translate-x-0">
-            Details
-            <span>→</span>
+          <div className="flex items-center gap-0.5 text-[11px] font-medium text-slate-400 group-hover:text-indigo-600 transition-colors">
+            Open
+            <ArrowUpRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </div>
         </div>
       </div>
 
-      {/* Context Menu Dropdown */}
+      {/* Menu */}
       {showMenu && (
         <div
-          className="absolute top-12 right-6 bg-white border border-slate-200 rounded-lg shadow-xl z-20 min-w-[160px] py-1 animate-in fade-in slide-in-from-top-1 duration-200"
+          className="absolute top-11 right-3 bg-white border border-slate-200 rounded-md shadow-lg z-20 min-w-[140px] py-1"
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -233,9 +211,9 @@ export default function MeetingCard({
               setShowMenu(false);
               navigate(`/meeting/${meeting.id}`);
             }}
-            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
           >
-            View Details
+            View details
           </button>
           <button
             onClick={() => {
@@ -243,11 +221,11 @@ export default function MeetingCard({
               setShowMenu(false);
             }}
             disabled={!meeting.meeting_url}
-            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Share
           </button>
-          <div className="h-px bg-slate-100 mx-2 my-1" />
+          <div className="h-px bg-slate-100 my-1" />
           <button
             onClick={() => {
               setShowMenu(false);

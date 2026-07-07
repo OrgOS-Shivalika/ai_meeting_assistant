@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import type { Meeting, Participant, Task } from "../types";
 import MeetingAIMemorySection from "../components/MeetingAIMemorySection";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   useLiveTranscript,
   type LiveFinal,
@@ -107,16 +109,16 @@ const computeDuration = (m: Meeting): string | null => {
 };
 
 const PRIORITY_STYLE: Record<string, string> = {
-  high: "bg-rose-50 text-rose-700 ring-rose-200",
-  medium: "bg-amber-50 text-amber-700 ring-amber-200",
-  low: "bg-slate-50 text-slate-600 ring-slate-200",
+  high: "bg-red-50 text-red-700",
+  medium: "bg-amber-50 text-amber-700",
+  low: "bg-slate-100 text-slate-600",
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  failed: "bg-rose-50 text-rose-700 ring-rose-200",
-  pending: "bg-amber-50 text-amber-700 ring-amber-200",
-  processing: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+  completed: "bg-emerald-50 text-emerald-700",
+  failed: "bg-red-50 text-red-700",
+  pending: "bg-amber-50 text-amber-700",
+  processing: "bg-indigo-50 text-indigo-700",
 };
 
 const parseStoredTranscript = (blob: string): LiveFinal[] => {
@@ -160,7 +162,7 @@ export default function MeetingDetailPage() {
     }
   }, [meeting, titleDraft]);
   const [error, setError] = useState<string | null>(null);
-  const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
+  // const [aiHighlightsOn, setAiHighlightsOn] = useState(false);
   
   const [activeNotification, setActiveNotification] = useState<any | null>(null);
   const [liveTasks, setLiveTasks] = useState<Task[]>([]);
@@ -383,20 +385,21 @@ export default function MeetingDetailPage() {
   if (error) {
     return (
       <Layout>
-        <div className="  px-4 py-12">
-          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-            <AlertCircle className="w-10 h-10 text-rose-500 mx-auto mb-3" />
-            <h2 className="text-lg font-bold text-slate-900 mb-1">
+        <div className="max-w-md mx-auto px-8 py-16">
+          <div className="bg-white rounded-lg border border-slate-200 p-10 text-center">
+            <div className="w-10 h-10 rounded-md bg-red-50 flex items-center justify-center mx-auto mb-3">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+            </div>
+            <h2 className="text-base font-semibold text-slate-900 mb-1">
               Couldn't load meeting
             </h2>
             <p className="text-sm text-slate-500 mb-5">{error}</p>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Back to meetings
-            </Link>
+            <Button asChild size="sm" className="bg-slate-900 hover:bg-slate-800">
+              <Link to="/">
+                <ChevronLeft className="w-4 h-4" />
+                Back to meetings
+              </Link>
+            </Button>
           </div>
         </div>
       </Layout>
@@ -404,24 +407,24 @@ export default function MeetingDetailPage() {
   }
 
   if (!meeting) {
-    // Detail page skeleton — title block, summary card, transcript +
-    // tasks side-by-side. Lands roughly where the real content does.
     return (
       <Layout>
-        <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-          <div className="space-y-3">
-            <Skeleton className="h-7 w-72" />
-            <Skeleton className="h-4 w-48" />
+        <div className="h-full flex flex-col">
+          <div className="px-8 py-3 border-b border-slate-200 shrink-0">
+            <Skeleton className="h-3 w-64" />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-4">
-              <SkeletonCard className="h-32" />
-              <div className="bg-white border border-slate-200 rounded-2xl p-5">
-                <SkeletonText lines={6} />
-              </div>
+          <div className="px-8 py-6 border-b border-slate-200 shrink-0 space-y-3">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-8 w-96" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="flex-1 bg-slate-50 p-6 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4 min-h-0">
+            <div className="bg-white rounded-lg border border-slate-200 p-5">
+              <SkeletonText lines={8} />
             </div>
             <div className="space-y-4">
-              <SkeletonCard className="h-44" />
+              <SkeletonCard className="h-40" />
+              <SkeletonCard className="h-56" />
               <SkeletonCard className="h-32" />
             </div>
           </div>
@@ -445,283 +448,460 @@ export default function MeetingDetailPage() {
 
   return (
     <Layout>
-      <div className=" pb-4 flex flex-col">
-        <div className="bg-white border border-slate-200/50 shadow-lg overflow-hidden flex flex-col flex-1">
-          {/* Top Navigation Bar */}
-          <div className="px-6 py-2.5 flex items-center justify-between border-b border-slate-100 bg-white shrink-0">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 min-w-0">
-              <Link to="/" className="hover:text-indigo-600 transition-colors">Meetings</Link>
-              {meeting.category && (
-                <>
-                  <span className="text-slate-300">/</span>
-                  <Link to={`/?category_id=${meeting.category.id}`} className="hover:text-indigo-600 transition-colors" style={{ color: meeting.category.color || undefined }}>
-                    {meeting.category.name}
-                  </Link>
-                </>
-              )}
-              <span className="text-slate-300">/</span>
-              <span className="text-slate-500 font-semibold truncate text-xs">{title}</span>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <CategoryAssignControl
-                meetingId={meeting.id}
-                category={meeting.category}
-                team={meeting.team}
-                onChange={({ category, team }) => setMeeting((prev) => prev ? { ...prev, category, team } : prev)}
-              />
-            </div>
-          </div>
-
-          {/* Header Section */}
-          <div className="px-6 py-5 flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-50 shrink-0">
-            <div className="space-y-2.5 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded ring-1 ${statusBadge}`}>
-                  {meeting.status}
-                </span>
-                {meeting.meeting_platform && (
-                  <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-50 text-slate-600 ring-1 ring-slate-200">
-                    {meeting.meeting_platform.replace(/_/g, " ")}
-                  </span>
-                )}
-              </div>
-              {isEditingTitle ? (
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={titleDraft}
-                  disabled={isSavingTitle}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={commitTitle}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); commitTitle(); }
-                    else if (e.key === "Escape") { e.preventDefault(); setIsEditingTitle(false); }
-                  }}
-                  autoFocus
-                  maxLength={200}
-                  className="text-2xl font-bold text-slate-900 tracking-tight leading-tight bg-white border border-indigo-300 rounded px-2 py-0.5 outline-none focus:ring-2 focus:ring-indigo-200 w-full max-w-2xl disabled:opacity-60"
-                />
-              ) : (
-                <h1
-                  className="text-2xl font-bold text-slate-900 tracking-tight leading-tight group inline-flex items-center gap-2 cursor-text"
-                  onClick={() => { setTitleDraft(meeting.title || ""); setIsEditingTitle(true); }}
-                  title="Click to rename"
+      <div className="h-full flex flex-col">
+        {/* Breadcrumb strip */}
+        <div className="px-8 py-3 flex items-center justify-between border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+            <Link to="/" className="hover:text-slate-900 transition-colors">
+              Meetings
+            </Link>
+            {meeting.category && (
+              <>
+                <span className="text-slate-300">/</span>
+                <Link
+                  to={`/?category_id=${meeting.category.id}`}
+                  className="hover:text-slate-900 transition-colors"
+                  style={{ color: meeting.category.color || undefined }}
                 >
-                  <span>{title}</span>
-                  <Pencil className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
-                </h1>
-              )}
-              <div className="flex items-center gap-4 text-xs font-medium text-slate-500 flex-wrap">
-                <div className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /><span>{dateStr}</span></div>
-                {durationStr && <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /><span>{durationStr}</span></div>}
-                <div className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /><span>{participants.length} participants</span></div>
-              </div>
-            </div>
+                  {meeting.category.name}
+                </Link>
+              </>
+            )}
+            <span className="text-slate-300">/</span>
+            <span className="text-slate-700 font-medium truncate">{title}</span>
+          </div>
+          <div className="shrink-0">
+            <CategoryAssignControl
+              meetingId={meeting.id}
+              category={meeting.category}
+              team={meeting.team}
+              onChange={({ category, team }) =>
+                setMeeting((prev) => (prev ? { ...prev, category, team } : prev))
+              }
+            />
+          </div>
+        </div>
 
+        {/* Header strip */}
+        <div className="px-8 py-6 flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 shrink-0 bg-white">
+          <div className="space-y-3 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              {meeting.meeting_url && (
-                <a href={meeting.meeting_url} target="_blank" rel="noreferrer" className="h-8 px-3 bg-white border border-slate-200 text-slate-900 font-semibold text-xs rounded-lg hover:bg-slate-50 transition-all flex items-center gap-1.5">
-                  <ExternalLink className="w-3.5 h-3.5" /> Open
-                </a>
+              <span
+                className={cn(
+                  "text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded",
+                  statusBadge,
+                )}
+              >
+                {meeting.status}
+              </span>
+              {meeting.meeting_platform && (
+                <span className="text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                  {meeting.meeting_platform.replace(/_/g, " ")}
+                </span>
               )}
-              <button disabled={!meeting.summary} onClick={() => meeting.summary && navigator.clipboard?.writeText(meeting.summary)} className="h-8 px-3 bg-white border border-slate-200 text-slate-900 font-semibold text-xs rounded-lg hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40"><Share2 className="w-3.5 h-3.5" /> Copy</button>
-              <button disabled={!meeting.transcript} onClick={() => {
-                  const text = meeting.transcript || "";
-                  const blob = new Blob([text], { type: "text/plain" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${title.replace(/[^\w\d]+/g, "_")}-transcript.txt`;
-                  a.click();
-                }} className="h-8 px-3 bg-white border border-slate-200 text-slate-900 font-semibold text-xs rounded-lg hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40"><Download className="w-3.5 h-3.5" /> Export</button>
+              {connected && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                  <Radio className="w-2.5 h-2.5" /> Live
+                </span>
+              )}
+            </div>
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={titleDraft}
+                disabled={isSavingTitle}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTitle();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setIsEditingTitle(false);
+                  }
+                }}
+                autoFocus
+                maxLength={200}
+                className="text-2xl font-semibold text-slate-900 tracking-tight leading-tight bg-white border border-indigo-300 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-500/20 w-full max-w-2xl disabled:opacity-60"
+              />
+            ) : (
+              <h1
+                className="text-2xl font-semibold text-slate-900 tracking-tight leading-tight group inline-flex items-center gap-2 cursor-text"
+                onClick={() => {
+                  setTitleDraft(meeting.title || "");
+                  setIsEditingTitle(true);
+                }}
+                title="Click to rename"
+              >
+                <span>{title}</span>
+                <Pencil className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />
+              </h1>
+            )}
+            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                {dateStr}
+              </span>
+              {durationStr && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  {durationStr}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-slate-400" />
+                {participants.length} participant
+                {participants.length === 1 ? "" : "s"}
+              </span>
             </div>
           </div>
 
-          {/* Content Layout */}
-          <div className="flex-1 bg-slate-50 p-5 grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-4 min-h-0 overflow-hidden">
-            <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm overflow-hidden flex flex-col min-h-0">
-              <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    {meeting.status === "completed" ? "Transcript" : "Live"}
-                  </span>
-                  {connected && <span className="inline-flex items-center gap-1 text-xs font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700"><Radio className="w-2 h-2" />Live</span>}
-                </div>
-                <button onClick={() => setAiHighlightsOn(!aiHighlightsOn)} className={`px-2.5 py-1 rounded-full flex items-center gap-1.5 transition-all text-xs font-bold ${aiHighlightsOn ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-500"}`}>
-                  <Sparkles className="w-3 h-3" /><span>AI</span>
-                </button>
-              </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {meeting.meeting_url && (
+              <Button asChild variant="outline" size="sm">
+                <a href={meeting.meeting_url} target="_blank" rel="noreferrer">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open call
+                </a>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!meeting.summary}
+              onClick={() =>
+                meeting.summary &&
+                navigator.clipboard?.writeText(meeting.summary)
+              }
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Copy summary
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!meeting.transcript}
+              onClick={() => {
+                const text = meeting.transcript || "";
+                const blob = new Blob([text], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${title.replace(/[^\w\d]+/g, "_")}-transcript.txt`;
+                a.click();
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export
+            </Button>
+          </div>
+        </div>
 
-              <div ref={transcriptContainerRef} onScroll={handleTranscriptScroll} className="p-4 space-y-3 overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                {groups.length === 0 ? (
-                  <div className="text-center py-12"><Inbox className="w-8 h-8 text-slate-300 mx-auto mb-3" /><p className="text-sm font-bold text-slate-500">No transcript yet</p></div>
-                ) : (
-                  groups.map((group, idx) => (
-                    <div key={idx} className="relative">
-                      <div className={`flex gap-3 p-2.5 rounded-lg ${group.isPartial ? "bg-indigo-50/50 ring-1 ring-indigo-100" : "hover:bg-slate-50"}`}>
-                        <div className="shrink-0 mt-0.5">
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-[9px] text-white shadow-xs ${colorFor(group.speaker)}`}>
-                            {getInitials(group.speaker)}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-xs font-bold text-slate-900">{group.speaker}</span>
-                            {group.timestamp && <span className="text-[8px] font-semibold text-slate-400 uppercase">{formatTime(group.timestamp)}</span>}
-                          </div>
-                          <div className="space-y-1">
-                            {group.messages.map((m, midx) => (
-                              <p key={midx} className={`text-xs leading-snug font-medium ${group.isPartial ? "text-slate-500 italic" : "text-slate-600"}`}>
-                                {m}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
+        {/* Content */}
+        <div className="flex-1 bg-slate-50 p-6 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4 min-h-0 overflow-hidden">
+          {/* Transcript */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
+              <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+                {meeting.status === "completed" ? "Transcript" : "Live transcript"}
+              </h3>
+              {/* <button
+                onClick={() => setAiHighlightsOn(!aiHighlightsOn)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[11px] font-medium transition-colors",
+                  aiHighlightsOn
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                )}
+                title="Toggle AI highlights"
+              >
+                <Sparkles className="w-3 h-3" />
+                AI highlights
+              </button> */}
+            </div>
+            <div
+              ref={transcriptContainerRef}
+              onScroll={handleTranscriptScroll}
+              className="p-4 space-y-2 overflow-y-auto flex-1 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.15)_transparent]"
+            >
+              {groups.length === 0 ? (
+                <div className="text-center py-14">
+                  <Inbox className="w-6 h-6 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-medium text-slate-500">
+                    No transcript yet
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Lines will stream in as the bot listens.
+                  </p>
+                </div>
+              ) : (
+                groups.map((group, idx) => (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex gap-3 p-2.5 rounded-md",
+                      group.isPartial
+                        ? "bg-indigo-50/60"
+                        : "hover:bg-slate-50/60",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "w-7 h-7 rounded-md flex items-center justify-center font-semibold text-[10px] text-white shrink-0",
+                        colorFor(group.speaker),
+                      )}
+                    >
+                      {getInitials(group.speaker)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-[13px] font-semibold text-slate-900">
+                          {group.speaker}
+                        </span>
+                        {group.timestamp && (
+                          <span className="text-[10px] text-slate-400 tabular-nums">
+                            {formatTime(group.timestamp)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {group.messages.map((m, midx) => (
+                          <p
+                            key={midx}
+                            className={cn(
+                              "text-[13px] leading-relaxed",
+                              group.isPartial
+                                ? "text-slate-500 italic"
+                                : "text-slate-700",
+                            )}
+                          >
+                            {m}
+                          </p>
+                        ))}
                       </div>
                     </div>
-                  ))
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div className="space-y-4 overflow-y-auto pr-1 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            {/* Summary */}
+            <div className="bg-white rounded-lg border border-slate-200">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+                  Summary
+                </h3>
+              </div>
+              <div className="px-5 py-4">
+                {meeting.summary ? (
+                  summaryBullets.length > 1 ? (
+                    <ul className="space-y-2">
+                      {summaryBullets.map((bullet, i) => (
+                        <li key={i} className="flex items-start gap-2.5">
+                          <span className="w-1 h-1 bg-indigo-600 rounded-full mt-2 shrink-0" />
+                          <span className="text-[13px] text-slate-700 leading-relaxed">
+                            {bullet}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[13px] text-slate-700 leading-relaxed">
+                      {meeting.summary}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-xs text-slate-400 italic">
+                    No summary yet.
+                  </p>
                 )}
               </div>
             </div>
 
-            <div className="space-y-3 overflow-y-scroll pr-2 scrollbar-hide">
-              {/* Meeting Summary Card */}
-              <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm p-5 border-b-2 border-b-slate-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Summary</h3>
+            {/* Tasks */}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+                  Tasks
+                </h3>
+                <div className="flex items-center gap-2">
+                  {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
+                  <span className="text-xs font-medium text-slate-500 tabular-nums">
+                    {completedTaskCount}/{taskCount}
+                  </span>
                 </div>
-                {meeting.summary ? (
-                  summaryBullets.length > 1 ? (
-                    <div className="space-y-2">
-                      {summaryBullets.map((bullet, i) => (
-                        <div key={i} className="flex items-start gap-2">
-                          <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full mt-1 shrink-0" />
-                          <span className="text-xs text-slate-700 font-medium leading-snug">{bullet}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : <p className="text-xs text-slate-700 font-medium leading-snug">{meeting.summary}</p>
-                ) : <p className="text-xs text-slate-400 italic">No summary yet.</p>}
               </div>
-
-              {/* Assigned Tasks Card */}
-              <div className="bg-white rounded-xl border border-slate-200/50 shadow-sm overflow-y-scroll border-b-2 border-b-slate-100">
-                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Tasks</h3>
-                  <div className="flex items-center gap-2">
-                    {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
-                    <span className="text-xs font-semibold text-slate-500">{completedTaskCount}/{taskCount}</span>
-                  </div>
+              {unassignedTaskCount > 0 && (
+                <div className="mx-3 mt-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-md flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-xs font-medium text-amber-900 leading-snug">
+                    {unassignedTaskCount}{" "}
+                    {unassignedTaskCount === 1 ? "task needs" : "tasks need"} an
+                    owner
+                  </p>
                 </div>
-                {unassignedTaskCount > 0 && (
-                  <div className="m-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
-                    <p className="text-xs font-semibold text-amber-900 leading-snug">{unassignedTaskCount} need owner</p>
-                  </div>
-                )}
-                <div className="p-2.5 space-y-1">
-                  {tasks.length === 0 ? <p className="px-4 py-4 text-xs text-slate-400 italic text-center">No tasks</p> : tasks.map((task) => {
-                      const priorityKey = (task.priority || "medium").toLowerCase();
-                      const priorityClass = PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
-                      const unassigned = isTaskUnassigned(task);
-                      const due = formatDateShort(task.due_date);
-                      const editingThis = editingTaskId === (task.id as number);
-                      const savingThis = savingTaskId === (task.id as number);
-                      // Persisted tasks (numeric id) can be edited. Live-only
-                      // tasks have string UUIDs and aren't yet in the DB —
-                      // hide the edit affordance for them.
-                      const canEdit = typeof task.id === "number";
-                      return (
-                        <div key={task.id} className={`px-3 py-2.5 rounded-lg border text-xs ${unassigned ? "border-l-2 border-l-amber-400 border-amber-100 bg-amber-50/40" : "border-slate-100 hover:border-slate-200 hover:bg-slate-50"} transition-all`}>
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <h4 className={`font-semibold leading-snug ${task.is_completed ? "text-slate-400 line-through" : "text-slate-800"}`}>{task.task}</h4>
-                            <span className={`px-1.5 py-0.5 text-[7px] font-black rounded ring-1 tracking-wider shrink-0 ${priorityClass}`}>{priorityKey}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-1 text-xs">
-                            {unassigned && !due ? (
-                              <button
-                                onClick={() => canEdit && setEditingTaskId(task.id as number)}
-                                disabled={!canEdit}
-                                className="group flex items-center gap-1 text-amber-700 italic text-[10px] font-semibold hover:text-amber-900 disabled:cursor-default"
-                                title={canEdit ? "Click to assign owner & date" : ""}
-                              >
-                                <span>Unassigned owner & date</span>
-                                {canEdit && <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />}
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => canEdit && setEditingTaskId(task.id as number)}
-                                  disabled={!canEdit}
-                                  className="group flex items-center gap-1.5 min-w-0 disabled:cursor-default"
-                                  title={canEdit ? "Click to change owner or date" : ""}
-                                >
-                                  <div className={`w-4 h-4 text-white text-[7px] font-black rounded flex items-center justify-center shrink-0 ${colorFor(task.owner || "?")}`}>{getInitials(task.owner || "?")}</div>
-                                  <span className={`truncate font-medium ${unassigned ? "text-amber-700 italic" : "text-slate-500"}`}>
-                                    {task.owner || "Unassigned owner"}
-                                  </span>
-                                  {canEdit && <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />}
-                                </button>
-                                {due ? (
-                                  <button
-                                    onClick={() => canEdit && setEditingTaskId(task.id as number)}
-                                    disabled={!canEdit}
-                                    className="text-slate-400 text-[8px] shrink-0 hover:text-indigo-600 disabled:cursor-default"
-                                    title={canEdit ? "Click to change due date" : ""}
-                                  >
-                                    {due}
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => canEdit && setEditingTaskId(task.id as number)}
-                                    disabled={!canEdit}
-                                    className="text-amber-700 italic text-[8px] shrink-0 hover:text-amber-900 disabled:cursor-default"
-                                    title={canEdit ? "Click to assign a due date" : ""}
-                                  >
-                                    Unassigned date
-                                  </button>
-                                )}
-                              </>
+              )}
+              <div className="p-2 space-y-1">
+                {tasks.length === 0 ? (
+                  <p className="px-4 py-6 text-xs text-slate-400 italic text-center">
+                    No tasks extracted yet.
+                  </p>
+                ) : (
+                  tasks.map((task) => {
+                    const priorityKey = (task.priority || "medium").toLowerCase();
+                    const priorityClass =
+                      PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
+                    const unassigned = isTaskUnassigned(task);
+                    const due = formatDateShort(task.due_date);
+                    const editingThis = editingTaskId === (task.id as number);
+                    const savingThis = savingTaskId === (task.id as number);
+                    const canEdit = typeof task.id === "number";
+                    return (
+                      <div
+                        key={task.id}
+                        className={cn(
+                          "px-3 py-2.5 rounded-md border transition-colors",
+                          unassigned
+                            ? "border-l-2 border-l-amber-400 border-amber-100 bg-amber-50/30"
+                            : "border-slate-100 hover:border-slate-200 hover:bg-slate-50/60",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <h4
+                            className={cn(
+                              "text-[13px] font-medium leading-snug",
+                              task.is_completed
+                                ? "text-slate-400 line-through"
+                                : "text-slate-800",
                             )}
-                          </div>
-
-                          {/* Inline editor — opens beneath the row. Pulls
-                              the participants from the parent meeting since
-                              every task here belongs to the same meeting. */}
-                          {editingThis && canEdit && (
-                            <div className="mt-2">
-                              <TaskAssignmentEditor
-                                open={editingThis}
-                                initialOwner={task.owner ?? null}
-                                initialDueDate={task.due_date ?? null}
-                                participants={(meeting?.participants ?? []).map((p) => ({
+                          >
+                            {task.task}
+                          </h4>
+                          <span
+                            className={cn(
+                              "px-1.5 py-0.5 text-[10px] font-medium rounded shrink-0 capitalize",
+                              priorityClass,
+                            )}
+                          >
+                            {priorityKey}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          {unassigned && !due ? (
+                            <button
+                              onClick={() =>
+                                canEdit && setEditingTaskId(task.id as number)
+                              }
+                              disabled={!canEdit}
+                              className="group flex items-center gap-1 text-amber-700 italic hover:text-amber-900 disabled:cursor-default"
+                              title={canEdit ? "Click to assign owner & date" : ""}
+                            >
+                              Unassigned owner & date
+                              {canEdit && (
+                                <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />
+                              )}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() =>
+                                  canEdit && setEditingTaskId(task.id as number)
+                                }
+                                disabled={!canEdit}
+                                className="group flex items-center gap-1.5 min-w-0 disabled:cursor-default"
+                                title={
+                                  canEdit ? "Click to change owner or date" : ""
+                                }
+                              >
+                                <div
+                                  className={cn(
+                                    "w-5 h-5 text-white text-[9px] font-semibold rounded flex items-center justify-center shrink-0",
+                                    colorFor(task.owner || "?"),
+                                  )}
+                                >
+                                  {getInitials(task.owner || "?")}
+                                </div>
+                                <span
+                                  className={cn(
+                                    "truncate",
+                                    unassigned
+                                      ? "text-amber-700 italic"
+                                      : "text-slate-600",
+                                  )}
+                                >
+                                  {task.owner || "Unassigned owner"}
+                                </span>
+                                {canEdit && (
+                                  <Pencil className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() =>
+                                  canEdit && setEditingTaskId(task.id as number)
+                                }
+                                disabled={!canEdit}
+                                className={cn(
+                                  "shrink-0 hover:text-indigo-600 disabled:cursor-default",
+                                  due
+                                    ? "text-slate-400"
+                                    : "text-amber-700 italic",
+                                )}
+                                title={
+                                  canEdit
+                                    ? due
+                                      ? "Click to change due date"
+                                      : "Click to assign a due date"
+                                    : ""
+                                }
+                              >
+                                {due || "Unassigned date"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {editingThis && canEdit && (
+                          <div className="mt-2">
+                            <TaskAssignmentEditor
+                              open={editingThis}
+                              initialOwner={task.owner ?? null}
+                              initialDueDate={task.due_date ?? null}
+                              participants={(meeting?.participants ?? []).map(
+                                (p) => ({
                                   name: p.name,
                                   email: p.email,
                                   avatar_url: p.avatar_url,
-                                }))}
-                                onCancel={() => setEditingTaskId(null)}
-                                onSave={(next) => saveTaskAssignment(task.id as number, next)}
-                                saving={savingThis}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
+                                }),
+                              )}
+                              onCancel={() => setEditingTaskId(null)}
+                              onSave={(next) =>
+                                saveTaskAssignment(task.id as number, next)
+                              }
+                              saving={savingThis}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
-
-              <MeetingAIMemorySection
-                meetingId={meeting.id}
-                meetingStatus={meeting.status}
-                embeddingStatus={meeting.embedding_status}
-                embeddedAt={meeting.embedded_at}
-                graphStatus={meeting.graph_status}
-                graphExtractedAt={meeting.graph_extracted_at}
-                graphError={meeting.graph_error}
-              />
             </div>
+
+            <MeetingAIMemorySection
+              meetingId={meeting.id}
+              meetingStatus={meeting.status}
+              embeddingStatus={meeting.embedding_status}
+              embeddedAt={meeting.embedded_at}
+              graphStatus={meeting.graph_status}
+              graphExtractedAt={meeting.graph_extracted_at}
+              graphError={meeting.graph_error}
+            />
           </div>
         </div>
 

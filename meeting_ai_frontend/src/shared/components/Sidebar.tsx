@@ -5,8 +5,8 @@ import {
   LayoutGrid,
   Calendar,
   CheckSquare,
-
   LogOut,
+  Settings,
   Zap,
   BookOpen,
   Layers,
@@ -18,18 +18,53 @@ import {
   Package,
   ChevronsLeft,
   ChevronsRight,
+  type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-
-// localStorage key — survives reloads so the user's preference sticks.
-// Stored as "1" / "0" to avoid JSON.parse boilerplate.
-const COLLAPSED_KEY = "sidebar:collapsed";
+import { useEffect, useRef, useState } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
 import CategoryModal from "../../features/meetings/components/CategoryModal";
 import { authService } from "../../services/authService";
 import { useCategories } from "../../features/meetings/hooks/useCategories";
 import { useCurrentUser } from "../../features/auth/hooks/useCurrentUser";
+import { cn } from "@/lib/utils";
 import type { Category } from "../../features/meetings/types";
+
+const COLLAPSED_KEY = "sidebar:collapsed";
+const SCROLL_KEY = "sidebar:scroll";
+
+type NavItem = { path: string; label: string; icon: LucideIcon };
+type NavSection = { label?: string; items: NavItem[] };
+
+const NAV: NavSection[] = [
+  {
+    label: "Overview",
+    items: [
+      { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { path: "/", label: "Meetings", icon: Calendar },
+      { path: "/action-items", label: "Tasks", icon: CheckSquare },
+      { path: "/boards", label: "Boards", icon: LayoutGrid },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { path: "/ask", label: "Ask AI", icon: Sparkles },
+      { path: "/knowledge-hub", label: "Knowledge", icon: BookOpen },
+      { path: "/knowledge-graph", label: "Graph", icon: Network },
+      { path: "/agent-control", label: "Agents", icon: Bot },
+    ],
+  },
+  {
+    label: "Workspace",
+    items: [
+      { path: "/meeting-types", label: "Categories", icon: Layers },
+      { path: "/templates", label: "Templates", icon: Package },
+      { path: "/integrations", label: "Integrations", icon: Zap },
+      { path: "/members", label: "Members", icon: Users },
+      { path: "/reports", label: "Reports", icon: FileText },
+    ],
+  },
+];
 
 export default function Sidebar() {
   const location = useLocation();
@@ -37,8 +72,6 @@ export default function Sidebar() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory] = useState<Category | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  // Collapse state. Read once from localStorage on mount so initial paint
-  // matches the user's last choice (no flicker from default-then-restore).
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -49,7 +82,19 @@ export default function Sidebar() {
   useCategories();
   const { user } = useCurrentUser();
 
-
+  // ponytail: Sidebar unmounts on every route change (per-page <Layout>).
+  // Persist nav scrollTop so it survives the remount. Upgrade path:
+  // promote Layout to a route-based parent with <Outlet />.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const saved = window.localStorage.getItem(SCROLL_KEY);
+    if (saved && navRef.current) navRef.current.scrollTop = parseInt(saved, 10);
+  }, []);
+  const handleNavScroll = () => {
+    if (navRef.current) {
+      window.localStorage.setItem(SCROLL_KEY, String(navRef.current.scrollTop));
+    }
+  };
 
   const handleLogout = () => {
     authService.logout();
@@ -57,8 +102,6 @@ export default function Sidebar() {
   };
 
   const isActive = (path: string) => {
-    // Exact match for the home/root routes. Prefix match for sub-routes
-    // so /board/:id keeps the Boards entry active.
     if (path === "/") return location.pathname === "/";
     if (path === "/boards") {
       return (
@@ -69,45 +112,18 @@ export default function Sidebar() {
     return location.pathname === path;
   };
 
-  const navItems = [
-    { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { path: "/", label: "Meetings", icon: Calendar },
-    { path: "/meeting-types", label: "Categories & Groups", icon: Layers },
-    { path: "/action-items", label: "Tasks", icon: CheckSquare },
-    { path: "/boards", label: "Boards", icon: LayoutGrid },
-    { path: "/ask", label: "Ask AI", icon: Sparkles },
-    { path: "/knowledge-hub", label: "Knowledge Hub", icon: BookOpen },
-    { path: "/knowledge-graph", label: "Knowledge Graph", icon: Network },
-
-    // Agents = Agent Control. The behavior dashboard IS the agent
-    // configuration surface; the old standalone agent-profiles list
-    // is folded into this entry. Legacy /agents and /agents/:id
-    // routes still exist but aren't surfaced in nav.
-    { path: "/agent-control", label: "Agents", icon: Bot },
-
-    // Templates remains as the install drawer for Agent Control's
-    // catalog browsing flow.
-    { path: "/templates", label: "Templates", icon: Package },
-    { path: "/integrations", label: "Integrations", icon: Zap },
-    { path: "/members", label: "Members", icon: Users },
-    { path: "/reports", label: "Reports", icon: FileText },
-  ];
-
-
-
   return (
     <>
       <aside
-        className={`${
-          collapsed ? "w-16" : "w-64"
-        } h-screen bg-white flex flex-col border-r border-gray-200 transition-[width] duration-200 relative`}
+        className={cn(
+          "h-screen bg-white flex flex-col border-r border-slate-200/70 transition-[width] duration-200 relative",
+          collapsed ? "w-14" : "w-60",
+        )}
       >
-        {/* Collapse toggle — slim drawer-handle on the right edge,
-            vertically centered. Subtle by default, fills with indigo
-            and grows slightly on hover so it reads as deliberate. */}
+        {/* Collapse handle */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className="group absolute -right-2.5 top-1/2 -translate-y-1/2 z-10 w-5 h-14 rounded-full bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 hover:shadow-lg hover:h-16 flex items-center justify-center transition-all duration-200 ease-out"
+          className="group absolute -right-2.5 top-1/2 -translate-y-1/2 z-10 w-5 h-14 rounded-full bg-white border border-slate-200 shadow-sm text-slate-400 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 hover:shadow-lg hover:h-16 flex items-center justify-center transition-all duration-200 ease-out"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -118,137 +134,144 @@ export default function Sidebar() {
           )}
         </button>
 
-        {/* Header */}
-        <div
-          className={`${
-            collapsed ? "px-3" : "px-6"
-          } pt-6 pb-6 border-b border-gray-200`}
-        >
+        {/* Wordmark */}
+        <div className={cn("pt-5 pb-3", collapsed ? "px-2.5" : "px-3.5")}>
           <div
-            className={`flex items-center ${
-              collapsed ? "justify-center" : "gap-3"
-            } mb-4`}
+            className={cn(
+              "flex items-center",
+              collapsed ? "justify-center" : "gap-2.5",
+            )}
           >
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
-              <Zap className="w-5 h-5 text-white fill-white" />
+            <div className="relative w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shrink-0 shadow-sm shadow-indigo-600/30">
+              <Zap className="w-4 h-4 text-white fill-white" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
             </div>
             {!collapsed && (
-              <div>
-                <h1 className="text-lg font-bold text-gray-900">MeetingOps</h1>
-                <p className="text-xs text-gray-500 font-medium">Enterprise Platform</p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <h1 className="text-[13px] font-semibold text-slate-900 tracking-tight leading-none">
+                    OrgOS
+                  </h1>
+                  <span className="text-[9px] font-semibold text-indigo-600 uppercase tracking-wider">
+                    Pro
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium mt-1 truncate">
+                  {user?.organization?.name || "Personal workspace"}
+                </p>
               </div>
             )}
           </div>
+        </div>
 
-          {/* Schedule Meeting Button — icon-only when collapsed. */}
+        {/* Schedule CTA */}
+        <div className={cn("pb-3", collapsed ? "px-2" : "px-3")}>
           <button
             onClick={() => setIsModalOpen(true)}
-            className={`w-full flex items-center justify-center ${
-              collapsed ? "p-2" : "gap-2 px-4 py-2.5"
-            } bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm active:scale-95`}
+            className={cn(
+              "w-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[12.5px] font-medium transition-all shadow-sm shadow-indigo-600/20 active:scale-[0.98]",
+              collapsed ? "h-9" : "gap-1.5 h-9 px-3",
+            )}
             title={collapsed ? "Schedule Meeting" : undefined}
           >
-            <Plus className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Schedule Meeting</span>}
+            <Plus className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} />
+            {!collapsed && <span>New meeting</span>}
           </button>
         </div>
 
-        {/* Navigation — scrollable but with the scrollbar hidden. We keep
-            overflow-y-auto so wheel/keyboard scrolling still work when
-            the nav list overflows; the arbitrary variants suppress the
-            visible track across browsers (Firefox via scrollbar-width,
-            IE/Edge legacy via -ms-overflow-style, WebKit/Blink via the
-            ::-webkit-scrollbar pseudo). */}
+        {/* Nav */}
         <nav
-          className={`flex-1 ${
-            collapsed ? "px-2" : "px-3"
-          } py-6 overflow-y-auto space-y-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`}
+          ref={navRef}
+          onScroll={handleNavScroll}
+          className={cn(
+            "flex-1 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
+            collapsed ? "px-2" : "px-2",
+          )}
         >
-          {navItems.map(({ path, label, icon: Icon }) => {
-            const active = isActive(path);
-            return (
-              <Link
-                key={path}
-                to={path}
-                title={collapsed ? label : undefined}
-                className={`flex items-center ${
-                  collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-4 py-2.5"
-                } rounded-lg transition-all duration-150 text-sm font-medium ${
-                  active
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {!collapsed && <span>{label}</span>}
-              </Link>
-            );
-          })}
+          {NAV.map((section, sectionIdx) => (
+            <div
+              key={section.label ?? sectionIdx}
+              className={cn(collapsed && sectionIdx > 0 && "mt-2 pt-2 border-t border-slate-100")}
+            >
+              {!collapsed && section.label && (
+                <div className="px-2.5 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                  {section.label}
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {section.items.map(({ path, label, icon: Icon }) => {
+                  const active = isActive(path);
+                  return (
+                    <Link
+                      key={path}
+                      to={path}
+                      title={collapsed ? label : undefined}
+                      className={cn(
+                        "relative flex items-center rounded-md transition-colors duration-100 text-[13px] group/item",
+                        collapsed
+                          ? "justify-center h-9"
+                          : "gap-2.5 px-2.5 h-8",
+                        active
+                          ? "bg-slate-100 text-slate-900 font-semibold"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium",
+                      )}
+                    >
+                      {active && !collapsed && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-indigo-600" />
+                      )}
+                      <Icon
+                        className={cn(
+                          "w-4 h-4 shrink-0 transition-colors",
+                          active
+                            ? "text-indigo-600"
+                            : "text-slate-400 group-hover/item:text-slate-600",
+                        )}
+                        strokeWidth={active ? 2.25 : 2}
+                      />
+                      {!collapsed && <span className="truncate">{label}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
-        {/* Identity card — avatar-only when collapsed (tooltip carries the name). */}
-        {user && (
-          <div className={collapsed ? "px-2 pt-3" : "px-3 pt-3"}>
-            <div
-              className={`flex items-center ${
-                collapsed
-                  ? "justify-center p-2"
-                  : "gap-3 px-3 py-2.5 bg-gray-50 border border-gray-100"
-              } rounded-lg`}
-              title={
-                collapsed
-                  ? `${user.name}${
-                      user.organization?.name ? ` — ${user.organization.name}` : ""
-                    }`
-                  : undefined
-              }
-            >
-              {user.google_profile_picture ? (
-                <img
-                  src={user.google_profile_picture}
-                  alt={user.name}
-                  className="w-8 h-8 rounded-full object-cover ring-1 ring-gray-200 shrink-0"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold ring-1 ring-indigo-700/20 shrink-0">
-                  {user.name
-                    ?.split(/\s+/)
-                    .slice(0, 2)
-                    .map((p) => p[0]?.toUpperCase() || "")
-                    .join("") || "?"}
-                </div>
+        {/* Footer — settings + sign out */}
+        <div className="border-t border-slate-100 bg-slate-50/40 p-2 space-y-0.5">
+          <Link
+            to="/settings"
+            title={collapsed ? "Settings" : undefined}
+            className={cn(
+              "relative flex items-center rounded-md text-[13px] font-medium transition-colors",
+              collapsed ? "justify-center h-9" : "gap-2.5 px-2.5 h-8",
+              isActive("/settings")
+                ? "bg-slate-100 text-slate-900 font-semibold"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
+            )}
+          >
+            {isActive("/settings") && !collapsed && (
+              <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-indigo-600" />
+            )}
+            <Settings
+              className={cn(
+                "w-4 h-4 shrink-0",
+                isActive("/settings") ? "text-indigo-600" : "text-slate-400",
               )}
-              {!collapsed && (
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-gray-900 truncate">{user.name}</p>
-                  <p
-                    className="text-[10px] font-medium text-gray-500 truncate"
-                    title={user.organization?.name || ""}
-                  >
-                    {user.organization?.name || "No organization"}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div
-          className={`${
-            collapsed ? "p-2" : "p-3"
-          } border-t border-gray-200 space-y-1`}
-        >
+              strokeWidth={isActive("/settings") ? 2.25 : 2}
+            />
+            {!collapsed && <span>Settings</span>}
+          </Link>
           <button
             onClick={handleLogout}
-            title={collapsed ? "Logout" : undefined}
-            className={`w-full flex items-center ${
-              collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-4 py-2.5"
-            } text-gray-700 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-150 text-sm font-medium`}
+            title={collapsed ? "Sign out" : undefined}
+            className={cn(
+              "w-full flex items-center rounded-md text-[13px] font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors",
+              collapsed ? "justify-center h-9" : "gap-2.5 px-2.5 h-8",
+            )}
           >
-            <LogOut className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Logout</span>}
+            <LogOut className="w-4 h-4 shrink-0 text-slate-400" />
+            {!collapsed && <span>Sign out</span>}
           </button>
         </div>
       </aside>

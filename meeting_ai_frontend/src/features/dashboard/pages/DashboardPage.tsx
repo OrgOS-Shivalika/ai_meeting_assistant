@@ -1,15 +1,6 @@
 /**
  * Org-wide command center. Aggregates data from existing endpoints
  * (no new backend); refreshes every 60s and on tab focus.
- *
- * Layout (top → bottom):
- *   1. Welcome banner + one-line situation summary
- *   2. Four stat tiles (upcoming meetings, open tasks, needs owner, entities)
- *   3. Upcoming meetings  +  Tasks needing owner   (two columns)
- *   4. Recent meetings    +  AI Memory health      (two columns)
- *   5. Knowledge growth (entity-type distribution)
- *   6. Top categories by meeting count
- *   7. Quick actions row
  */
 import {
   AlertCircle,
@@ -28,20 +19,28 @@ import {
   Sparkles,
   TrendingUp,
   Users as UsersIcon,
+  User,
+  Rocket,
+  MessageCircle,
+  Scale,
+  Pin,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
-import {
-  fetchAllTasks,
-  fetchMeetings,
-} from "../../meetings/api";
+import { fetchAllTasks, fetchMeetings } from "../../meetings/api";
 import type { Meeting, Task } from "../../meetings/types";
 import { useCategories } from "../../meetings/hooks/useCategories";
 import { listEntities } from "../../knowledge/api";
-import type { EntityHit, EntityListResponse, EntityType } from "../../knowledge/types";
+import type {
+  EntityHit,
+  EntityListResponse,
+  EntityType,
+} from "../../knowledge/types";
+import { cn } from "@/lib/utils";
 
 interface DashboardData {
   meetings: Meeting[];
@@ -78,12 +77,15 @@ const formatDateShort = (iso?: string | null): string | null => {
   }
 };
 
-const ENTITY_TYPE_META: Record<EntityType, { icon: string; label: string; tint: string }> = {
-  person:     { icon: "👤", label: "People",      tint: "from-sky-50 text-sky-700" },
-  project:    { icon: "🚀", label: "Projects",    tint: "from-violet-50 text-violet-700" },
-  topic:      { icon: "💬", label: "Topics",      tint: "from-emerald-50 text-emerald-700" },
-  decision:   { icon: "⚖️", label: "Decisions",   tint: "from-amber-50 text-amber-700" },
-  commitment: { icon: "📌", label: "Commitments", tint: "from-rose-50 text-rose-700" },
+const ENTITY_TYPE_META: Record<
+  EntityType,
+  { icon: LucideIcon; label: string }
+> = {
+  person: { icon: User, label: "People" },
+  project: { icon: Rocket, label: "Projects" },
+  topic: { icon: MessageCircle, label: "Topics" },
+  decision: { icon: Scale, label: "Decisions" },
+  commitment: { icon: Pin, label: "Commitments" },
 };
 
 // ---------------------------------------------------------------------------
@@ -125,7 +127,6 @@ function useDashboardData(): DashboardData & { refetch: () => void } {
 
   useEffect(() => {
     refetch();
-    // Auto-refresh every 60s + when the tab regains focus.
     const interval = setInterval(refetch, 60_000);
     const onFocus = () => refetch();
     window.addEventListener("focus", onFocus);
@@ -139,57 +140,95 @@ function useDashboardData(): DashboardData & { refetch: () => void } {
 }
 
 // ---------------------------------------------------------------------------
-// Stat tile
+// Stat tile — unified slate look, indigo only for the primary tile
 // ---------------------------------------------------------------------------
 
 interface StatTileProps {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   label: string;
   value: number | string;
   hint?: string;
   to?: string;
-  accent?: "indigo" | "amber" | "emerald" | "rose";
+  primary?: boolean;
 }
 
-const ACCENTS: Record<NonNullable<StatTileProps["accent"]>, { bg: string; fg: string }> = {
-  indigo:  { bg: "bg-indigo-50",  fg: "text-indigo-600" },
-  amber:   { bg: "bg-amber-50",   fg: "text-amber-600" },
-  emerald: { bg: "bg-emerald-50", fg: "text-emerald-600" },
-  rose:    { bg: "bg-rose-50",    fg: "text-rose-600" },
-};
-
-function StatTile({ icon: Icon, label, value, hint, to, accent = "indigo" }: StatTileProps) {
-  const a = ACCENTS[accent];
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  to,
+  primary,
+}: StatTileProps) {
   const Wrapper: React.ElementType = to ? Link : "div";
   const wrapperProps = to ? { to } : {};
   return (
     <Wrapper
       {...wrapperProps}
-      className={`block bg-white rounded-2xl border border-slate-200 shadow-sm p-5 transition-all ${
-        to ? "hover:border-indigo-300 hover:shadow-md group cursor-pointer" : ""
-      }`}
+      className={cn(
+        "group block rounded-lg border p-4 transition-colors",
+        primary
+          ? "bg-slate-950 border-slate-950 text-white"
+          : "bg-white border-slate-200",
+        to && !primary && "hover:border-slate-300",
+        to && primary && "hover:bg-slate-900",
+      )}
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${a.bg}`}>
-          <Icon className={`w-5 h-5 ${a.fg}`} />
+      <div className="flex items-start justify-between mb-3">
+        <div
+          className={cn(
+            "w-8 h-8 rounded-md flex items-center justify-center",
+            primary ? "bg-white/10" : "bg-slate-50",
+          )}
+        >
+          <Icon
+            className={cn(
+              "w-4 h-4",
+              primary ? "text-white" : "text-slate-500",
+            )}
+          />
         </div>
         {to && (
-          <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+          <ArrowRight
+            className={cn(
+              "w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5",
+              primary ? "text-white/40" : "text-slate-300",
+            )}
+          />
         )}
       </div>
-      <div className="text-3xl font-bold text-slate-900 tabular-nums leading-none">
+      <div
+        className={cn(
+          "text-2xl font-semibold tabular-nums leading-none",
+          primary ? "text-white" : "text-slate-900",
+        )}
+      >
         {value}
       </div>
-      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-2">
+      <div
+        className={cn(
+          "text-[11px] font-medium mt-2",
+          primary ? "text-white/60" : "text-slate-500",
+        )}
+      >
         {label}
       </div>
-      {hint && <div className="text-[11px] text-slate-400 mt-1">{hint}</div>}
+      {hint && (
+        <div
+          className={cn(
+            "text-[11px] mt-0.5",
+            primary ? "text-white/40" : "text-slate-400",
+          )}
+        >
+          {hint}
+        </div>
+      )}
     </Wrapper>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Section card
+// Section card — sidebar-style: flat, subtle border, quiet header
 // ---------------------------------------------------------------------------
 
 interface SectionCardProps {
@@ -201,18 +240,20 @@ interface SectionCardProps {
 
 function SectionCard({ title, subtitle, action, children }: SectionCardProps) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+          <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+            {title}
+          </h3>
           {subtitle && (
-            <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
           )}
         </div>
         {action && (
           <Link
             to={action.to}
-            className="shrink-0 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-indigo-600 hover:text-indigo-700"
+            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
           >
             {action.label}
             <ChevronRight className="w-3 h-3" />
@@ -231,10 +272,15 @@ function SectionCard({ title, subtitle, action, children }: SectionCardProps) {
 export default function DashboardPage() {
   const { user } = useCurrentUser();
   const { data: categories } = useCategories();
-  const { meetings, tasks, entityTotal, entitiesSample, loading, error, refetch } =
-    useDashboardData();
-
-  // ---- Derived buckets ---------------------------------------------------
+  const {
+    meetings,
+    tasks,
+    entityTotal,
+    entitiesSample,
+    loading,
+    error,
+    refetch,
+  } = useDashboardData();
 
   const now = useMemo(() => new Date(), []);
 
@@ -273,7 +319,6 @@ export default function DashboardPage() {
     [openTasks],
   );
 
-  // Meetings happening in the next 7 days (inclusive of today).
   const upcomingThisWeek = useMemo(() => {
     const weekFromNow = new Date(now.getTime() + 7 * 86400_000);
     return meetings.filter(
@@ -286,7 +331,6 @@ export default function DashboardPage() {
     ).length;
   }, [meetings, now]);
 
-  // AI Memory health — counts by embedding/graph status across all meetings.
   const memoryHealth = useMemo(() => {
     const buckets = {
       embedding: { embedded: 0, pending: 0, processing: 0, failed: 0, skipped: 0 },
@@ -303,18 +347,18 @@ export default function DashboardPage() {
     return buckets;
   }, [meetings]);
 
-  // Entity-type distribution from the 200-row sample we already fetched.
-  // For most orgs this will be the full picture; over time we'd swap for a
-  // dedicated counts endpoint.
   const entityTypeCounts = useMemo(() => {
     const counts: Record<EntityType, number> = {
-      person: 0, project: 0, topic: 0, decision: 0, commitment: 0,
+      person: 0,
+      project: 0,
+      topic: 0,
+      decision: 0,
+      commitment: 0,
     };
     for (const e of entitiesSample) counts[e.entity_type] += 1;
     return counts;
   }, [entitiesSample]);
 
-  // Top categories by meeting count.
   const categoryRanking = useMemo(() => {
     const byId = new Map<number, number>();
     for (const m of meetings) {
@@ -338,21 +382,21 @@ export default function DashboardPage() {
   // ---- Render ------------------------------------------------------------
 
   if (loading && meetings.length === 0) {
-    // Dashboard skeleton — headline strip + 4 stat tiles + main content.
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
           <div className="space-y-2">
-            <Skeleton className="h-6 w-72" />
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-7 w-72" />
             <Skeleton className="h-4 w-96" />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
               <SkeletonCard key={i} className="h-28" />
             ))}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <SkeletonCard className="h-80 lg:col-span-2" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <SkeletonCard className="h-80" />
             <SkeletonCard className="h-80" />
           </div>
         </div>
@@ -360,22 +404,24 @@ export default function DashboardPage() {
     );
   }
 
-  // One-line situation summary tailored to what actually needs attention.
   const summarySentence = (() => {
     const bits: string[] = [];
     if (upcomingThisWeek > 0)
-      bits.push(`${upcomingThisWeek} meeting${upcomingThisWeek === 1 ? "" : "s"} this week`);
+      bits.push(
+        `${upcomingThisWeek} meeting${upcomingThisWeek === 1 ? "" : "s"} this week`,
+      );
     if (unassignedTasks.length > 0)
       bits.push(
         `${unassignedTasks.length} task${unassignedTasks.length === 1 ? "" : "s"} need an owner`,
       );
     if (highPriorityOpen.length > 0)
-      bits.push(
-        `${highPriorityOpen.length} high-priority open`,
-      );
+      bits.push(`${highPriorityOpen.length} high-priority open`);
     if (inProgressCount > 0)
-      bits.push(`${inProgressCount} meeting${inProgressCount === 1 ? "" : "s"} processing`);
-    if (bits.length === 0) return "Everything looks quiet. Schedule a meeting or browse what's already captured.";
+      bits.push(
+        `${inProgressCount} meeting${inProgressCount === 1 ? "" : "s"} processing`,
+      );
+    if (bits.length === 0)
+      return "Everything looks quiet. Schedule a meeting or browse what's already captured.";
     return "You have " + bits.join(" · ") + ".";
   })();
 
@@ -387,38 +433,39 @@ export default function DashboardPage() {
 
   return (
     <Layout>
-      <div className="px-4 py-6 space-y-6">
+      <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
         {/* ─────── Header ─────── */}
-        <header>
-          <div className="flex items-end justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-[11px] font-black uppercase tracking-widest text-indigo-600 mb-1">
-                {todayStr}
-              </div>
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-                Welcome back{user?.name ? `, ${user.name.split(/\s+/)[0]}` : ""}
-              </h1>
-              <p className="text-sm text-slate-500 mt-1">{summarySentence}</p>
-            </div>
-            <button
-              type="button"
-              onClick={refetch}
-              className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-            >
-              Refresh
-            </button>
+        <header className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
+              {todayStr}
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+              Welcome back
+              {user?.name ? `, ${user.name.split(/\s+/)[0]}` : ""}
+            </h1>
+            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+              {summarySentence}
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={refetch}
+            className="text-xs font-medium text-slate-500 hover:text-slate-900 px-3 h-8 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            Refresh
+          </button>
         </header>
 
         {error && (
-          <div className="flex items-center gap-3 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700">
+          <div className="flex items-center gap-2.5 px-3 py-2.5 bg-red-50 border border-red-100 rounded-md text-xs text-red-700">
             <AlertCircle className="w-4 h-4 shrink-0" />
             {error}
           </div>
         )}
 
         {/* ─────── Stat tiles ─────── */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <StatTile
             icon={CalendarPlus}
             label="Upcoming this week"
@@ -429,7 +476,7 @@ export default function DashboardPage() {
                 : "Nothing on the calendar"
             }
             to="/calendar"
-            accent="indigo"
+            primary
           />
           <StatTile
             icon={ListChecks}
@@ -441,7 +488,6 @@ export default function DashboardPage() {
                 : undefined
             }
             to="/action-items"
-            accent="emerald"
           />
           <StatTile
             icon={AlertCircle}
@@ -453,7 +499,6 @@ export default function DashboardPage() {
                 : undefined
             }
             to="/action-items"
-            accent="amber"
           />
           <StatTile
             icon={Network}
@@ -461,11 +506,10 @@ export default function DashboardPage() {
             value={entityTotal}
             hint={
               entityTotal > 0
-                ? "People, projects, topics, decisions, commitments"
+                ? "People, projects, topics, decisions"
                 : "Will populate as meetings complete"
             }
             to="/knowledge-graph"
-            accent="rose"
           />
         </section>
 
@@ -477,39 +521,37 @@ export default function DashboardPage() {
             action={{ label: "All meetings", to: "/" }}
           >
             {upcomingMeetings.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <Calendar className="w-7 h-7 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs text-slate-500">No upcoming meetings.</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Schedule one from the sidebar.
-                </p>
-              </div>
+              <EmptyState
+                icon={Calendar}
+                title="No upcoming meetings"
+                description="Schedule one from the sidebar."
+              />
             ) : (
               <ul className="divide-y divide-slate-100">
                 {upcomingMeetings.map((m) => (
                   <li key={m.id}>
                     <Link
                       to={`/meeting/${m.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors group"
+                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
                     >
-                      <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                      <div className="w-8 h-8 rounded-md bg-slate-50 text-slate-500 flex items-center justify-center shrink-0">
                         <Calendar className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-bold text-slate-900 truncate group-hover:text-indigo-600">
+                        <p className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
                           {m.title || "Untitled meeting"}
                         </p>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 mt-0.5">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                           <Clock className="w-3 h-3 text-slate-400" />
                           <span>{formatDate(m.scheduled_at) ?? "—"}</span>
                           {m.category && (
                             <>
                               <span className="text-slate-300">·</span>
                               <span
-                                className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider"
+                                className="px-1.5 py-0.5 rounded text-[10px] font-medium"
                                 style={{
                                   backgroundColor:
-                                    (m.category.color || "#4F46E5") + "14",
+                                    (m.category.color || "#4F46E5") + "18",
                                   color: m.category.color || "#4F46E5",
                                 }}
                               >
@@ -537,10 +579,11 @@ export default function DashboardPage() {
             action={{ label: "Triage", to: "/action-items" }}
           >
             {unassignedTasks.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <CheckCircle2 className="w-7 h-7 text-emerald-300 mx-auto mb-2" />
-                <p className="text-xs text-slate-500">All open tasks have owners.</p>
-              </div>
+              <EmptyState
+                icon={CheckCircle2}
+                title="All open tasks have owners"
+                iconClassName="text-emerald-400"
+              />
             ) : (
               <ul className="divide-y divide-slate-100">
                 {unassignedTasks.slice(0, 5).map((t) => (
@@ -548,23 +591,21 @@ export default function DashboardPage() {
                     key={t.id}
                     className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors"
                   >
-                    <div className="w-2 h-2 rounded-full bg-amber-500 mt-2 shrink-0" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-[12.5px] font-bold text-slate-800 leading-snug line-clamp-2">
+                      <p className="text-[13px] font-medium text-slate-800 leading-snug line-clamp-2">
                         {t.task}
                       </p>
-                      <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 mt-1">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
                         {t.priority === "high" && (
-                          <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 ring-1 ring-rose-100 text-[9px] font-black uppercase tracking-wider">
+                          <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 text-[10px] font-medium">
                             High
                           </span>
                         )}
                         {t.due_date ? (
-                          <span className="text-slate-500">
-                            Due {formatDateShort(t.due_date)}
-                          </span>
+                          <span>Due {formatDateShort(t.due_date)}</span>
                         ) : (
-                          <span className="text-amber-700 italic">
+                          <span className="text-amber-600">
                             Unassigned date
                           </span>
                         )}
@@ -593,26 +634,26 @@ export default function DashboardPage() {
             action={{ label: "All meetings", to: "/" }}
           >
             {recentMeetings.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <Calendar className="w-7 h-7 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs text-slate-500">No completed meetings yet.</p>
-              </div>
+              <EmptyState
+                icon={Calendar}
+                title="No completed meetings yet"
+              />
             ) : (
               <ul className="divide-y divide-slate-100">
                 {recentMeetings.map((m) => (
                   <li key={m.id}>
                     <Link
                       to={`/meeting/${m.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors group"
+                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
                     >
-                      <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                      <div className="w-8 h-8 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                         <CheckCircle2 className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-bold text-slate-900 truncate group-hover:text-indigo-600">
+                        <p className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
                           {m.title || "Untitled meeting"}
                         </p>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 mt-0.5">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                           <span>{formatDate(m.updated_at) ?? "—"}</span>
                           {m.participants && m.participants.length > 0 && (
                             <>
@@ -627,9 +668,9 @@ export default function DashboardPage() {
                             m.graph_status === "extracted") && (
                             <>
                               <span className="text-slate-300">·</span>
-                              <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <span className="inline-flex items-center gap-1 text-emerald-600">
                                 <Sparkles className="w-3 h-3" />
-                                AI memory ready
+                                Memory ready
                               </span>
                             </>
                           )}
@@ -660,13 +701,13 @@ export default function DashboardPage() {
               />
               {(memoryHealth.embedding.failed > 0 ||
                 memoryHealth.graph.failed > 0) && (
-                <p className="text-[10.5px] text-slate-500 leading-relaxed">
+                <p className="text-[11px] text-slate-500 leading-relaxed">
                   Some meetings failed the AI pipeline.{" "}
                   <Link
                     to="/"
-                    className="text-indigo-600 hover:underline font-bold"
+                    className="text-indigo-600 hover:underline font-medium"
                   >
-                    Open one to retry from its AI Memory card →
+                    Open one to retry →
                   </Link>
                 </p>
               )}
@@ -683,28 +724,31 @@ export default function DashboardPage() {
           <div className="px-5 py-4">
             {entityTotal === 0 ? (
               <p className="text-xs text-slate-500">
-                Nothing extracted yet — the graph populates after the first meeting
-                completes.
+                Nothing extracted yet — the graph populates after the first
+                meeting completes.
               </p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {(Object.keys(ENTITY_TYPE_META) as EntityType[]).map((t) => {
                   const meta = ENTITY_TYPE_META[t];
                   const count = entityTypeCounts[t];
+                  const Icon = meta.icon;
                   return (
                     <Link
                       key={t}
                       to={`/knowledge-graph?type=${t}`}
-                      className="block px-3 py-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group"
+                      className="block px-3 py-3 rounded-md border border-slate-200 hover:border-slate-300 hover:bg-slate-50/60 transition-colors group"
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-2xl">{meta.icon}</span>
-                        <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-indigo-600" />
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center">
+                          <Icon className="w-3.5 h-3.5 text-slate-500" />
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />
                       </div>
-                      <div className="text-xl font-bold text-slate-900 tabular-nums">
+                      <div className="text-lg font-semibold text-slate-900 tabular-nums leading-none">
                         {count}
                       </div>
-                      <div className="text-[9.5px] font-black uppercase tracking-widest text-slate-500 mt-0.5">
+                      <div className="text-[11px] font-medium text-slate-500 mt-1">
                         {meta.label}
                       </div>
                     </Link>
@@ -730,10 +774,10 @@ export default function DashboardPage() {
                   <li key={cat.id}>
                     <Link
                       to={`/meeting-types?type=${cat.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 group"
+                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
                     >
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 w-4">
-                        {idx + 1}
+                      <span className="text-[11px] font-medium text-slate-400 tabular-nums w-4">
+                        {String(idx + 1).padStart(2, "0")}
                       </span>
                       <span
                         className="w-2 h-2 rounded-full shrink-0"
@@ -741,16 +785,16 @@ export default function DashboardPage() {
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-3 mb-1">
-                          <span className="text-[12.5px] font-bold text-slate-900 truncate group-hover:text-indigo-600">
+                          <span className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
                             {cat.name}
                           </span>
-                          <span className="text-[10px] font-black text-slate-500 tabular-nums">
+                          <span className="text-[11px] font-medium text-slate-500 tabular-nums">
                             {cat.count}
                           </span>
                         </div>
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
                           <div
-                            className="h-full rounded-full"
+                            className="h-full rounded-full transition-all"
                             style={{
                               width: `${widthPct}%`,
                               backgroundColor: cat.color,
@@ -767,31 +811,24 @@ export default function DashboardPage() {
         )}
 
         {/* ─────── Quick actions ─────── */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <QuickAction
-            icon={Plus}
-            label="Schedule a meeting"
-            to="/"
-            tint="bg-indigo-600 text-white"
-          />
-          <QuickAction
-            icon={SearchIcon}
-            label="Search meeting memory"
-            to="/knowledge-hub"
-            tint="bg-white text-slate-700 border border-slate-200 hover:border-indigo-300"
-          />
-          <QuickAction
-            icon={Brain}
-            label="Browse the graph"
-            to="/knowledge-graph"
-            tint="bg-white text-slate-700 border border-slate-200 hover:border-indigo-300"
-          />
-          <QuickAction
-            icon={TrendingUp}
-            label="Triage open tasks"
-            to="/action-items"
-            tint="bg-white text-slate-700 border border-slate-200 hover:border-indigo-300"
-          />
+        <section>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3">
+            Quick actions
+          </p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <QuickAction icon={Plus} label="Schedule meeting" to="/" primary />
+            <QuickAction
+              icon={SearchIcon}
+              label="Search memory"
+              to="/knowledge-hub"
+            />
+            <QuickAction icon={Brain} label="Browse graph" to="/knowledge-graph" />
+            <QuickAction
+              icon={TrendingUp}
+              label="Triage tasks"
+              to="/action-items"
+            />
+          </div>
         </section>
       </div>
     </Layout>
@@ -799,8 +836,35 @@ export default function DashboardPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Small subcomponents (kept in-file — only used here)
+// Small in-file subcomponents
 // ---------------------------------------------------------------------------
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  iconClassName,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  iconClassName?: string;
+}) {
+  return (
+    <div className="px-5 py-10 text-center">
+      <Icon
+        className={cn(
+          "w-6 h-6 mx-auto mb-2",
+          iconClassName || "text-slate-300",
+        )}
+      />
+      <p className="text-xs font-medium text-slate-600">{title}</p>
+      {description && (
+        <p className="text-[11px] text-slate-400 mt-0.5">{description}</p>
+      )}
+    </div>
+  );
+}
 
 function HealthBar({
   label,
@@ -815,11 +879,11 @@ function HealthBar({
   if (total === 0) {
     return (
       <div>
-        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1.5">
-          <span>{label}</span>
+        <div className="flex items-center justify-between text-[11px] font-medium mb-1.5">
+          <span className="text-slate-700">{label}</span>
           <span className="text-slate-400">no meetings yet</span>
         </div>
-        <div className="h-2 bg-slate-100 rounded-full" />
+        <div className="h-1.5 bg-slate-100 rounded-full" />
       </div>
     );
   }
@@ -828,14 +892,13 @@ function HealthBar({
   const readyN = buckets[ready] || 0;
   return (
     <div>
-      <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
+      <div className="flex items-center justify-between text-[11px] font-medium mb-1.5">
         <span className="text-slate-700">{label}</span>
         <span className="text-slate-500 tabular-nums">
           {readyN} / {total} ready
         </span>
       </div>
-      <div className="h-2 rounded-full overflow-hidden flex bg-slate-100">
-        {/* Order matters: ready (green) → processing (amber) → pending (slate) → failed (rose) → skipped (slate-300). */}
+      <div className="h-1.5 rounded-full overflow-hidden flex bg-slate-100">
         {readyN > 0 && (
           <div
             className="bg-emerald-500"
@@ -859,13 +922,13 @@ function HealthBar({
         )}
         {(buckets.failed || 0) > 0 && (
           <div
-            className="bg-rose-500"
+            className="bg-red-500"
             style={{ width: `${pct("failed")}%` }}
             title={`${buckets.failed} failed`}
           />
         )}
       </div>
-      <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500 mt-1.5">
+      <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1.5">
         {(buckets.processing || 0) > 0 && (
           <span className="inline-flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -879,8 +942,8 @@ function HealthBar({
           </span>
         )}
         {(buckets.failed || 0) > 0 && (
-          <span className="inline-flex items-center gap-1 text-rose-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+          <span className="inline-flex items-center gap-1 text-red-600">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
             {buckets.failed} failed
           </span>
         )}
@@ -893,23 +956,38 @@ function QuickAction({
   icon: Icon,
   label,
   to,
-  tint,
+  primary,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   label: string;
   to: string;
-  tint: string;
+  primary?: boolean;
 }) {
   return (
     <Link
       to={to}
-      className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl font-bold text-xs transition-all active:scale-[0.98] ${tint}`}
+      className={cn(
+        "group flex items-center justify-between gap-3 px-3.5 h-10 rounded-md text-[13px] font-medium transition-colors",
+        primary
+          ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20"
+          : "bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50/60 text-slate-700",
+      )}
     >
       <span className="inline-flex items-center gap-2">
-        <Icon className="w-4 h-4" />
+        <Icon
+          className={cn(
+            "w-4 h-4",
+            primary ? "text-white" : "text-slate-500",
+          )}
+        />
         {label}
       </span>
-      <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+      <ExternalLink
+        className={cn(
+          "w-3.5 h-3.5 opacity-60 transition-transform group-hover:translate-x-0.5",
+          primary ? "text-white" : "text-slate-400",
+        )}
+      />
     </Link>
   );
 }
