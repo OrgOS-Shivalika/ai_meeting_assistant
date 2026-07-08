@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException
 from app.db.database import SessionLocal
 from app.db.models import Meeting
 from app.api.ws_router import manager
+from app.dependencies.auth import get_current_user
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
 from app.utils.logger import setup_logger
@@ -353,14 +354,22 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
 
 
 @recall_webhook_router.get("/webhook/debug/{meeting_id}")
-async def debug_bot(meeting_id: int):
-    """Check the Recall.ai bot config for a meeting to verify webhook URLs are set."""
+async def debug_bot(meeting_id: int, user=Depends(get_current_user)):
+    """Check the Recall.ai bot config for a meeting to verify webhook URLs are set.
+    Tenant-scoped — only the meeting's own org can see this."""
     from app.services.recall_ai_service import RecallService
     db = SessionLocal()
     try:
-        meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+        meeting = (
+            db.query(Meeting)
+            .filter(
+                Meeting.id == meeting_id,
+                Meeting.organization_id == user.organization_id,
+            )
+            .first()
+        )
         if not meeting or not meeting.bot_id:
-            return {"error": f"Meeting {meeting_id} not found or has no bot_id"}
+            raise HTTPException(status_code=404, detail="Meeting not found or has no bot_id")
 
         recall = RecallService()
         bot_data = recall.get_bot(meeting.bot_id)
@@ -380,8 +389,24 @@ async def debug_bot(meeting_id: int):
 
 
 @recall_webhook_router.post("/webhook/test/{meeting_id}")
-async def test_webhook(meeting_id: int):
-    """Simulate a Recall.ai transcript webhook to verify the full pipeline."""
+async def test_webhook(meeting_id: int, user=Depends(get_current_user)):
+    """Simulate a Recall.ai transcript webhook to verify the full pipeline.
+    Tenant-scoped — only the meeting's own org can trigger this."""
+    db = SessionLocal()
+    try:
+        owned = (
+            db.query(Meeting.id)
+            .filter(
+                Meeting.id == meeting_id,
+                Meeting.organization_id == user.organization_id,
+            )
+            .first()
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+    finally:
+        db.close()
+
     active = {k: len(v) for k, v in manager.active_connections.items()}
     has_ws = meeting_id in manager.active_connections
     ws_count = len(manager.active_connections.get(meeting_id, []))

@@ -549,11 +549,25 @@ def update_meeting(
 
 
 @router.get("/allmeetings/{meeting_id}")
-def get_meeting_detail(meeting_id: int, db: Session = Depends(get_db)):
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+def get_meeting_detail(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # Tenant isolation: only surface meetings owned by the caller's org.
+    # Return 404 (not 403) for cross-org access so we don't leak whether
+    # the ID exists — mirrors the /rag/ask + /categories convention.
+    meeting = (
+        db.query(Meeting)
+        .filter(
+            Meeting.id == meeting_id,
+            Meeting.organization_id == user.organization_id,
+        )
+        .first()
+    )
 
     if not meeting:
-        return {"error": "Meeting not found"}
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
     # If the graph extraction failed, surface the latest run's
     # error_message so the AI Memory card can render it + a retry CTA.
