@@ -61,9 +61,43 @@ def sync_google_calendar(self):
                     if not (-300 <= diff <= 120):
                         continue
 
-                    existing = db.query(Meeting).filter_by(google_event_id=event_id).first()
+                    # Dedup on TWO dimensions:
+                    #  1. google_event_id — the calendar event ID
+                    #  2. meeting_url within the last 10 min for this user
+                    #     (catches the case where /inject-bot ran manually
+                    #      seconds before we noticed the calendar event —
+                    #      without this we'd send a second bot to the
+                    #      same Meet URL).
+                    from datetime import datetime, timedelta, timezone
+                    recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                    existing = (
+                        db.query(Meeting)
+                        .filter(
+                            (Meeting.google_event_id == event_id)
+                            | (
+                                (Meeting.user_id == user.id)
+                                & (Meeting.meeting_url == meet_link)
+                                & (Meeting.created_at >= recent_cutoff)
+                                & (Meeting.status.in_(("pending", "processing")))
+                            )
+                        )
+                        .order_by(Meeting.created_at.desc())
+                        .first()
+                    )
 
                     if existing:
+                        # If it was created by /inject-bot (no google_event_id),
+                        # backfill it so future ticks don't recreate.
+                        if not existing.google_event_id:
+                            existing.google_event_id = event_id
+                            existing.google_event_data = event
+                            db.commit()
+                            logger.info(
+                                f"🔗 Linked existing meeting {existing.id} "
+                                f"to calendar event {event_id} — skipping duplicate bot dispatch"
+                            )
+                            continue
+
                         # Pre-scheduled (from UI). Transition to processing.
                         if existing.status != "pending":
                             continue

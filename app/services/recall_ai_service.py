@@ -44,28 +44,37 @@ RECALL_TERMINAL_STATUSES = {
 def _request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
     """HTTP request with retry on transient network errors only.
 
-    Retries ConnectionError + ReadTimeout — these are the failure modes
-    that took down meeting 4708 and 4712. HTTP errors (4xx, 5xx) are
-    NOT retried here; the caller's `raise_for_status()` handles those.
+    Retries ConnectionError + ReadTimeout for READ methods (GET, HEAD).
+    WRITE methods (POST/PATCH/PUT/DELETE) are NOT retried — a POST that
+    times out on the response side may have succeeded on the server,
+    and retrying it creates a duplicate resource. That's how we produced
+    two Recall bots for the same meeting when a POST /bot response was
+    briefly delayed.
 
-    Default timeout applied if caller didn't pass one.
+    HTTP errors (4xx, 5xx) are NOT retried here; caller's raise_for_status
+    handles those.
     """
     kwargs.setdefault("timeout", _HTTP_TIMEOUT_S)
+
+    # Only idempotent methods are safe to retry blindly on network error.
+    idempotent = method.upper() in {"GET", "HEAD", "OPTIONS"}
+    max_attempts = _RETRY_MAX_ATTEMPTS if idempotent else 1
+
     last_exc: Optional[Exception] = None
-    for attempt in range(_RETRY_MAX_ATTEMPTS):
+    for attempt in range(max_attempts):
         try:
             return requests.request(method, url, **kwargs)
         except _RETRYABLE_EXCEPTIONS as exc:
             last_exc = exc
-            if attempt + 1 >= _RETRY_MAX_ATTEMPTS:
+            if attempt + 1 >= max_attempts:
                 logger.error(
-                    f"[RECALL] {method} {url} failed after {_RETRY_MAX_ATTEMPTS} "
-                    f"attempts: {type(exc).__name__}: {exc}"
+                    f"[RECALL] {method} {url} failed after {max_attempts} "
+                    f"attempt(s): {type(exc).__name__}: {exc}"
                 )
                 raise
             backoff = _RETRY_BACKOFF_S[min(attempt, len(_RETRY_BACKOFF_S) - 1)]
             logger.warning(
-                f"[RECALL] {method} {url} attempt {attempt + 1}/{_RETRY_MAX_ATTEMPTS} "
+                f"[RECALL] {method} {url} attempt {attempt + 1}/{max_attempts} "
                 f"failed ({type(exc).__name__}); retrying in {backoff}s"
             )
             time.sleep(backoff)
