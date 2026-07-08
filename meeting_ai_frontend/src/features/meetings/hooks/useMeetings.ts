@@ -20,6 +20,8 @@ export const useMeetings = (filter: MeetingFilter = {}) => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+
+    // Initial load
     fetchMeetings(filter)
       .then((rows) => {
         if (!cancelled) setData(rows);
@@ -27,8 +29,23 @@ export const useMeetings = (filter: MeetingFilter = {}) => {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    // Poll every 15s so auto-joined meetings (from Google Calendar sync)
+    // appear on the page without a manual reload. Also picks up status
+    // transitions (processing → completed) for meetings the user IS
+    // watching but doesn't have a WebSocket open on. 15s is a good
+    // tradeoff — snappy enough to feel live, cheap enough for the
+    // backend (a simple SELECT with an org_id filter).
+    const intervalId = setInterval(() => {
+      if (cancelled) return;
+      fetchMeetings(filter)
+        .then((rows) => { if (!cancelled) setData(rows); })
+        .catch(() => { /* transient errors ignored; next tick retries */ });
+    }, 15_000);
+
     return () => {
       cancelled = true;
+      clearInterval(intervalId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryKey, teamKey]);

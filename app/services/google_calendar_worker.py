@@ -111,6 +111,7 @@ def process_calendar_events():
                         meeting_url=meet_link,
                         status="processing",
                         user_id=user.id,
+                        organization_id=user.organization_id,
                         google_event_id=event_id,
                         google_event_data=event,
                         title=summary,
