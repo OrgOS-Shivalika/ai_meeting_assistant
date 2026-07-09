@@ -1,6 +1,6 @@
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.celery_app import celery
 from app.db.database import SessionLocal
@@ -68,7 +68,6 @@ def sync_google_calendar(self):
                     #      seconds before we noticed the calendar event —
                     #      without this we'd send a second bot to the
                     #      same Meet URL).
-                    from datetime import datetime, timedelta, timezone
                     recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
                     existing = (
                         db.query(Meeting)
