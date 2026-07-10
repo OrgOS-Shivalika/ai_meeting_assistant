@@ -41,9 +41,20 @@ class StreamManager:
             session.process_new_chunk(rc)
             
         # 3. Decision: Should we trigger live cognition now?
-        # Thresholds: 60 words OR 5 conversational turns
-        WORD_THRESHOLD = 60
-        TURN_THRESHOLD = 5
+        # Thresholds: 180 words OR 8 conversational turns.
+        #
+        # Was 60 words. Bumped because tasks often span multiple utterances
+        # ("...about the OAuth migration [utterance] Ravi, can you handle
+        # that by Friday?") and a 60-word window frequently cut the "what"
+        # out of the "who does". Larger buffer = LLM sees fuller thoughts
+        # = fewer half-context tasks and fewer hallucinated tasks from
+        # over-eager pattern matching.
+        #
+        # High-importance keywords ("task", "deadline", "friday" etc. —
+        # see _is_high_importance below) still flush immediately, so
+        # obvious tasks don't wait 180 words for detection.
+        WORD_THRESHOLD = 180
+        TURN_THRESHOLD = 8
         
         should_trigger = (
             session.accumulated_word_count >= WORD_THRESHOLD or

@@ -20,6 +20,9 @@ import {
   Lightbulb,
   BarChart3,
   Plus,
+  Search,
+  X,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -41,17 +44,200 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   chart: BarChart3,
 };
 
+// ─── Filter types ────────────────────────────────────────────────────────────
+
+type StatusFilter = "all" | "completed" | "processing" | "pending" | "failed";
+type DateFilter = "all" | "today" | "week" | "month" | "custom";
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string; dot: string }[] = [
+  { value: "all",        label: "All",        dot: "" },
+  { value: "completed",  label: "Completed",  dot: "bg-emerald-500" },
+  { value: "processing", label: "Processing", dot: "bg-indigo-500" },
+  { value: "pending",    label: "Pending",    dot: "bg-amber-500" },
+  { value: "failed",     label: "Failed",     dot: "bg-red-500" },
+];
+
+const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
+  { value: "all",    label: "All time" },
+  { value: "today",  label: "Today" },
+  { value: "week",   label: "This week" },
+  { value: "month",  label: "This month" },
+  { value: "custom", label: "Custom" },
+];
+
+// ─── FilterBar ───────────────────────────────────────────────────────────────
+
+interface FilterBarProps {
+  searchQuery: string;
+  onSearch: (q: string) => void;
+  statusFilter: StatusFilter;
+  onStatusFilter: (s: StatusFilter) => void;
+  dateFilter: DateFilter;
+  onDateFilter: (d: DateFilter) => void;
+  customFrom: string;
+  onCustomFrom: (d: string) => void;
+  customTo: string;
+  onCustomTo: (d: string) => void;
+  totalCount: number;
+  filteredCount: number;
+}
+
+function FilterBar({
+  searchQuery,
+  onSearch,
+  statusFilter,
+  onStatusFilter,
+  dateFilter,
+  onDateFilter,
+  customFrom,
+  onCustomFrom,
+  customTo,
+  onCustomTo,
+  totalCount,
+  filteredCount,
+}: FilterBarProps) {
+  const hasActive =
+    searchQuery !== "" ||
+    statusFilter !== "all" ||
+    dateFilter !== "all" ||
+    customFrom !== "" ||
+    customTo !== "";
+
+  const clearAll = () => {
+    onSearch("");
+    onStatusFilter("all");
+    onDateFilter("all");
+    onCustomFrom("");
+    onCustomTo("");
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Search input */}
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search meetings…"
+            value={searchQuery}
+            onChange={(e) => onSearch(e.target.value)}
+            className="w-full pl-8 pr-7 py-2 text-sm bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => onSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+              aria-label="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Status filter */}
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+          {STATUS_OPTIONS.map(({ value, label, dot }) => (
+            <button
+              key={value}
+              onClick={() => onStatusFilter(value)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
+                statusFilter === value
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {dot && (
+                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
+              )}
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date filter */}
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+          {DATE_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => onDateFilter(value)}
+              className={cn(
+                "px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
+                dateFilter === value
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom date range inputs */}
+        {dateFilter === "custom" && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => onCustomFrom(e.target.value)}
+              title="From date"
+              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+            />
+            <span className="text-[11px] text-slate-400 select-none">→</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom || undefined}
+              onChange={(e) => onCustomTo(e.target.value)}
+              title="To date"
+              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+            />
+          </div>
+        )}
+
+        {/* Clear filters */}
+        {hasActive && (
+          <button
+            onClick={clearAll}
+            className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors rounded-md"
+          >
+            <X className="w-3 h-3" />
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Results summary */}
+      {hasActive && (
+        <p className="text-[11px] text-slate-400">
+          {filteredCount === 0 ? (
+            <span className="text-slate-500">No meetings match your filters.</span>
+          ) : filteredCount === totalCount ? (
+            `${totalCount} ${totalCount === 1 ? "meeting" : "meetings"}`
+          ) : (
+            <>
+              <span className="font-semibold text-slate-700">{filteredCount}</span>
+              {" of "}
+              <span className="font-semibold text-slate-700">{totalCount}</span>
+              {" meetings"}
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── MeetingScroller ─────────────────────────────────────────────────────────
+
 interface MeetingScrollerProps {
   meetings: Meeting[];
   onDelete: (id: number) => void;
   deletingId: number | null;
 }
 
-function MeetingScroller({
-  meetings,
-  onDelete,
-  deletingId,
-}: MeetingScrollerProps) {
+function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scrollBy = (dx: number) => {
     scrollRef.current?.scrollBy({ left: dx, behavior: "smooth" });
@@ -80,10 +266,7 @@ function MeetingScroller({
         className="flex gap-3 overflow-x-auto pb-2 px-1 snap-x snap-mandatory scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {meetings.map((meeting) => (
-          <div
-            key={meeting.id}
-            className="snap-start shrink-0 w-[20rem] md:w-[22rem] h-[280px]"
-          >
+          <div key={meeting.id} className="snap-start shrink-0 w-[20rem] md:w-[22rem] h-[280px]">
             <MeetingCard
               meeting={meeting}
               onDelete={onDelete}
@@ -96,6 +279,8 @@ function MeetingScroller({
   );
 }
 
+// ─── CategorySection ─────────────────────────────────────────────────────────
+
 interface CategorySectionProps {
   category: Category;
   meetings: Meeting[];
@@ -103,12 +288,7 @@ interface CategorySectionProps {
   deletingId: number | null;
 }
 
-function CategorySection({
-  category,
-  meetings,
-  onDelete,
-  deletingId,
-}: CategorySectionProps) {
+function CategorySection({ category, meetings, onDelete, deletingId }: CategorySectionProps) {
   const color = category.color || "#4F46E5";
   const Icon = (category.icon && CATEGORY_ICONS[category.icon]) || Tag;
   return (
@@ -139,14 +319,12 @@ function CategorySection({
           <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
-      <MeetingScroller
-        meetings={meetings}
-        onDelete={onDelete}
-        deletingId={deletingId}
-      />
+      <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
   );
 }
+
+// ─── UncategorizedSection ────────────────────────────────────────────────────
 
 interface UncategorizedSectionProps {
   meetings: Meeting[];
@@ -154,11 +332,7 @@ interface UncategorizedSectionProps {
   deletingId: number | null;
 }
 
-function UncategorizedSection({
-  meetings,
-  onDelete,
-  deletingId,
-}: UncategorizedSectionProps) {
+function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedSectionProps) {
   return (
     <section className="mt-10 pt-8 border-t border-slate-200">
       <div className="flex items-end justify-between gap-3 mb-4">
@@ -177,14 +351,34 @@ function UncategorizedSection({
           </div>
         </div>
       </div>
-      <MeetingScroller
-        meetings={meetings}
-        onDelete={onDelete}
-        deletingId={deletingId}
-      />
+      <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
   );
 }
+
+// ─── No-results placeholder ───────────────────────────────────────────────────
+
+function NoFilterResults({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="text-center py-14 bg-white rounded-lg border border-slate-200 border-dashed">
+      <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center mx-auto mb-3">
+        <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+      </div>
+      <h3 className="text-sm font-semibold text-slate-900 mb-1">No meetings match</h3>
+      <p className="text-xs text-slate-500 mb-4 max-w-xs mx-auto">
+        Try adjusting your search or filters.
+      </p>
+      <button
+        onClick={onClear}
+        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+      >
+        Clear all filters
+      </button>
+    </div>
+  );
+}
+
+// ─── MeetingsPage ─────────────────────────────────────────────────────────────
 
 export default function MeetingsPage() {
   const [searchParams] = useSearchParams();
@@ -202,12 +396,72 @@ export default function MeetingsPage() {
 
   const { data, loading, removeMeeting, addMeeting } = useMeetings(filter);
   const { data: categories } = useCategories();
+
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [view, setView] = useState<"table" | "grid">("table");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const navigate = useNavigate();
 
+  // ── Filter state ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
   const meetings = data ?? [];
+
+  // ── Client-side filtering ──
+  const filteredMeetings = useMemo(() => {
+    return meetings.filter((m) => {
+      // Title / summary search
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = m.title?.toLowerCase().includes(q) ?? false;
+        const matchSummary = m.summary?.toLowerCase().includes(q) ?? false;
+        if (!matchTitle && !matchSummary) return false;
+      }
+      // Status
+      if (statusFilter !== "all" && m.status !== statusFilter) return false;
+      // Date range
+      if (dateFilter !== "all") {
+        const ts = new Date(m.created_at).getTime();
+        const now = Date.now();
+        if (dateFilter === "today") {
+          if (new Date(m.created_at).toDateString() !== new Date().toDateString()) return false;
+        } else if (dateFilter === "week") {
+          if (ts < now - 7 * 86_400_000) return false;
+        } else if (dateFilter === "month") {
+          if (ts < now - 30 * 86_400_000) return false;
+        } else if (dateFilter === "custom") {
+          if (customFrom) {
+            const fromTs = new Date(customFrom).setHours(0, 0, 0, 0);
+            if (ts < fromTs) return false;
+          }
+          if (customTo) {
+            const toTs = new Date(customTo).setHours(23, 59, 59, 999);
+            if (ts > toTs) return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [meetings, searchQuery, statusFilter, dateFilter, customFrom, customTo]);
+
+  const hasActiveFilters =
+    searchQuery !== "" ||
+    statusFilter !== "all" ||
+    dateFilter !== "all" ||
+    customFrom !== "" ||
+    customTo !== "";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setDateFilter("all");
+    setCustomFrom("");
+    setCustomTo("");
+  };
 
   const handleScheduled = (meeting: Meeting) => {
     addMeeting(meeting);
@@ -223,13 +477,13 @@ export default function MeetingsPage() {
   const headerTitle = activeTeam
     ? `${activeCategory?.name} · ${activeTeam.name}`
     : activeCategory
-    ? activeCategory.name
-    : "Meetings";
+      ? activeCategory.name
+      : "Meetings";
 
   const groupedByCategory = useMemo(() => {
     const buckets = new Map<number, Meeting[]>();
     const uncategorized: Meeting[] = [];
-    for (const m of meetings) {
+    for (const m of filteredMeetings) {
       if (m.category) {
         const list = buckets.get(m.category.id) ?? [];
         list.push(m);
@@ -247,20 +501,13 @@ export default function MeetingsPage() {
       if (!knownIds.has(id) && list.length > 0) {
         const sample = list[0].category!;
         orphanCategories.push({
-          category: {
-            id: sample.id,
-            name: sample.name,
-            color: sample.color ?? null,
-          },
+          category: { id: sample.id, name: sample.name, color: sample.color ?? null },
           meetings: list,
         });
       }
     }
-    return {
-      sections: [...orderedSections, ...orphanCategories],
-      uncategorized,
-    };
-  }, [meetings, categories]);
+    return { sections: [...orderedSections, ...orphanCategories], uncategorized };
+  }, [filteredMeetings, categories]);
 
   const handleDelete = async (id: number) => {
     if (!window.confirm("Delete this meeting? This cannot be undone.")) return;
@@ -276,7 +523,9 @@ export default function MeetingsPage() {
     }
   };
 
-  // ---------------- Loading ----------------
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Loading
+  // ─────────────────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <Layout>
@@ -289,7 +538,12 @@ export default function MeetingsPage() {
             </div>
             <Skeleton className="h-9 w-32 shrink-0" />
           </div>
-
+          {/* Filter bar skeleton */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-48 rounded-lg" />
+            <Skeleton className="h-9 w-72 rounded-lg" />
+            <Skeleton className="h-9 w-56 rounded-lg" />
+          </div>
           {[0, 1].map((section) => (
             <section key={section}>
               <div className="flex items-end justify-between gap-3 mb-4">
@@ -320,10 +574,7 @@ export default function MeetingsPage() {
                     <div className="flex items-center gap-2 pt-3">
                       <div className="flex -space-x-1.5">
                         {[0, 1, 2].map((a) => (
-                          <div
-                            key={a}
-                            className="h-5 w-5 rounded-full bg-slate-200 ring-2 ring-white"
-                          />
+                          <div key={a} className="h-5 w-5 rounded-full bg-slate-200 ring-2 ring-white" />
                         ))}
                       </div>
                     </div>
@@ -337,7 +588,9 @@ export default function MeetingsPage() {
     );
   }
 
-  // ---------------- Empty ----------------
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Empty (no meetings at all)
+  // ─────────────────────────────────────────────────────────────────────────────
   if (meetings.length === 0) {
     const emptyMessage = activeCategory
       ? activeTeam
@@ -351,9 +604,7 @@ export default function MeetingsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
               Overview
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Meetings
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
           </header>
           <ScheduleMeetingForm
             defaultCategoryId={filter.category_id}
@@ -364,29 +615,25 @@ export default function MeetingsPage() {
             <div className="w-11 h-11 bg-slate-50 rounded-md flex items-center justify-center mx-auto mb-3">
               <Calendar className="w-5 h-5 text-slate-400" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-900 mb-1">
-              No meetings found
-            </h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              {emptyMessage}
-            </p>
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">No meetings found</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">{emptyMessage}</p>
           </div>
         </div>
       </Layout>
     );
   }
 
-  // ---------------- Filtered view ----------------
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Filtered view (category / team URL param)
+  // ─────────────────────────────────────────────────────────────────────────────
   if (isFiltered) {
-    const handleClearFilter = () => navigate("/");
-
     return (
       <Layout>
         <div className="max-w-7xl mx-auto px-8 py-10 space-y-6">
           <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div className="flex items-start gap-2 min-w-0">
               <button
-                onClick={handleClearFilter}
+                onClick={() => navigate("/")}
                 className="mt-1 p-1.5 rounded-md hover:bg-slate-100 transition-colors"
                 title="Back to all meetings"
               >
@@ -400,8 +647,7 @@ export default function MeetingsPage() {
                   {headerTitle}
                 </h1>
                 <p className="text-sm text-slate-500 mt-1">
-                  {meetings.length}{" "}
-                  {meetings.length === 1 ? "meeting" : "meetings"}
+                  {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
                 </p>
               </div>
             </div>
@@ -412,9 +658,7 @@ export default function MeetingsPage() {
                   onClick={() => setView("table")}
                   className={cn(
                     "p-1.5 rounded transition-colors",
-                    view === "table"
-                      ? "bg-white text-indigo-600 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700",
+                    view === "table" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
                   )}
                   title="Table view"
                 >
@@ -424,9 +668,7 @@ export default function MeetingsPage() {
                   onClick={() => setView("grid")}
                   className={cn(
                     "p-1.5 rounded transition-colors",
-                    view === "grid"
-                      ? "bg-white text-indigo-600 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700",
+                    view === "grid" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
                   )}
                   title="Grid view"
                 >
@@ -454,7 +696,24 @@ export default function MeetingsPage() {
             </div>
           )}
 
-          {view === "table" ? (
+          <FilterBar
+            searchQuery={searchQuery}
+            onSearch={setSearchQuery}
+            statusFilter={statusFilter}
+            onStatusFilter={setStatusFilter}
+            dateFilter={dateFilter}
+            onDateFilter={setDateFilter}
+            customFrom={customFrom}
+            onCustomFrom={setCustomFrom}
+            customTo={customTo}
+            onCustomTo={setCustomTo}
+            totalCount={meetings.length}
+            filteredCount={filteredMeetings.length}
+          />
+
+          {filteredMeetings.length === 0 && hasActiveFilters ? (
+            <NoFilterResults onClear={clearFilters} />
+          ) : view === "table" ? (
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
               <table className="w-full">
                 <thead>
@@ -480,7 +739,7 @@ export default function MeetingsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {meetings.map((meeting) => (
+                  {filteredMeetings.map((meeting) => (
                     <MeetingRow
                       key={meeting.id}
                       meeting={meeting}
@@ -493,7 +752,7 @@ export default function MeetingsPage() {
             </div>
           ) : (
             <MeetingList
-              meetings={meetings}
+              meetings={filteredMeetings}
               onDelete={handleDelete}
               deletingId={deletingId}
             />
@@ -503,25 +762,22 @@ export default function MeetingsPage() {
     );
   }
 
-  // ---------------- Default grouped view ----------------
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Default grouped view
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Layout>
       <div className="max-w-7xl mx-auto px-8 py-10">
-        <header className="flex items-end justify-between gap-4 flex-wrap mb-8">
+        <header className="flex items-end justify-between gap-4 flex-wrap mb-6">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
               Overview
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Meetings
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
             <p className="text-sm text-slate-500 mt-2">
               {meetings.length} sessions across{" "}
               {groupedByCategory.sections.length}{" "}
-              {groupedByCategory.sections.length === 1
-                ? "category"
-                : "categories"}
-              .
+              {groupedByCategory.sections.length === 1 ? "category" : "categories"}.
             </p>
           </div>
           <Button
@@ -534,6 +790,23 @@ export default function MeetingsPage() {
           </Button>
         </header>
 
+        <div className="mb-8">
+          <FilterBar
+            searchQuery={searchQuery}
+            onSearch={setSearchQuery}
+            statusFilter={statusFilter}
+            onStatusFilter={setStatusFilter}
+            dateFilter={dateFilter}
+            onDateFilter={setDateFilter}
+            customFrom={customFrom}
+            onCustomFrom={setCustomFrom}
+            customTo={customTo}
+            onCustomTo={setCustomTo}
+            totalCount={meetings.length}
+            filteredCount={filteredMeetings.length}
+          />
+        </div>
+
         {showScheduleForm && (
           <div className="mb-8 bg-slate-50 border border-slate-200 rounded-lg p-4">
             <ScheduleMeetingForm
@@ -544,6 +817,13 @@ export default function MeetingsPage() {
           </div>
         )}
 
+        {/* No filter results */}
+        {hasActiveFilters &&
+          filteredMeetings.length === 0 && (
+            <NoFilterResults onClear={clearFilters} />
+          )}
+
+        {/* Category sections */}
         {groupedByCategory.sections.map(({ category, meetings: catMeetings }) => (
           <CategorySection
             key={category.id}

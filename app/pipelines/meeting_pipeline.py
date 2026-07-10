@@ -240,13 +240,24 @@ class MeetingPipeline:
         try:
             meeting_url = meeting.meeting_url
 
-            logger.info(f"🤖 Creating bot for URL: {meeting_url}")
-            bot = self.recall.create_bot(meeting_url, meeting.id)
-
-            bot_id = bot["id"]
-
-            meeting.bot_id = bot_id
-            db.commit()
+            # Idempotency guard — if a bot has already been dispatched for
+            # this meeting, do NOT create a second one. Any duplicate call to
+            # process_meeting (manual re-dispatch, calendar-sync re-trigger,
+            # celery retry after a crashed worker) would otherwise send an
+            # orphan bot into the same Meet — hence the "two bots joined"
+            # bug in production.
+            if meeting.bot_id:
+                logger.warning(
+                    f"⚠️  Meeting {meeting.id} already has bot_id={meeting.bot_id} — "
+                    f"skipping duplicate bot creation. Reusing existing bot."
+                )
+                bot_id = meeting.bot_id
+            else:
+                logger.info(f"🤖 Creating bot for URL: {meeting_url}")
+                bot = self.recall.create_bot(meeting_url, meeting.id)
+                bot_id = bot["id"]
+                meeting.bot_id = bot_id
+                db.commit()
 
             logger.info(f"⏳ Waiting for transcript for bot_id: {bot_id}")
             # Phase 12E — pass meeting_id so the polling loop can
