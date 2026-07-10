@@ -114,6 +114,16 @@ async def startup_event():
     except Exception as exc:
         logger.error("Storage bucket bootstrap failed: %s", exc)
 
+    # Agents v2 bootstrap — scan agent folders, seed DB rows.
+    # Wrapped non-fatal: a bad manifest can't take down the app.
+    try:
+        from app.agents_v2 import registry as agents_v2_registry
+        agents_v2_registry.bootstrap()
+        logger.info("agents_v2 registry ready (%d agent(s))",
+                    len(agents_v2_registry.list_agents()))
+    except Exception as exc:
+        logger.error("agents_v2 bootstrap failed (non-fatal): %s", exc, exc_info=True)
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}

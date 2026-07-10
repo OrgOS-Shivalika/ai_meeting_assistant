@@ -318,33 +318,42 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
-            # Phase 9.6 — Agent Graph Orchestration.
-            # Use the orchestrator to run capability-based analysis.
-            # The orchestrator handles BehaviorProfile resolution internally
-            # or we can pass it in if we already have it. 
-            logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
-            from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
-            from app.services.behavior.resolver import resolve_behavior_profile
-            
-            # 1. Resolve the profile once for the entire runtime execution
-            prof = resolve_behavior_profile(
-                db,
-                organization_id=meeting.organization_id,
-                category_id=meeting.category_id,
-                team_id=meeting.team_id
-            )
+            # Agents v2 feature flag — if there's an agents_v2 row for
+            # this meeting's scope, route through the new orchestrator.
+            # Otherwise fall through to the legacy Phase 9.6 path.
+            # Presence of the DB row IS the feature flag — no env var.
+            from app.agents_v2 import orchestrator as v2_orchestrator
+            if v2_orchestrator.has_agent_for_scope(db, meeting):
+                logger.info("🆕 Routing meeting %s through agents_v2 pipeline", meeting.id)
+                result_obj = v2_orchestrator.run_meeting_analysis(db, formatted, meeting)
+            else:
+                # Phase 9.6 — Agent Graph Orchestration.
+                # Use the orchestrator to run capability-based analysis.
+                # The orchestrator handles BehaviorProfile resolution internally
+                # or we can pass it in if we already have it.
+                logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
+                from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
+                from app.services.behavior.resolver import resolve_behavior_profile
 
-            # 2. Execute the Agent Graph
-            # meeting_id MUST be passed — the harness threads it through
-            # ToolContext to every tool. Without it, create_task can't
-            # resolve which meeting to attach the new task to and fails
-            # every call.
-            result_obj = AgentGraphOrchestrator.run_meeting_analysis(
-                db,
-                formatted,
-                prof,
-                meeting_id=meeting.id,
-            )
+                # 1. Resolve the profile once for the entire runtime execution
+                prof = resolve_behavior_profile(
+                    db,
+                    organization_id=meeting.organization_id,
+                    category_id=meeting.category_id,
+                    team_id=meeting.team_id
+                )
+
+                # 2. Execute the Agent Graph
+                # meeting_id MUST be passed — the harness threads it through
+                # ToolContext to every tool. Without it, create_task can't
+                # resolve which meeting to attach the new task to and fails
+                # every call.
+                result_obj = AgentGraphOrchestrator.run_meeting_analysis(
+                    db,
+                    formatted,
+                    prof,
+                    meeting_id=meeting.id,
+                )
 
             # result_obj is a typed ExtractionSummary instance
             result_json = result_obj.model_dump()

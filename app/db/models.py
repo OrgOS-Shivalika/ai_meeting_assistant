@@ -3363,3 +3363,54 @@ class ClosingBriefing(Base):
     )
     organization = relationship("Organization")
     meeting = relationship("Meeting", back_populates="closing_briefing")
+
+
+# =====================================================================
+# Agents v2 — per-team agent registry (see AGENTS_V2_PLAN.md).
+# Each row = one agent scoped to (org) or (org, cat) or (org, cat, team).
+# Manifest defaults live in code; DB row overrides win when non-empty.
+# =====================================================================
+
+class AgentV2(Base):
+    __tablename__ = "agents_v2"
+
+    id = Column(BigInteger, primary_key=True)
+    slug = Column(Text, nullable=False, index=True)
+
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    category_id = Column(
+        BigInteger, ForeignKey("categories.id", ondelete="CASCADE"), nullable=True,
+    )
+    team_id = Column(
+        BigInteger, ForeignKey("teams.id", ondelete="CASCADE"), nullable=True,
+    )
+    parent_id = Column(
+        BigInteger, ForeignKey("agents_v2.id", ondelete="SET NULL"), nullable=True,
+    )
+
+    name = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active", server_default="active")
+
+    # Override columns — empty = use manifest defaults, non-empty = wins.
+    allowed_skills = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    allowed_tools = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    system_prompt_key = Column(Text, nullable=False, default="master.md", server_default="master.md")
+    model = Column(Text, nullable=False, default="gpt-4o-mini", server_default="gpt-4o-mini")
+    max_tokens = Column(Integer, nullable=False, default=4000, server_default="4000")
+    harness_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
