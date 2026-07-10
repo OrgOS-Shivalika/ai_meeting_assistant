@@ -79,12 +79,28 @@ LANGUAGE HANDLING:
   ("कल तक" -> "by tomorrow", "शुक्रवार तक" -> "by Friday").
 - If no clear owner is mentioned, owner = null.
 
-ROLLING CONTEXT (Past discussion for reference ONLY):
+ROLLING CONTEXT (Past discussion — USE THIS to resolve WHAT tasks refer to):
 {rolling_context}
 
-CURRENT CHUNK (Extract tasks from here ONLY):
+CURRENT CHUNK (The COMMITMENT/REQUEST must appear here):
 Speaker: {chunk.speaker_name}
 Text: {chunk.text}
+
+HOW TO USE ROLLING CONTEXT (important — this is where most tasks live):
+- The COMMITMENT (someone said they'll do it, was asked to, or stated it
+  must be done) MUST appear in CURRENT CHUNK. That anchor is required.
+- The WHAT (subject of the task — the code, the doc, the bug, the meeting
+  to schedule) OFTEN lives in ROLLING CONTEXT. Actively resolve it.
+- If CURRENT CHUNK says "Ravi, can you handle that by Friday?" and
+  ROLLING CONTEXT was discussing "the auth migration bug", the task is
+  "Handle the auth migration bug by Friday" with owner="Ravi".
+- If CURRENT CHUNK says "I'll take care of it" and rolling context was
+  about "the report", the task is "Take care of the report" with owner
+  = CURRENT CHUNK's speaker.
+- If the "what" is not in either place, task is too vague — SKIP.
+- The prohibition is against inventing tasks that were ONLY discussed in
+  ROLLING CONTEXT with no follow-through in CURRENT CHUNK. Pure resolution
+  of references from context is NOT invention — it's understanding.
 
 CURRENT DATE CONTEXT:
 - Today is {current_date_iso} ({current_day_of_week}).
@@ -131,9 +147,11 @@ Rules:
    something, OR commits to doing it themselves, OR states that something
    needs to be done. The phrase must be present verbatim or near-verbatim
    in the CURRENT CHUNK.
-2. Use the ROLLING CONTEXT purely for background and to resolve pronouns
-   (e.g., if CURRENT CHUNK says "I'll do it", find what "it" refers to).
-   DO NOT extract tasks that are ONLY mentioned in ROLLING CONTEXT.
+2. Rolling context is USABLE for resolving what a task refers to
+   (pronouns, "that", "it", "the thing we discussed"). See the "HOW TO
+   USE ROLLING CONTEXT" section above. The rule that still stands: the
+   COMMITMENT ITSELF must be in CURRENT CHUNK. Don't emit a task whose
+   only trace is old rolling-context discussion with no follow-up.
 3. Identify the owner using the NAME EXTRACTION rules above.
 4. Identify the type:
    - "assigned_task": A direct request to another person.
