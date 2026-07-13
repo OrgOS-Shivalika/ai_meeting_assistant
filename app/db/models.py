@@ -3403,6 +3403,13 @@ class AgentV2(Base):
     max_tokens = Column(Integer, nullable=False, default=4000, server_default="4000")
     harness_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
+    # LLM sampling params — NULL = use manifest / model default.
+    # DB range CHECKs enforce OpenAI's valid ranges.
+    temperature = Column(Float, nullable=True)
+    top_p = Column(Float, nullable=True)
+    frequency_penalty = Column(Float, nullable=True)
+    presence_penalty = Column(Float, nullable=True)
+
     created_at = Column(
         DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),
@@ -3414,3 +3421,33 @@ class AgentV2(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         server_default=text("now()"),
     )
+
+
+class AgentPrompt(Base):
+    """Versioned prompt storage. One active row per (agent_id, prompt_key).
+    Every edit inserts a NEW row and flips the previous active off.
+    Full history is kept for audit + rollback."""
+    __tablename__ = "agent_prompts"
+
+    id = Column(BigInteger, primary_key=True)
+    agent_id = Column(
+        BigInteger,
+        ForeignKey("agents_v2.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version = Column(Integer, nullable=False)
+    prompt_key = Column(Text, nullable=False, default="master.md", server_default="master.md")
+    prompt_text = Column(Text, nullable=False)
+    prompt_hash = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    notes = Column(Text, nullable=True)

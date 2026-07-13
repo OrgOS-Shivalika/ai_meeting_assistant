@@ -19,6 +19,7 @@ from app.api.consolidation_router import router as consolidation_router
 from app.api.observability_router import router as observability_router
 from app.api.harness_observability_router import router as harness_observability_router
 from app.api.agents_router import router as agents_router
+from app.api.agents_v2_router import router as agents_v2_router
 from app.api.prompt_configs_router import router as prompt_configs_router
 from app.api.playground_router import router as playground_router
 from app.api.templates_router import router as templates_router
@@ -65,6 +66,7 @@ app.include_router(consolidation_router)
 app.include_router(observability_router)
 app.include_router(harness_observability_router)
 app.include_router(agents_router)
+app.include_router(agents_v2_router)
 app.include_router(prompt_configs_router)
 app.include_router(playground_router)
 app.include_router(templates_router)

@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.agents_v2 import registry
+from app.agents_v2.shared import tracing
 from app.agents_v2.shared.schemas.knowledge_context import (
     KnowledgeContext, LongTermMeetingSummary, OpenTask,
 )
@@ -45,6 +46,7 @@ def has_agent_for_scope(db: Session, meeting: Meeting) -> bool:
     ) is not None
 
 
+@tracing.observe(name="agents_v2.run_meeting_analysis", as_type="trace")
 def run_meeting_analysis(db: Session, transcript: str, meeting: Meeting):
     """Route the meeting to its scoped agent and invoke it.
 
@@ -96,18 +98,27 @@ def run_meeting_analysis(db: Session, transcript: str, meeting: Meeting):
         len(knowledge.open_tasks),
     )
 
-    return module.run(
-        transcript=transcript,
-        knowledge=knowledge,
-        effective_config=effective,
-        context=context,
-    )
+    try:
+        result = module.run(
+            transcript=transcript,
+            knowledge=knowledge,
+            effective_config=effective,
+            context=context,
+        )
+        return result
+    finally:
+        # Celery workers exit after the task returns. Force-flush so
+        # Langfuse observations for this meeting are visible immediately
+        # in the dashboard instead of waiting for the SDK's batching
+        # timeout on a process that may not exist much longer.
+        tracing.flush()
 
 
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
+@tracing.observe(name="agents_v2._route", as_type="span")
 def _route(
     db: Session,
     organization_id: UUID,
@@ -164,13 +175,24 @@ def _route(
 
 
 def _merge_manifest_with_row(manifest: dict[str, Any], row: AgentV2) -> dict[str, Any]:
-    """DB overrides win when non-empty. Empty DB field = use manifest default."""
+    """DB overrides win when non-empty. Empty DB field = use manifest default.
+
+    All LLM sampling params (temperature, top_p, penalties) come from
+    the DB row. NULL there means "use OpenAI default" — we surface as
+    None here and the executor forwards accordingly.
+    """
     return {
         "slug": row.slug,
         "name": row.name or manifest.get("name", row.slug),
         "master_prompt": manifest.get("master_prompt", "prompts/master.md"),
+        "system_prompt_key": row.system_prompt_key or "master.md",
         "model": row.model or manifest.get("model", "gpt-4o-mini"),
         "max_tokens": row.max_tokens or manifest.get("max_tokens", 4000),
+        # LLM sampling — None = use OpenAI's default (or executor's fallback).
+        "temperature": row.temperature,
+        "top_p": row.top_p,
+        "frequency_penalty": row.frequency_penalty,
+        "presence_penalty": row.presence_penalty,
         "harness_enabled": row.harness_enabled if row.harness_enabled is not None
         else manifest.get("harness_enabled", False),
         "allowed_skills": (
@@ -184,6 +206,7 @@ def _merge_manifest_with_row(manifest: dict[str, Any], row: AgentV2) -> dict[str
     }
 
 
+@tracing.observe(name="agents_v2._build_knowledge", as_type="span")
 def _build_knowledge(db: Session, meeting: Meeting) -> KnowledgeContext:
     """Pull short-term facts + long-term summaries + open tasks for scope.
 

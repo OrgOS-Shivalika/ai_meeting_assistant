@@ -50,6 +50,8 @@ const API_PATH_PREFIXES = [
   '/rag',
   // Phase 6D — merge suggestions + rehydrate.
   '/consolidation',
+  // Agents v2 admin API (control-panel page).
+  '/agents_v2',
 ]
 
 const isHtmlNavigation = (req: IncomingMessage): boolean => {

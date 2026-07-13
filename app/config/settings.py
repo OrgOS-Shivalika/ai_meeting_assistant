@@ -25,6 +25,14 @@ class Settings:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+    # ---- Langfuse (agents_v2 tracing/observability) -----------------------
+    # If all three are set the agents_v2 pipeline sends traces to Langfuse
+    # Cloud. If ANY is missing the SDK becomes a no-op — meetings still
+    # process, we just get no traces.
+    LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+    LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+    LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+
     # ---- Recall.ai --------------------------------------------------------
     RECALL_API_KEY = os.getenv("RECALL_API_KEY")
     BASE_URL = os.getenv("BASE_URL")
