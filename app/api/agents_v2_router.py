@@ -36,7 +36,7 @@ from app.agents_v2.shared.prompt_store import (
     rollback_to,
 )
 from app.api.db_dependency import get_db
-from app.db.models import AgentPrompt, AgentV2, Category, Team
+from app.db.models import AgentInsight, AgentPrompt, AgentV2, Category, Meeting, Team
 from app.dependencies.auth import get_current_user
 
 router = APIRouter(prefix="/agents_v2", tags=["Agents v2"])
@@ -130,6 +130,58 @@ def _serialize_agent(row: AgentV2) -> AgentReadResponse:
         harness_enabled=row.harness_enabled,
         system_prompt_key=row.system_prompt_key,
     )
+
+
+class SkillDescriptor(BaseModel):
+    id: str
+    name: str
+    description: str
+    scope: str
+    tags: list[str]
+
+
+@router.get("/skills", response_model=list[SkillDescriptor])
+def list_skills(user=Depends(get_current_user)):
+    """All skills registered at boot. Not org-scoped — skill code is
+    shared across all orgs. The `allowed_skills` field on each agent
+    row picks which of these the agent actually runs.
+    """
+    # Force skill discovery in case this worker hasn't booted the
+    # agents_v2 registry yet (e.g. web process cold start).
+    from app.agents_v2.registry import _ensure_bootstrapped
+    from app.agents_v2.skills.base import all_skills
+    _ensure_bootstrapped()
+    return [
+        SkillDescriptor(
+            id=s.id, name=s.name, description=s.description,
+            scope=s.scope, tags=list(s.tags or []),
+        )
+        for s in all_skills()
+    ]
+
+
+class ToolDescriptor(BaseModel):
+    id: str
+    name: str
+    description: str
+    scope: str
+    side_effect: str
+    tags: list[str]
+
+
+@router.get("/tools", response_model=list[ToolDescriptor])
+def list_tools(user=Depends(get_current_user)):
+    """All tools registered at boot."""
+    from app.agents_v2.registry import _ensure_bootstrapped
+    from app.agents_v2.tools.base import all_tools
+    _ensure_bootstrapped()
+    return [
+        ToolDescriptor(
+            id=t.id, name=t.name, description=t.description,
+            scope=t.scope, side_effect=t.side_effect, tags=list(t.tags or []),
+        )
+        for t in all_tools()
+    ]
 
 
 class AgentListItem(BaseModel):
@@ -228,6 +280,60 @@ class PromptCreateRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=30_000)
     prompt_key: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=500)
+
+
+class MeetingInsightItem(BaseModel):
+    id: int
+    agent_id: int
+    agent_slug: str
+    agent_name: str
+    prompt_key: str
+    prompt_version: Optional[int]
+    payload: dict
+    created_at_iso: str
+
+
+@router.get("/meetings/{meeting_id}/insights", response_model=list[MeetingInsightItem])
+def get_meeting_insights(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """All insight payloads produced by agents_v2 agents for this meeting.
+
+    IDOR-safe: 404 for meetings outside the caller's org.
+    """
+    meeting = (
+        db.query(Meeting)
+        .filter(
+            Meeting.id == meeting_id,
+            Meeting.organization_id == user.organization_id,
+        )
+        .first()
+    )
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    rows = (
+        db.query(AgentInsight, AgentV2.slug, AgentV2.name)
+        .join(AgentV2, AgentV2.id == AgentInsight.agent_id)
+        .filter(AgentInsight.meeting_id == meeting_id)
+        .order_by(AgentInsight.created_at.desc())
+        .all()
+    )
+    return [
+        MeetingInsightItem(
+            id=r.id,
+            agent_id=r.agent_id,
+            agent_slug=slug,
+            agent_name=name,
+            prompt_key=r.prompt_key,
+            prompt_version=r.prompt_version,
+            payload=r.payload,
+            created_at_iso=r.created_at.isoformat() if r.created_at else "",
+        )
+        for (r, slug, name) in rows
+    ]
 
 
 class TraceItem(BaseModel):

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMeetingById, updateMeeting, updateTask } from "../api";
+import { apiClient } from "../../../services/apiClient";
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components/Skeleton";
 import CategoryAssignControl from "../components/CategoryAssignControl";
@@ -34,6 +35,30 @@ import {
 
 type TaskOverride = Partial<Omit<Task, "owner">> & {
   owner?: string | null;
+};
+
+type AgentInsight = {
+  id: number;
+  agent_id: number;
+  agent_slug: string;
+  agent_name: string;
+  prompt_key: string;
+  prompt_version: number | null;
+  payload: {
+    training_gaps?: { description: string; affected_person: string | null }[];
+    coaching_moments?: {
+      description: string;
+      delivered_by: string | null;
+      received_by: string | null;
+      tone: "constructive" | "corrective" | "affirming";
+    }[];
+    skill_development_requests?: { skill: string; learner: string | null }[];
+    facilitator_debrief?: {
+      observation: string;
+      category: "worked" | "didnt_work" | "change_next_time";
+    }[];
+  };
+  created_at_iso: string;
 };
 
 type TranscriptGroup = {
@@ -176,6 +201,7 @@ export default function MeetingDetailPage() {
   // so the meeting content (transcript, tasks) gets the full visual focus.
   // Cmd+K toggles, ? opens, Esc closes (wired inside the panel).
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [agentInsights, setAgentInsights] = useState<AgentInsight[]>([]);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -269,6 +295,16 @@ export default function MeetingDetailPage() {
     if (!meeting?.transcript) return;
     seed(parseStoredTranscript(meeting.transcript));
   }, [meeting?.transcript, seed]);
+
+  // Agent insights (agents_v2). Empty for legacy-pipeline meetings.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    apiClient(`/agents_v2/meetings/${id}/insights`)
+      .then((rows) => { if (!cancelled) setAgentInsights(rows as AgentInsight[]); })
+      .catch((err) => console.warn("Agent insights unavailable:", err));
+    return () => { cancelled = true; };
+  }, [id]);
 
   useEffect(() => {
     const container = transcriptContainerRef.current;
@@ -724,6 +760,11 @@ export default function MeetingDetailPage() {
               </div>
             </div>
 
+            {/* Agent insights (agents_v2 side-effect output) */}
+            {agentInsights.map((ins) => (
+              <AgentInsightCard key={ins.id} insight={ins} />
+            ))}
+
             {/* Tasks */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
               <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
@@ -980,5 +1021,104 @@ export default function MeetingDetailPage() {
         )}
       </div>
     </Layout>
+  );
+}
+
+function AgentInsightCard({ insight }: { insight: AgentInsight }) {
+  const { payload, agent_name } = insight;
+  const gaps = payload.training_gaps ?? [];
+  const coaching = payload.coaching_moments ?? [];
+  const requests = payload.skill_development_requests ?? [];
+  const debrief = payload.facilitator_debrief ?? [];
+  const total = gaps.length + coaching.length + requests.length + debrief.length;
+
+  if (total === 0) return null;
+
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+        <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+          {agent_name} Insights
+        </h3>
+      </div>
+      <div className="px-5 py-4 space-y-4">
+        {gaps.length > 0 && (
+          <InsightList
+            label="Training gaps"
+            items={gaps.map((g) => ({
+              primary: g.description,
+              secondary: g.affected_person ? `Affected: ${g.affected_person}` : null,
+            }))}
+          />
+        )}
+        {coaching.length > 0 && (
+          <InsightList
+            label="Coaching moments"
+            items={coaching.map((c) => ({
+              primary: c.description,
+              secondary: [
+                c.delivered_by ? `From: ${c.delivered_by}` : null,
+                c.received_by ? `To: ${c.received_by}` : null,
+                c.tone,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            }))}
+          />
+        )}
+        {requests.length > 0 && (
+          <InsightList
+            label="Skill development requests"
+            items={requests.map((r) => ({
+              primary: r.skill,
+              secondary: r.learner ? `Learner: ${r.learner}` : null,
+            }))}
+          />
+        )}
+        {debrief.length > 0 && (
+          <InsightList
+            label="Facilitator debrief"
+            items={debrief.map((d) => ({
+              primary: d.observation,
+              secondary: d.category.replace(/_/g, " "),
+            }))}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InsightList({
+  label,
+  items,
+}: {
+  label: string;
+  items: { primary: string; secondary: string | null }[];
+}) {
+  return (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+        {label}
+      </h4>
+      <ul className="space-y-2">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="w-1 h-1 bg-emerald-600 rounded-full mt-2 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[13px] text-slate-700 leading-relaxed">
+                {it.primary}
+              </p>
+              {it.secondary && (
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {it.secondary}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

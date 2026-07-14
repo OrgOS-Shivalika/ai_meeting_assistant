@@ -122,7 +122,138 @@ def _execute(
 
     # ---- Contract validation — same runtime as legacy path -------
     from app.services.cognition.contracts import ExtractionContractRuntime
-    return ExtractionContractRuntime.process_extraction(ExtractionSummary, result)
+    extraction = ExtractionContractRuntime.process_extraction(ExtractionSummary, result)
+
+    # ---- L&D-specific insights — best-effort side effect ---------
+    # Existing hardcoded second-pass (kept until we migrate insights.md
+    # into L&D-scoped skills). Wraps its own failure.
+    try:
+        _run_insights(
+            transcript=transcript,
+            knowledge=knowledge,
+            effective=effective,
+            context=context,
+            config=config,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "hr_learning_and_development: insights pass failed for meeting %s: %s",
+            context.get("meeting_id"), exc, exc_info=True,
+        )
+
+    # ---- Skills — one call per `allowed_skills` id ---------------
+    # Runs in ADDITION to the master + insights above. Any one skill
+    # failing is logged + skipped; outputs go to agent_insights keyed
+    # by skill_id.
+    from app.agents_v2.shared.skill_runner import run_skills
+    allowed = effective.get("allowed_skills") or []
+    if allowed:
+        try:
+            run_skills(
+                allowed,
+                transcript=transcript,
+                knowledge=knowledge,
+                effective=effective,
+                meeting_id=context["meeting_id"],
+                agent_row_id=context["agent_row_id"],
+                agent_slug=context.get("agent_slug") or "hr_learning_and_development",
+                organization_id=context.get("organization_id"),
+                category_id=context.get("category_id"),
+                team_id=context.get("team_id"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "hr_learning_and_development: skills pass failed for meeting %s: %s",
+                context.get("meeting_id"), exc, exc_info=True,
+            )
+
+    return extraction
+
+
+@tracing.observe(name="hr_learning_and_development._run_insights", as_type="span")
+def _run_insights(
+    *,
+    transcript: str,
+    knowledge: KnowledgeContext,
+    effective: dict[str, Any],
+    context: dict[str, Any],
+    config: dict[str, Any],
+) -> None:
+    """Second-pass L&D-specific extraction.
+
+    Reads `prompts/insights.md`, runs one LLM call, upserts the parsed
+    payload into `agent_insights`. Never raises — caller wraps.
+    """
+    from app.db.models import AgentInsight
+
+    db = SessionLocal()
+    try:
+        try:
+            loaded = load_active_prompt(
+                db,
+                agent_id=context["agent_row_id"],
+                agent_folder=_AGENT_FOLDER,
+                prompt_key="insights.md",
+            )
+        except FileNotFoundError:
+            # Agent has no insights prompt — nothing to do.
+            logger.debug("hr_learning_and_development: no insights.md, skipping")
+            return
+
+        prompt = _render_prompt(
+            loaded.text,
+            transcript=transcript,
+            knowledge=knowledge,
+            knowledge_block_max_chars=config.get("knowledge_block_max_chars", 3500),
+        )
+
+        tracing.update_current_observation(metadata=loaded.as_metadata())
+        payload = _call_openai_with_prompt(
+            prompt,
+            model=effective["model"],
+            max_tokens=effective.get("max_tokens"),
+            temperature=effective.get("temperature"),
+            top_p=effective.get("top_p"),
+            frequency_penalty=effective.get("frequency_penalty"),
+            presence_penalty=effective.get("presence_penalty"),
+            prompt_metadata=loaded.as_metadata(),
+        )
+
+        # Upsert — one row per (meeting, agent, prompt_key).
+        existing = (
+            db.query(AgentInsight)
+            .filter(
+                AgentInsight.meeting_id == context["meeting_id"],
+                AgentInsight.agent_id == context["agent_row_id"],
+                AgentInsight.prompt_key == loaded.prompt_key,
+            )
+            .first()
+        )
+        if existing:
+            existing.payload = payload
+            existing.prompt_version = loaded.version
+            existing.prompt_hash = loaded.hash
+        else:
+            db.add(AgentInsight(
+                meeting_id=context["meeting_id"],
+                agent_id=context["agent_row_id"],
+                prompt_key=loaded.prompt_key,
+                prompt_version=loaded.version,
+                prompt_hash=loaded.hash,
+                payload=payload,
+            ))
+        db.commit()
+        logger.info(
+            "hr_learning_and_development: insights saved for meeting %s "
+            "(gaps=%d, coaching=%d, skills=%d, debrief=%d)",
+            context.get("meeting_id"),
+            len(payload.get("training_gaps") or []),
+            len(payload.get("coaching_moments") or []),
+            len(payload.get("skill_development_requests") or []),
+            len(payload.get("facilitator_debrief") or []),
+        )
+    finally:
+        db.close()
 
 
 def _call_openai_with_prompt(

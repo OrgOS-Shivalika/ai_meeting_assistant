@@ -3451,3 +3451,38 @@ class AgentPrompt(Base):
         server_default=text("now()"),
     )
     notes = Column(Text, nullable=True)
+
+
+class AgentInsight(Base):
+    """Per-meeting insight payloads produced by a secondary agent prompt.
+
+    Primary extraction (tasks / facts / summary) still flows through the
+    generic pipeline. This table holds agent-specific artifacts that
+    don't fit `ExtractionSummary` — e.g. training gaps + coaching
+    moments for the HR L&D agent.
+
+    One row per (meeting, agent, prompt_key). Re-running an insight
+    prompt overwrites the previous row via upsert.
+    """
+    __tablename__ = "agent_insights"
+
+    id = Column(BigInteger, primary_key=True)
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_id = Column(
+        BigInteger,
+        ForeignKey("agents_v2.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    prompt_key = Column(Text, nullable=False)
+    prompt_version = Column(Integer, nullable=True)
+    prompt_hash = Column(Text, nullable=True)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )

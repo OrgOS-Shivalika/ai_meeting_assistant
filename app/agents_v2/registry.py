@@ -76,7 +76,7 @@ def bootstrap() -> None:
     for _, name, is_pkg in pkgutil.iter_modules(ns.__path__):
         if not is_pkg:
             continue
-        if name == "shared":
+        if name in ("shared", "skills", "tools"):
             continue
         try:
             module = importlib.import_module(f"app.agents_v2.{name}.agent")
@@ -97,6 +97,22 @@ def bootstrap() -> None:
         logger.info("agents_v2.bootstrap: registered agent %r", slug)
 
         _seed_db_rows(slug, manifest)
+
+    # Skills registry — populates `agents_v2.skills.base._REGISTRY` by
+    # importing every `<skill_id>/skill.py`. Done AFTER agent import so
+    # agent manifests can safely reference skill ids by string.
+    try:
+        from app.agents_v2 import skills as skills_pkg
+        skills_pkg.bootstrap()
+    except Exception as exc:
+        logger.error("agents_v2.bootstrap: skills bootstrap failed: %s", exc, exc_info=True)
+
+    # Tools registry — same shape as skills.
+    try:
+        from app.agents_v2 import tools as tools_pkg
+        tools_pkg.bootstrap()
+    except Exception as exc:
+        logger.error("agents_v2.bootstrap: tools bootstrap failed: %s", exc, exc_info=True)
 
 
 def _seed_db_rows(slug: str, manifest: dict[str, Any]) -> None:

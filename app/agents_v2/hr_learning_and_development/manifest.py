@@ -26,9 +26,19 @@ MANIFEST = {
     # Pilot runs single-shot for stability. Flip on later when skills land.
     "harness_enabled": False,
 
-    # No skills yet — pilot uses only the master call.
-    "skills": [],
-    "tools": [],
+    # Default skills for L&D — user can toggle via Control Panel.
+    # Only used when seeding a new DB row; existing rows keep their
+    # allowed_skills unchanged.
+    "skills": [
+        "blocker_detector",
+        "commitment_watcher",
+        "key_moments_extractor",
+        "participant_sentiment",
+        "followup_drafter",
+    ],
+    "tools": [
+        "search_team_docs",
+    ],
 
     # One team-scoped row: HR category > Learning & Development team.
     "seed_scopes": [

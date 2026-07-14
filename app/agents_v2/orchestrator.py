@@ -197,7 +197,11 @@ def _merge_manifest_with_row(manifest: dict[str, Any], row: AgentV2) -> dict[str
         else manifest.get("harness_enabled", False),
         "allowed_skills": (
             list(row.allowed_skills) if row.allowed_skills
-            else [s.id for s in manifest.get("skills", []) if hasattr(s, "id")]
+            else [
+                s if isinstance(s, str) else getattr(s, "id", None)
+                for s in manifest.get("skills", [])
+                if s
+            ]
         ),
         "allowed_tools": (
             list(row.allowed_tools) if row.allowed_tools
