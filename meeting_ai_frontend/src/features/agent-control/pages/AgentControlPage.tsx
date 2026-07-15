@@ -78,6 +78,15 @@ type PromptVersionMeta = {
 
 type DetailTab = "config" | "prompts" | "reports";
 
+type CatalogItem = {
+  id: string;
+  name: string;
+  description: string;
+  scope: string;
+  tags?: string[];
+  side_effect?: string;   // tools only
+};
+
 type TraceItem = {
   id: string;
   timestamp: string | null;
@@ -85,6 +94,9 @@ type TraceItem = {
   session_id: string | null;
   latency: number | null;
   total_cost: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
 };
 
 type TraceReport = {
@@ -118,6 +130,19 @@ export default function AgentControlPage() {
   // Reports tab state
   const [report, setReport] = useState<TraceReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+
+  // Registry catalogs — fetched once, shared by every agent's Config tab.
+  const [skillsCatalog, setSkillsCatalog] = useState<CatalogItem[]>([]);
+  const [toolsCatalog, setToolsCatalog] = useState<CatalogItem[]>([]);
+
+  useEffect(() => {
+    apiClient("/agents_v2/skills")
+      .then((rows) => setSkillsCatalog(rows as CatalogItem[]))
+      .catch((e) => console.warn("skills catalog fetch failed:", e));
+    apiClient("/agents_v2/tools")
+      .then((rows) => setToolsCatalog(rows as CatalogItem[]))
+      .catch((e) => console.warn("tools catalog fetch failed:", e));
+  }, []);
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -434,7 +459,12 @@ export default function AgentControlPage() {
                 onReloadKeys={loadPrompt}
               />
             ) : (
-              <ConfigPanel detail={detail} patch={patch} />
+              <ConfigPanel
+                detail={detail}
+                patch={patch}
+                skillsCatalog={skillsCatalog}
+                toolsCatalog={toolsCatalog}
+              />
             )}
           </div>
         )}
@@ -447,9 +477,13 @@ export default function AgentControlPage() {
 function ConfigPanel({
   detail,
   patch,
+  skillsCatalog,
+  toolsCatalog,
 }: {
   detail: AgentDetail;
   patch: (changes: UpdatePayload) => void;
+  skillsCatalog: CatalogItem[];
+  toolsCatalog: CatalogItem[];
 }) {
   return (
     <>
@@ -515,38 +549,24 @@ function ConfigPanel({
 
             {/* Category B — Capabilities */}
             <Section title="Capabilities" subtitle="Skills, tools, harness">
-              <Field label="Allowed skills (one per line)">
-                <textarea
-                  rows={4}
-                  value={(detail.allowed_skills ?? []).join("\n")}
-                  onChange={(e) =>
-                    patch({
-                      allowed_skills: e.target.value
-                        .split("\n")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  className={cn(inputCls, "font-mono text-xs")}
-                  placeholder="No skills wired to this agent yet."
+              <div className="col-span-2">
+                <CatalogCheckboxList
+                  label="Allowed skills"
+                  catalog={skillsCatalog}
+                  selected={detail.allowed_skills ?? []}
+                  onChange={(next) => patch({ allowed_skills: next })}
+                  emptyHint="No skills registered on the server."
                 />
-              </Field>
-              <Field label="Allowed tools (one per line)">
-                <textarea
-                  rows={4}
-                  value={(detail.allowed_tools ?? []).join("\n")}
-                  onChange={(e) =>
-                    patch({
-                      allowed_tools: e.target.value
-                        .split("\n")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  className={cn(inputCls, "font-mono text-xs")}
-                  placeholder="No tools wired to this agent yet."
+              </div>
+              <div className="col-span-2">
+                <CatalogCheckboxList
+                  label="Allowed tools"
+                  catalog={toolsCatalog}
+                  selected={detail.allowed_tools ?? []}
+                  onChange={(next) => patch({ allowed_tools: next })}
+                  emptyHint="No tools registered on the server."
                 />
-              </Field>
+              </div>
               <Field label="Harness">
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -784,12 +804,19 @@ function ReportsPanel({
     if (!traces.length) return null;
     const latencies = traces.map((t) => t.latency).filter((v): v is number => v != null);
     const costs = traces.map((t) => t.total_cost).filter((v): v is number => v != null);
+    const inTok = traces.map((t) => t.input_tokens).filter((v): v is number => v != null);
+    const outTok = traces.map((t) => t.output_tokens).filter((v): v is number => v != null);
+    const totTok = traces.map((t) => t.total_tokens).filter((v): v is number => v != null);
     const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
     const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     return {
       count: traces.length,
       avgLatency: avg(latencies),
       totalCost: sum(costs),
+      totalInputTokens: sum(inTok),
+      totalOutputTokens: sum(outTok),
+      totalTokens: sum(totTok),
+      tokensAvailable: inTok.length > 0 || outTok.length > 0 || totTok.length > 0,
     };
   }, [traces]);
 
@@ -832,6 +859,18 @@ function ReportsPanel({
           label="Total cost"
           value={stats?.totalCost != null ? `$${stats.totalCost.toFixed(4)}` : "—"}
         />
+        <Stat
+          label="Input tokens"
+          value={stats?.tokensAvailable ? stats.totalInputTokens.toLocaleString() : "—"}
+        />
+        <Stat
+          label="Output tokens"
+          value={stats?.tokensAvailable ? stats.totalOutputTokens.toLocaleString() : "—"}
+        />
+        <Stat
+          label="Total tokens"
+          value={stats?.tokensAvailable ? stats.totalTokens.toLocaleString() : "—"}
+        />
         <div className="col-span-2 flex justify-end">
           <button
             onClick={onRefresh}
@@ -857,6 +896,7 @@ function ReportsPanel({
                     <th className="py-2 pr-3 font-medium">When</th>
                     <th className="py-2 pr-3 font-medium">Meeting</th>
                     <th className="py-2 pr-3 font-medium text-right">Latency</th>
+                    <th className="py-2 pr-3 font-medium text-right">Tokens</th>
                     <th className="py-2 pr-3 font-medium text-right">Cost</th>
                     <th className="py-2 font-medium"></th>
                   </tr>
@@ -876,6 +916,13 @@ function ReportsPanel({
                         </td>
                         <td className="py-2 pr-3 text-right font-mono text-slate-700">
                           {t.latency != null ? `${t.latency.toFixed(2)}s` : "—"}
+                        </td>
+                        <td className="py-2 pr-3 text-right font-mono text-slate-700">
+                          {t.total_tokens != null
+                            ? t.total_tokens.toLocaleString()
+                            : t.input_tokens != null || t.output_tokens != null
+                              ? ((t.input_tokens ?? 0) + (t.output_tokens ?? 0)).toLocaleString()
+                              : "—"}
                         </td>
                         <td className="py-2 pr-3 text-right font-mono text-slate-700">
                           {t.total_cost != null ? `$${t.total_cost.toFixed(4)}` : "—"}
@@ -912,6 +959,99 @@ function Stat({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="text-sm font-semibold text-slate-900 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function CatalogCheckboxList({
+  label,
+  catalog,
+  selected,
+  onChange,
+  emptyHint,
+}: {
+  label: string;
+  catalog: CatalogItem[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  emptyHint: string;
+}) {
+  // Include selected ids missing from the catalog as "orphans" so the
+  // user can uncheck them (e.g. a skill was removed on the server but
+  // still lives on the agent row).
+  const catalogIds = new Set(catalog.map((c) => c.id));
+  const orphanIds = selected.filter((s) => !catalogIds.has(s));
+  const toggle = (id: string, on: boolean) => {
+    onChange(on ? Array.from(new Set([...selected, id])) : selected.filter((s) => s !== id));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-medium text-slate-600">{label}</span>
+        <span className="text-[10.5px] text-slate-400">
+          {selected.length} of {catalog.length} enabled
+        </span>
+      </div>
+      {catalog.length === 0 ? (
+        <p className="text-[11px] text-slate-500 italic">{emptyHint}</p>
+      ) : (
+        <ul className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-64 overflow-y-auto">
+          {catalog.map((c) => {
+            const isOn = selected.includes(c.id);
+            return (
+              <li key={c.id} className="px-3 py-2 flex items-start gap-3 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 mt-0.5 shrink-0"
+                  checked={isOn}
+                  onChange={(e) => toggle(c.id, e.target.checked)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[13px] font-medium text-slate-800">
+                      {c.name}
+                    </span>
+                    <span className="text-[10.5px] font-mono text-slate-400">{c.id}</span>
+                    {c.side_effect === "write" && (
+                      <span className="text-[9.5px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                        write
+                      </span>
+                    )}
+                    {c.scope && c.scope !== "shared" && (
+                      <span className="text-[9.5px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                        {c.scope}
+                      </span>
+                    )}
+                  </div>
+                  {c.description && (
+                    <p className="text-[11px] text-slate-500 mt-0.5">{c.description}</p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {orphanIds.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[10.5px] text-amber-700 mb-1">
+            Enabled on this agent but not registered on the server — click to remove:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {orphanIds.map((id) => (
+              <button
+                key={id}
+                onClick={() => toggle(id, false)}
+                className="text-[10.5px] font-mono px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100"
+                title="Remove"
+              >
+                {id} ✕
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

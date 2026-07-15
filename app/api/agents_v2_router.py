@@ -343,6 +343,9 @@ class TraceItem(BaseModel):
     session_id: Optional[str]
     latency: Optional[float]
     total_cost: Optional[float]
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
 
 
 class TraceReportResponse(BaseModel):
