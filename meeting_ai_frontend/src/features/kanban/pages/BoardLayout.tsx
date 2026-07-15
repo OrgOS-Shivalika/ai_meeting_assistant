@@ -10,7 +10,7 @@
 //
 // Children consume the shared board state via the typed
 // `useBoardOutletContext()` hook below.
-import { Link, Outlet, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
+import { Link, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ChevronLeft, Sparkles } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
@@ -39,17 +39,16 @@ export function useBoardOutletContext(): BoardOutletContext {
 export default function BoardLayout() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const boardId = id ? Number(id) : null;
 
-  // Per-meeting filter via ?meeting_id= — passed through to the board
-  // fetch so the Board tab + Summary tab both apply the filter.
-  const meetingIdParam = searchParams.get("meeting_id");
-  const meetingFilterId = meetingIdParam ? Number(meetingIdParam) : null;
-
+  // ?meeting_id= is now consumed CLIENT-SIDE by BoardPage as the initial
+  // value of its Meeting filter — NOT passed to the API. Server-side
+  // filtering would collapse the filter dropdown to a single option
+  // (only meetings with tasks in the returned view), breaking free
+  // switching between meetings. Keep the fetch unfiltered; the client
+  // narrows the display.
   const { board, loading, error, refresh, setBoardOptimistic } = useBoard(
     boardId,
-    { meetingId: meetingFilterId },
   );
 
   if (loading) {

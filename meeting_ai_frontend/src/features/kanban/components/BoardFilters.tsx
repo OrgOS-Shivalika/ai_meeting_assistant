@@ -24,6 +24,7 @@ export interface FilterState {
   assignee: string | null;   // owner_name; UNASSIGNED sentinel for null owners
   category: string | null;   // string-keyed; NO_CATEGORY sentinel for null
   team: string | null;       // string-keyed; NO_TEAM sentinel for null
+  meeting: string | null;    // meeting_id as string; NO_MEETING sentinel for board-only cards
   createdFrom: string | null;  // YYYY-MM-DD
   createdTo: string | null;
   dueFrom: string | null;
@@ -35,6 +36,7 @@ export const EMPTY_FILTER_STATE: FilterState = {
   assignee: null,
   category: null,
   team: null,
+  meeting: null,
   createdFrom: null,
   createdTo: null,
   dueFrom: null,
@@ -46,6 +48,7 @@ export const EMPTY_FILTER_STATE: FilterState = {
 export const UNASSIGNED = "__unassigned__";
 export const NO_TEAM = "__no_team__";
 export const NO_CATEGORY = "__no_category__";
+export const NO_MEETING = "__no_meeting__";
 
 interface Props {
   /** When false, the entire strip is unmounted — parent toggles via
@@ -62,6 +65,7 @@ const countActive = (f: FilterState): number =>
   (f.assignee ? 1 : 0) +
   (f.category ? 1 : 0) +
   (f.team ? 1 : 0) +
+  (f.meeting ? 1 : 0) +
   (f.createdFrom ? 1 : 0) +
   (f.createdTo ? 1 : 0) +
   (f.dueFrom ? 1 : 0) +
@@ -80,15 +84,17 @@ export default function BoardFilters({
 }: Props) {
   // Derive options from the board's own cards — only show values that
   // actually appear, so dropdowns never list empty buckets.
-  const { assigneeOptions, priorityOptions, teamOptions, categoryOptions } =
+  const { assigneeOptions, priorityOptions, teamOptions, categoryOptions, meetingOptions } =
     useMemo(() => {
       const ownerSet = new Set<string>();
       const priSet = new Set<"low" | "medium" | "high">();
       const teamMap = new Map<string, string>();
       const catMap = new Map<string, string>();
+      const meetingMap = new Map<string, string>();
       let hasUnassigned = false;
       let hasNoTeam = false;
       let hasNoCategory = false;
+      let hasNoMeeting = false;
 
       for (const col of board.columns) {
         for (const t of col.tasks) {
@@ -107,6 +113,14 @@ export default function BoardFilters({
           } else {
             hasNoCategory = true;
           }
+          if (t.meeting_id != null) {
+            meetingMap.set(
+              String(t.meeting_id),
+              t.meeting_title || `Meeting #${t.meeting_id}`,
+            );
+          } else {
+            hasNoMeeting = true;
+          }
         }
       }
 
@@ -123,6 +137,11 @@ export default function BoardFilters({
       );
       if (hasNoCategory) cats.push([NO_CATEGORY, "No category"]);
 
+      const meetings = Array.from(meetingMap.entries()).sort((a, b) =>
+        a[1].localeCompare(b[1]),
+      );
+      if (hasNoMeeting) meetings.push([NO_MEETING, "No meeting"]);
+
       return {
         assigneeOptions: owners,
         priorityOptions: ["high", "medium", "low"].filter((p) =>
@@ -130,6 +149,7 @@ export default function BoardFilters({
         ) as Array<"low" | "medium" | "high">,
         teamOptions: teams,
         categoryOptions: cats,
+        meetingOptions: meetings,
       };
     }, [board]);
 
@@ -175,6 +195,13 @@ export default function BoardFilters({
         value={filters.team || ""}
         options={teamOptions.map(([key, name]) => [key, name])}
         onChange={(v) => onChange({ ...filters, team: v || null })}
+      />
+
+      <FilterSelect
+        label="Meeting"
+        value={filters.meeting || ""}
+        options={meetingOptions.map(([key, name]) => [key, name])}
+        onChange={(v) => onChange({ ...filters, meeting: v || null })}
       />
 
       <DateRangePicker

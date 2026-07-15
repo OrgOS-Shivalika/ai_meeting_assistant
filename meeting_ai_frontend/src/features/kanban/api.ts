@@ -114,6 +114,9 @@ export const moveTask = (
     body: JSON.stringify(payload),
   });
 
+export const deleteTask = (taskId: number): Promise<void> =>
+  apiClient(`/tasks/${taskId}`, { method: "DELETE" });
+
 // ---------------------------------------------------------------------------
 // K4 — drawer endpoints
 // ---------------------------------------------------------------------------
