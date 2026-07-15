@@ -12,7 +12,7 @@
 //     mutate state optimistically, fire the move API call, and
 //     refresh on response (so the position lands on whatever the
 //     server actually computed).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
@@ -33,6 +33,7 @@ import AddColumnButton from "../components/AddColumnButton";
 import BoardFilters, {
   EMPTY_FILTER_STATE,
   NO_CATEGORY,
+  NO_MEETING,
   NO_TEAM,
   UNASSIGNED,
   countActiveFilters,
@@ -104,13 +105,39 @@ export default function BoardPage() {
   };
 
   // Filters + search.
-  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER_STATE);
-  // Filter strip is hidden by default; the header's "Filter" button
-  // toggles it. Active count is shown on the button so users know
-  // filtering is active even when the strip is collapsed.
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Deep-link: ?meeting_id=<id> pre-selects the Meeting filter (used by
+  // "Board view" link on the meeting detail page). Read once on mount
+  // via lazy initializer so subsequent URL edits don't reset state.
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const mid = searchParams.get("meeting_id");
+    return mid ? { ...EMPTY_FILTER_STATE, meeting: mid } : EMPTY_FILTER_STATE;
+  });
+  // Auto-open the filter strip when arriving with a pre-selected filter
+  // so the applied narrowing is visible immediately.
+  const [filtersOpen, setFiltersOpen] = useState(
+    () => !!searchParams.get("meeting_id"),
+  );
   const [search, setSearch] = useState("");
   const activeFilterCount = countActiveFilters(filters);
+
+  // Keep ?meeting_id=… in sync with filters.meeting so the URL is
+  // shareable and browser back/forward reflects the current view.
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (filters.meeting && filters.meeting !== NO_MEETING) {
+          next.set("meeting_id", filters.meeting);
+        } else {
+          next.delete("meeting_id");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+    // setSearchParams is stable across renders — safe to omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.meeting]);
 
   // @dnd-kit requires a small movement threshold to distinguish a click
   // from a drag — without this, every click would trigger a drag.
@@ -161,7 +188,13 @@ export default function BoardPage() {
           const teamKey = t.team_id != null ? String(t.team_id) : NO_TEAM;
           if (filters.team !== teamKey) return false;
         }
-        // 5. Created-date range
+        // 5. Meeting (single-select)
+        if (filters.meeting) {
+          const meetingKey =
+            t.meeting_id != null ? String(t.meeting_id) : NO_MEETING;
+          if (filters.meeting !== meetingKey) return false;
+        }
+        // 6. Created-date range
         if (createdFromTs != null || createdToTs != null) {
           if (!t.created_at) return false;
           const ts = new Date(t.created_at).getTime();
@@ -318,8 +351,19 @@ export default function BoardPage() {
 
   const handleAddCard = async (columnId: number, title: string) => {
     if (!board) return;
+    // If the Meeting filter is narrowed to a specific meeting, link the
+    // new card to that meeting so it shows up in the current view. The
+    // NO_MEETING sentinel = "board-only cards" → no linkage.
+    const meetingIdFromFilter =
+      filters.meeting && filters.meeting !== NO_MEETING
+        ? Number(filters.meeting)
+        : null;
     try {
-      await createBoardTask(board.id, { task: title, column_id: columnId });
+      await createBoardTask(board.id, {
+        task: title,
+        column_id: columnId,
+        meeting_id: meetingIdFromFilter,
+      });
       await refresh();
     } catch (e) {
       console.error("[KANBAN] create card failed", e);

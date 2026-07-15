@@ -17,10 +17,11 @@ import {
   Loader2,
   Pencil,
   Tag,
+  Trash2,
   User,
   X,
 } from "lucide-react";
-import { fetchTaskDetail, patchTask } from "../api";
+import { deleteTask, fetchTaskDetail, patchTask } from "../api";
 import type {
   MeetingParticipantSummary,
   TaskDetail,
@@ -81,6 +82,21 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
   const [descriptionDraft, setDescriptionDraft] = useState("");
 
   const [savingField, setSavingField] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!task) return;
+    if (!confirm(`Delete this task?\n\n"${task.task}"\n\nThis cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteTask(task.id);
+      onChange?.();
+      onClose();
+    } catch (e: any) {
+      alert(e?.message || "Failed to delete task");
+      setDeleting(false);
+    }
+  };
 
   // Fetch detail when taskId changes.
   useEffect(() => {
@@ -266,13 +282,24 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                   </h2>
                 )}
               </div>
-              <button
-                onClick={onClose}
-                className="text-slate-400 hover:text-slate-700 p-1 rounded"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="text-slate-400 hover:text-rose-600 p-1 rounded disabled:opacity-50"
+                  aria-label="Delete task"
+                  title="Delete task"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={onClose}
+                  className="text-slate-400 hover:text-slate-700 p-1 rounded"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Scrollable body */}

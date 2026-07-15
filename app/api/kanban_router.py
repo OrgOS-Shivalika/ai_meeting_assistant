@@ -771,6 +771,20 @@ def create_board_task(
     return _serialize_task(task, comment_count=0)
 
 
+@kanban_router.delete("/tasks/{task_id}", status_code=204)
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Delete a task. Cascades to task_comments + task_activity via
+    ON DELETE CASCADE. Org-scoped via meeting OR board ownership."""
+    task = _require_task(db, task_id, user.organization_id)
+    db.delete(task)
+    db.commit()
+    return None
+
+
 @kanban_router.patch("/tasks/{task_id}/move", response_model=BoardTaskSummary)
 def move_task(
     task_id: int,

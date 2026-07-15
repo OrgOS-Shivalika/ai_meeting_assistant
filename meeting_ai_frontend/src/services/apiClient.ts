@@ -50,5 +50,9 @@ export async function apiClient(endpoint: string, options: RequestInit = {}) {
     throw new Error(detail);
   }
 
+  // 204 No Content has no body — .json() would throw. Callers of
+  // DELETE endpoints typed as Promise<void> shouldn't need the body.
+  if (res.status === 204) return null;
+
   return res.json();
 }
