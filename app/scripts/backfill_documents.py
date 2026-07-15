@@ -62,6 +62,7 @@ from app.db.models import (
     CategoryDocument, DocumentChunk, TeamDocument,
 )
 from app.utils.logger import setup_logger
+from app.utils.enums import EmbeddingStatus, GraphStatus
 
 logger = setup_logger(__name__)
 
@@ -98,9 +99,9 @@ def _eligible_for_embedding(
     Doc = _doc_model(kind)
 
     branches = []
-    never_succeeded_states = ["pending", "processing"]
+    never_succeeded_states = [EmbeddingStatus.PENDING, EmbeddingStatus.PROCESSING]
     if include_failed:
-        never_succeeded_states.append("failed")
+        never_succeeded_states.append(EmbeddingStatus.FAILED)
     branches.append(Doc.embedding_status.in_(never_succeeded_states))
 
     if include_stale:
@@ -134,14 +135,14 @@ def _eligible_for_graph(
     limit: int | None,
 ) -> list[str]:
     Doc = _doc_model(kind)
-    graph_states = ["pending", "processing"]
+    graph_states = [GraphStatus.PENDING, GraphStatus.PROCESSING]
     if include_failed:
-        graph_states.append("failed")
+        graph_states.append(GraphStatus.FAILED)
 
     stmt = (
         select(Doc.id)
         .where(
-            Doc.embedding_status == "embedded",
+            Doc.embedding_status == EmbeddingStatus.EMBEDDED,
             Doc.graph_status.in_(graph_states),
         )
         .order_by(Doc.created_at.asc())

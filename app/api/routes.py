@@ -18,6 +18,7 @@ import uuid
 from app.config.settings import settings
 from app.db.database import SessionLocal
 from app.db.models import Meeting, Task, Category, Team, KanbanBoard, KanbanColumn
+from app.utils.enums import EmbeddingStatus, GraphStatus, MeetingStatus
 from app.services.google_calendar_service import create_calendar_event
 from app.store.job_store import jobs
 
@@ -187,7 +188,7 @@ def create_meeting(
             .filter(
                 Meeting.user_id == user.id,
                 Meeting.meeting_url == request.meeting_url,
-                Meeting.status.in_(("pending", "processing")),
+                Meeting.status.in_((MeetingStatus.PENDING, MeetingStatus.PROCESSING)),
                 Meeting.created_at >= cutoff,
             )
             .order_by(Meeting.created_at.desc())
@@ -456,7 +457,7 @@ def retry_embedding(
     ).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.status != "completed":
+    if meeting.status != MeetingStatus.COMPLETED:
         raise HTTPException(
             status_code=400,
             detail=f"Meeting is not completed yet (status={meeting.status}); embedding cannot run.",
@@ -464,7 +465,7 @@ def retry_embedding(
     # Reset to pending so the dispatcher's idempotency checks see this
     # as eligible. dispatch_* swallows its own errors and routes to Celery
     # or inline depending on USE_CELERY.
-    meeting.embedding_status = "pending"
+    meeting.embedding_status = EmbeddingStatus.PENDING
     db.commit()
     from app.celery_tasks.embedding_tasks import dispatch_embed_meeting
     dispatch_embed_meeting(meeting_id)
@@ -483,7 +484,7 @@ def retry_graph(
     ).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.embedding_status != "embedded":
+    if meeting.embedding_status != EmbeddingStatus.EMBEDDED:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -491,7 +492,7 @@ def retry_graph(
                 f"{meeting.embedding_status}); cannot retry graph extraction yet."
             ),
         )
-    meeting.graph_status = "pending"
+    meeting.graph_status = GraphStatus.PENDING
     db.commit()
     from app.celery_tasks.graph_tasks import dispatch_extract_graph
     dispatch_extract_graph(meeting_id)
@@ -573,7 +574,7 @@ def get_meeting_detail(
     # error_message so the AI Memory card can render it + a retry CTA.
     # Cheap query — one row max, indexed by meeting_id.
     graph_error = None
-    if meeting.graph_status == "failed":
+    if meeting.graph_status == GraphStatus.FAILED:
         from app.db.models import GraphExtractionRun
         from sqlalchemy import select, desc
         latest_failed = db.execute(

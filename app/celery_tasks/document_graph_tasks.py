@@ -58,6 +58,7 @@ from app.services.graph_extractor import (
     extract_from_chunks,
     iter_batches,
 )
+from app.utils.enums import EmbeddingStatus, GraphStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -379,12 +380,12 @@ def _extract_graph_for_document_sync(
     started_at = datetime.now(timezone.utc)
     started_monotonic = time.monotonic()
 
-    if doc.embedding_status != "embedded":
+    if doc.embedding_status != EmbeddingStatus.EMBEDDED:
         logger.info(
-            "extract_graph_doc(%s, %s): skipped (embedding_status=%s, need 'embedded')",
+            "extract_graph_doc(%s, %s): skipped (embedding_status=%s, need 'EMBEDDED')",
             doc_kind, doc_id, doc.embedding_status,
         )
-        doc.graph_status = "skipped"
+        doc.graph_status = GraphStatus.SKIPPED
         db.commit()
         return {"status": "skipped", "doc_kind": doc_kind, "doc_id": str(doc_id),
                 "reason": "not embedded"}
@@ -405,7 +406,7 @@ def _extract_graph_for_document_sync(
     chunks = chunks_q.scalars().all()
 
     if not chunks:
-        doc.graph_status = "extracted"
+        doc.graph_status = GraphStatus.EXTRACTED
         doc.graph_extracted_at = datetime.now(timezone.utc)
         db.commit()
         db.add(_new_run_row(
@@ -425,7 +426,7 @@ def _extract_graph_for_document_sync(
         }
 
     scope_type, scope_id = _scope_for(doc_kind, doc)
-    doc.graph_status = "processing"
+    doc.graph_status = GraphStatus.PROCESSING
     db.commit()
 
     raw_responses: list[dict] = []
@@ -514,7 +515,7 @@ def _extract_graph_for_document_sync(
     except (ExtractionLLMError, Exception) as exc:
         db.rollback()
         try:
-            doc.graph_status = "failed"
+            doc.graph_status = GraphStatus.FAILED
             db.commit()
         except Exception:
             db.rollback()
@@ -552,7 +553,7 @@ def _extract_graph_for_document_sync(
             "duration_ms": duration_ms,
         }
 
-    doc.graph_status = "extracted"
+    doc.graph_status = GraphStatus.EXTRACTED
     doc.graph_extracted_at = datetime.now(timezone.utc)
     db.commit()
 

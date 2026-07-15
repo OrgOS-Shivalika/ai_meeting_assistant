@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.celery_app import celery
 from app.db.database import SessionLocal
 from app.db.models import Meeting, User
+from app.utils.enums import MeetingStatus
 from app.services.google_calendar_service import get_calendar_events
 from app.pipelines.meeting_pipeline import MeetingPipeline
 
@@ -77,7 +78,7 @@ def sync_google_calendar(self):
                                 (Meeting.user_id == user.id)
                                 & (Meeting.meeting_url == meet_link)
                                 & (Meeting.created_at >= recent_cutoff)
-                                & (Meeting.status.in_(("pending", "processing")))
+                                & (Meeting.status.in_((MeetingStatus.PENDING, MeetingStatus.PROCESSING)))
                             )
                         )
                         .order_by(Meeting.created_at.desc())

@@ -30,6 +30,7 @@ from app.ai_agents.prompts.memory_engine_prompt import (
     FACT_TYPES, MEMORY_ENGINE_PROMPT_VERSION, build_prompt,
 )
 from app.db.models import Meeting
+from app.utils.enums import MeetingStatus
 from app.services.embedder import Embedder
 from app.services.memory.access import MemoryAccess
 
@@ -96,7 +97,7 @@ class MeetingMemoryEngine:
         meeting: Meeting | None = db.get(Meeting, meeting_id)
         if not meeting:
             return {"ok": False, "reason": "meeting_not_found"}
-        if meeting.status != "completed":
+        if meeting.status != MeetingStatus.COMPLETED:
             return {"ok": False, "reason": f"status={meeting.status}"}
 
         # ---- Idempotency guard ---------------------------------------

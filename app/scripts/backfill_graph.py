@@ -5,11 +5,11 @@ either because they predate Phase 3 or because the latest successful
 extraction used a stale prompt/model.
 
 Eligibility (a meeting is "needs (re-)extraction" if ALL of these):
-  - `meetings.status = 'completed'`               (transcript final)
-  - `meetings.embedding_status = 'embedded'`      (chunks exist)
+  - `meetings.status = 'COMPLETED'`               (transcript final)
+  - `meetings.embedding_status = 'EMBEDDED'`      (chunks exist)
   - `meetings.transcript_raw IS NOT NULL`
   - one of:
-      * `graph_status ∈ {pending, processing, failed}` (never produced)
+      * `graph_status ∈ {PENDING, PROCESSING, FAILED}` (never produced)
       * the most recent successful `graph_extraction_runs` row for this
         meeting was made with a different `prompt_version` or `model`
         than the currently-configured one (prompt/model upgrade)
@@ -43,6 +43,7 @@ from app.config.settings import settings
 from app.db.database import SessionLocal
 from app.db.models import Meeting
 from app.utils.logger import setup_logger
+from app.utils.enums import GraphStatus
 
 logger = setup_logger(__name__)
 
@@ -66,7 +67,7 @@ SELECT m.id
 FROM meetings m
 LEFT JOIN latest_runs lr ON lr.meeting_id = m.id
 WHERE m.status = 'completed'
-  AND m.embedding_status = 'embedded'
+  AND m.embedding_status = 'EMBEDDED'
   AND m.transcript_raw IS NOT NULL
   AND (
         m.graph_status = ANY(:never_succeeded_states)
@@ -88,9 +89,9 @@ def _eligible_meeting_ids(
     current_model: str,
     limit: int | None,
 ) -> list[int]:
-    states = ["pending", "processing"]
+    states = [GraphStatus.PENDING.value, GraphStatus.PROCESSING.value]
     if include_failed:
-        states.append("failed")
+        states.append(GraphStatus.FAILED.value)
 
     stale_branch = ""
     if include_stale:

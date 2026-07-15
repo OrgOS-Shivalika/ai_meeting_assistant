@@ -22,6 +22,7 @@ from app.db.models import Category, CategoryDocument
 from app.dependencies.auth import get_current_user
 from app.schemas.document_schema import CategoryDocumentSchema
 from app.services.storage_service import storage, StorageNotConfigured
+from app.utils.enums import EmbeddingStatus, GraphStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -265,7 +266,7 @@ def retry_category_document_embedding(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    doc.embedding_status = "pending"
+    doc.embedding_status = EmbeddingStatus.PENDING
     doc.error_message = None
     db.commit()
     from app.celery_tasks.document_ingest import dispatch_ingest_document
@@ -291,7 +292,7 @@ def retry_category_document_graph(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.embedding_status != "embedded":
+    if doc.embedding_status != EmbeddingStatus.EMBEDDED:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -299,7 +300,7 @@ def retry_category_document_graph(
                 f"{doc.embedding_status}); cannot retry graph extraction yet."
             ),
         )
-    doc.graph_status = "pending"
+    doc.graph_status = GraphStatus.PENDING
     db.commit()
     try:
         from app.celery_tasks.document_graph_tasks import (

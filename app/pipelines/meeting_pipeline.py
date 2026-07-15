@@ -8,6 +8,7 @@ from app.services.kanban.positions import position_for_end
 from app.utils.logger import setup_logger
 import json
 from app.db.models import Meeting, Task, Participant
+from app.utils.enums import MeetingStatus
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -358,7 +359,7 @@ class MeetingPipeline:
             meeting.summary = summary
             logger.info(f"Summary generated: {summary[:50]}...")
 
-            meeting.status = "completed"
+            meeting.status = MeetingStatus.COMPLETED
             db.commit()
 
             # Save tasks BEFORE broadcasting so the frontend refetch sees the
@@ -458,7 +459,7 @@ class MeetingPipeline:
             tb = _tb.format_exc()
             logger.error(f"Pipeline failed: {str(e)}\n{tb}")
 
-            meeting.status = "failed"
+            meeting.status = MeetingStatus.FAILED
             # Persist the failure reason so post-mortem doesn't need
             # the celery scrollback. Trim to keep the row sane.
             meeting.error_message = (f"{type(e).__name__}: {e}\n\n{tb}")[:8000]

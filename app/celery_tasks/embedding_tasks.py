@@ -35,6 +35,7 @@ from app.db.database import SessionLocal
 from app.db.models import Meeting, MeetingChunk
 from app.services.chunker import TranscriptChunker
 from app.services.embedder import Embedder
+from app.utils.enums import EmbeddingStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -63,13 +64,13 @@ def _embed_meeting_sync(
             "embed_meeting(%s): no transcript_raw — marking embedding_status=skipped",
             meeting_id,
         )
-        meeting.embedding_status = "skipped"
+        meeting.embedding_status = EmbeddingStatus.SKIPPED
         db.commit()
         return {"status": "skipped", "meeting_id": meeting_id, "chunks": 0}
 
     # Flip to processing before we do anything heavy. A separate commit
     # so observers see we picked it up, even if chunking takes a moment.
-    meeting.embedding_status = "processing"
+    meeting.embedding_status = EmbeddingStatus.PROCESSING
     db.commit()
 
     chunker = chunker or TranscriptChunker()
@@ -83,7 +84,7 @@ def _embed_meeting_sync(
                 "embed_meeting(%s): chunker produced 0 chunks — nothing to embed",
                 meeting_id,
             )
-            meeting.embedding_status = "embedded"
+            meeting.embedding_status = EmbeddingStatus.EMBEDDED
             meeting.embedded_at = datetime.now(timezone.utc)
             db.commit()
             return {"status": "embedded", "meeting_id": meeting_id, "chunks": 0}
@@ -129,7 +130,7 @@ def _embed_meeting_sync(
                 )
             )
 
-        meeting.embedding_status = "embedded"
+        meeting.embedding_status = EmbeddingStatus.EMBEDDED
         meeting.embedded_at = datetime.now(timezone.utc)
         db.commit()
 
@@ -172,7 +173,7 @@ def _embed_meeting_sync(
         # `meeting.status`. The meeting itself is still completed; only
         # its semantic-search side is broken.
         try:
-            meeting.embedding_status = "failed"
+            meeting.embedding_status = EmbeddingStatus.FAILED
             db.commit()
         except Exception:
             db.rollback()

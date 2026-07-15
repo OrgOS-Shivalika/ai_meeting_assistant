@@ -19,7 +19,10 @@ WORKDIR /fe
 # Cache-friendly dependency install: copy manifests first, install, then
 # copy the rest. Editing app code doesn't invalidate the npm install layer.
 COPY meeting_ai_frontend/package.json meeting_ai_frontend/package-lock.json ./
-RUN npm ci --prefer-offline --no-audit --no-fund
+# `npm install` (not `npm ci`): the lockfile is generated on Windows and omits
+# Linux-only optional deps (e.g. @emnapi/core needed by native wasm runtimes),
+# which makes strict `npm ci` fail inside this Alpine image.
+RUN npm install --prefer-offline --no-audit --no-fund
 
 COPY meeting_ai_frontend/ ./
 RUN npm run build   # produces /fe/dist

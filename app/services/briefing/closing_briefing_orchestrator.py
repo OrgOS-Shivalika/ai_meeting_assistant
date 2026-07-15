@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.config.settings import settings
 from app.db.database import SessionLocal
 from app.db.models import ClosingBriefing, Meeting
+from app.utils.enums import ClosingBriefingStatus
 from app.schemas.briefing_schema import BriefingScript
 from app.services.briefing.audio_player import AudioPlayer, PlaybackResult
 from app.services.briefing.briefing_composer import BriefingComposer
@@ -288,7 +289,7 @@ class ClosingBriefingOrchestrator:
             ).delete()
             meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
             if meeting is not None:
-                meeting.closing_briefing_status = "pending"
+                meeting.closing_briefing_status = ClosingBriefingStatus.PENDING
             db.commit()
             # Also clear in-memory in-flight tracking so the speak_now
             # request can pass the lock check.
@@ -736,7 +737,7 @@ class ClosingBriefingOrchestrator:
             if meeting is None:
                 logger.warning(f"[ORCHESTRATOR] meeting {meeting_id} not found")
                 return False
-            current = meeting.closing_briefing_status or "pending"
+            current = meeting.closing_briefing_status or ClosingBriefingStatus.PENDING
             if current in _TERMINAL_STATUSES:
                 logger.info(
                     f"[ORCHESTRATOR] meeting {meeting_id} already in terminal "

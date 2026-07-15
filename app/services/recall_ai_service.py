@@ -11,6 +11,7 @@ import base64
 import time
 import json
 from app.utils.logger import setup_logger
+from app.utils.enums import ClosingBriefingStatus
 
 logger = setup_logger(__name__)
 
@@ -527,7 +528,7 @@ class RecallService:
                     f"[POLL] meeting {meeting_id} not found for self-deliver"
                 )
                 return False
-            if meeting.closing_briefing_status != "pending":
+            if meeting.closing_briefing_status != ClosingBriefingStatus.PENDING:
                 # Already processed (or in flight). Don't re-fire.
                 return False
         finally:

@@ -8,9 +8,18 @@ import uuid
 from datetime import datetime, timezone
 from pgvector.sqlalchemy import Vector
 from .database import Base
+from .core.base_entity import Base_Entity
+from app.utils.enums import (
+    MeetingStatus,
+    EmbeddingStatus,
+    GraphStatus,
+    ClosingBriefingStatus,
+    TaskStatus,
+    check_in,
+)
 
 
-class Meeting(Base):
+class Meeting(Base, Base_Entity):
     __tablename__ = "meetings"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -18,7 +27,7 @@ class Meeting(Base):
     meeting_url = Column(String, nullable=False)
     bot_id = Column(String, nullable=True)
 
-    status = Column(String, default="pending")
+    status = Column(String, default=MeetingStatus.PENDING.value)
     summary = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -53,7 +62,7 @@ class Meeting(Base):
     # embedded chunks. `embedding_status` lets the embedding pipeline run
     # independently of the main meeting lifecycle, so an embedding failure
     # doesn't roll back the meeting itself.
-    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedding_status = Column(String, nullable=False, default=EmbeddingStatus.PENDING.value, server_default=EmbeddingStatus.PENDING.value)
     embedded_at = Column(DateTime(timezone=True), nullable=True)
     chunks = relationship(
         "MeetingChunk",
@@ -66,7 +75,7 @@ class Meeting(Base):
     # as `embedding_status`: an extraction failure flips this column to
     # 'failed' but leaves `status` and `embedding_status` untouched.
     # Values: 'pending' | 'processing' | 'extracted' | 'failed' | 'skipped'.
-    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_status = Column(String, nullable=False, default=GraphStatus.PENDING.value, server_default=GraphStatus.PENDING.value)
     graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
 
     google_event_id = Column(String, unique=True)
@@ -91,8 +100,8 @@ class Meeting(Base):
     closing_briefing_status = Column(
         String(24),
         nullable=False,
-        default="pending",
-        server_default="pending",
+        default=ClosingBriefingStatus.PENDING.value,
+        server_default=ClosingBriefingStatus.PENDING.value,
     )
 
     # Last failure reason — populated by meeting_pipeline.py when the
@@ -107,7 +116,7 @@ class Meeting(Base):
         uselist=False,
     )
 
-class Participant(Base):
+class Participant(Base, Base_Entity):
     __tablename__ = "participants"
 
     id = Column(Integer, primary_key=True)
@@ -122,7 +131,7 @@ class Participant(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     meeting = relationship("Meeting", back_populates="participants")
 
-class Task(Base):
+class Task(Base, Base_Entity):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -160,8 +169,8 @@ class Task(Base):
     status = Column(
         String(24),
         nullable=False,
-        default="todo",
-        server_default="todo",
+        default=TaskStatus.TODO.value,
+        server_default=TaskStatus.TODO.value,
     )
     description = Column(Text, nullable=True)
 
@@ -189,7 +198,7 @@ class Task(Base):
         # new status here MUST come with a migration that updates this
         # constraint, OR you'll get a constraint violation on insert.
         CheckConstraint(
-            "status IN ('todo', 'in_progress', 'in_review', 'done', 'archived')",
+            check_in("status", TaskStatus),
             name="ck_tasks_status",
         ),
         # Keep `is_completed` and `status` in lockstep. Server-side
@@ -219,7 +228,7 @@ class Task(Base):
 # ---------------------------------------------------------------------------
 
 
-class KanbanBoard(Base):
+class KanbanBoard(Base, Base_Entity):
     __tablename__ = "kanban_boards"
     __table_args__ = (
         CheckConstraint(
@@ -291,7 +300,7 @@ class KanbanBoard(Base):
     )
 
 
-class KanbanColumn(Base):
+class KanbanColumn(Base, Base_Entity):
     __tablename__ = "kanban_columns"
     __table_args__ = (
         UniqueConstraint("board_id", "position", name="uq_kanban_columns_board_position"),
@@ -333,7 +342,7 @@ class KanbanColumn(Base):
     )
 
 
-class TaskComment(Base):
+class TaskComment(Base, Base_Entity):
     __tablename__ = "task_comments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -364,7 +373,7 @@ class TaskComment(Base):
     author = relationship("User", foreign_keys=[author_user_id])
 
 
-class TaskActivity(Base):
+class TaskActivity(Base, Base_Entity):
     """Append-only audit feed per task. Drives the activity timeline in
     the card detail drawer. NEVER updated in place — every event is a
     new row. Same audit-log shape as `graph_extraction_runs` and
@@ -409,7 +418,7 @@ class TaskActivity(Base):
     actor = relationship("User", foreign_keys=[actor_user_id])
 
 
-class Organization(Base):
+class Organization(Base, Base_Entity):
     """Tenancy boundary. Every user belongs to exactly one organization;
     every category and meeting is scoped to an organization.
 
@@ -430,7 +439,7 @@ class Organization(Base):
     meetings = relationship("Meeting", back_populates="organization")
 
 
-class User(Base):
+class User(Base, Base_Entity):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -461,7 +470,7 @@ class User(Base):
     categories = relationship("Category", back_populates="user", cascade="all, delete-orphan")
 
 
-class CategoryDocument(Base):
+class CategoryDocument(Base, Base_Entity):
     """A user-uploaded document scoped to a single category. Phase 1D persists
     the file to object storage and records metadata. Phase 2 picks these up
     via the `process_document` Celery task to chunk + embed + ingest into the
@@ -493,9 +502,9 @@ class CategoryDocument(Base):
     # Meeting in Phase 2/3. `status` above stays for upload/storage;
     # these two columns track the ingestion pipeline independently so a
     # parser failure doesn't poison the storage-level state.
-    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedding_status = Column(String, nullable=False, default=EmbeddingStatus.PENDING.value, server_default=EmbeddingStatus.PENDING.value)
     embedded_at = Column(DateTime(timezone=True), nullable=True)
-    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_status = Column(String, nullable=False, default=GraphStatus.PENDING.value, server_default=GraphStatus.PENDING.value)
     graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
     # Caches refreshed by the ingestion task so the UI doesn't need a
     # JOIN to render chunk counts in the documents panel.
@@ -515,7 +524,7 @@ class CategoryDocument(Base):
     )
 
 
-class Category(Base):
+class Category(Base, Base_Entity):
     """Meeting type / category (per meeting-types-architecture.md, this is `meeting_types`)."""
     __tablename__ = "categories"
     __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_category_org_name"),)
@@ -538,7 +547,7 @@ class Category(Base):
     documents = relationship("CategoryDocument", back_populates="category", cascade="all, delete-orphan")
 
 
-class Team(Base):
+class Team(Base, Base_Entity):
     __tablename__ = "teams"
     __table_args__ = (UniqueConstraint("category_id", "name", name="uq_team_category_name"),)
 
@@ -555,7 +564,7 @@ class Team(Base):
     documents = relationship("TeamDocument", back_populates="team", cascade="all, delete-orphan")
 
 
-class TeamDocument(Base):
+class TeamDocument(Base, Base_Entity):
     """Team-scoped knowledge document. Mirrors CategoryDocument but lives in
     a separate physical table per the architecture spec's level isolation
     rule ("DO NOT use one giant table"). Phase 2 picks these up via the
@@ -580,9 +589,9 @@ class TeamDocument(Base):
     access_count = Column(Integer, nullable=False, default=0)
 
     # Phase 4 AI memory lifecycle (mirrors CategoryDocument).
-    embedding_status = Column(String, nullable=False, default="pending", server_default="pending")
+    embedding_status = Column(String, nullable=False, default=EmbeddingStatus.PENDING.value, server_default=EmbeddingStatus.PENDING.value)
     embedded_at = Column(DateTime(timezone=True), nullable=True)
-    graph_status = Column(String, nullable=False, default="pending", server_default="pending")
+    graph_status = Column(String, nullable=False, default=GraphStatus.PENDING.value, server_default=GraphStatus.PENDING.value)
     graph_extracted_at = Column(DateTime(timezone=True), nullable=True)
     chunk_count = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
@@ -600,7 +609,7 @@ class TeamDocument(Base):
     )
 
 
-class MeetingChunk(Base):
+class MeetingChunk(Base, Base_Entity):
     """A semantic chunk of a meeting transcript with its 1536-d embedding.
 
     Phase 2 vector memory. Each completed meeting becomes a sequence of
@@ -709,7 +718,7 @@ class MeetingChunk(Base):
 # ---------------------------------------------------------------------------
 
 
-class Entity(Base):
+class Entity(Base, Base_Entity):
     __tablename__ = "entities"
     __table_args__ = (
         CheckConstraint(
@@ -804,7 +813,7 @@ class Entity(Base):
     )
 
 
-class Relationship(Base):
+class Relationship(Base, Base_Entity):
     __tablename__ = "relationships"
     __table_args__ = (
         CheckConstraint(
@@ -881,7 +890,7 @@ class Relationship(Base):
     )
 
 
-class EntityMention(Base):
+class EntityMention(Base, Base_Entity):
     """One (entity, source) tuple. Provenance for graph rows.
 
     Polymorphic source: `source_type` ∈ {meeting, document, chat, email, task}.
@@ -998,7 +1007,7 @@ class EntityMention(Base):
     )
 
 
-class RelationshipMention(Base):
+class RelationshipMention(Base, Base_Entity):
     """Same shape + CHECK contract as `EntityMention` — see that class
     for the rationale on the typed FK layout."""
     __tablename__ = "relationship_mentions"
@@ -1105,7 +1114,7 @@ class RelationshipMention(Base):
     )
 
 
-class GraphExtractionRun(Base):
+class GraphExtractionRun(Base, Base_Entity):
     """One row per `extract_graph` invocation. Captures the prompt
     version, model, counts, duration, status, and raw LLM response —
     so prompt iteration in Phase 3.5+ has full ground truth without
@@ -1184,7 +1193,7 @@ class GraphExtractionRun(Base):
 # ---------------------------------------------------------------------------
 
 
-class DocumentChunk(Base):
+class DocumentChunk(Base, Base_Entity):
     """A semantic chunk of a document with its 1536-d embedding.
 
     Phase 4 vector memory. Each ingested doc becomes a sequence of
@@ -1317,7 +1326,7 @@ class DocumentChunk(Base):
 # ---------------------------------------------------------------------------
 
 
-class RagConversation(Base):
+class RagConversation(Base, Base_Entity):
     """One chat thread. Title is auto-derived from the first query.
     `pinned_scope_*` is a UX convenience — the chat panel re-opens with
     the right scope picker; it does NOT bias retrieval, which always
@@ -1370,7 +1379,7 @@ class RagConversation(Base):
     )
 
 
-class RagQueryRun(Base):
+class RagQueryRun(Base, Base_Entity):
     """One `/rag/ask` invocation. Pure observability — no
     knowledge-metadata columns; never participates in retrieval. The
     retrieval_bundle JSONB is the eval harness's input: chunk_ids +
@@ -1486,7 +1495,7 @@ class RagQueryRun(Base):
 # ---------------------------------------------------------------------------
 
 
-class ImportanceRun(Base):
+class ImportanceRun(Base, Base_Entity):
     """One row per importance-scoring batch. Pure observability —
     never participates in retrieval."""
     __tablename__ = "importance_runs"
@@ -1545,7 +1554,7 @@ class ImportanceRun(Base):
 # ---------------------------------------------------------------------------
 
 
-class ChunkAccessEvent(Base):
+class ChunkAccessEvent(Base, Base_Entity):
     """One row per time a chunk was surfaced.
 
     `event_type`:
@@ -1594,7 +1603,7 @@ class ChunkAccessEvent(Base):
     organization = relationship("Organization")
 
 
-class CitationClickEvent(Base):
+class CitationClickEvent(Base, Base_Entity):
     """User clicked a [N] citation chip in the chat UI. Separate from
     `ChunkAccessEvent` because the schema differs — clicks always
     belong to a run, carry a citation_index, and have no rank position.
@@ -1642,7 +1651,7 @@ class CitationClickEvent(Base):
 # ---------------------------------------------------------------------------
 
 
-class EntityMergeSuggestion(Base):
+class EntityMergeSuggestion(Base, Base_Entity):
     """One row per candidate duplicate pair."""
     __tablename__ = "entity_merge_suggestions"
     __table_args__ = (
@@ -1715,7 +1724,7 @@ class EntityMergeSuggestion(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentProfile(Base):
+class AgentProfile(Base, Base_Entity):
     """One reusable agent identity (e.g. `sales_copilot`).
 
     `agent_type` is the bridge to existing services. Allowed values
@@ -1800,7 +1809,7 @@ class AgentProfile(Base):
     )
 
 
-class AgentPromptConfig(Base):
+class AgentPromptConfig(Base, Base_Entity):
     """Binding of an agent profile to a scope.
 
     One row per (agent_profile, scope) tuple. `scope_type` enumerates
@@ -1884,7 +1893,7 @@ class AgentPromptConfig(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class AgentConfigEpoch(Base):
+class AgentConfigEpoch(Base, Base_Entity):
     """Monotonic counter per (organization, agent_profile).
 
     Bumped on every publish/rollback. The resolver cache reads this on
@@ -1939,7 +1948,7 @@ class AgentConfigEpoch(Base):
 # ---------------------------------------------------------------------------
 
 
-class PromptVersion(Base):
+class PromptVersion(Base, Base_Entity):
     """One snapshot of a `agent_prompt_config`. Immutable once published.
 
     The 8 modular prompt sections live inside `modular_prompt_json` as a
@@ -2052,7 +2061,7 @@ class PromptVersion(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class PromptDeployment(Base):
+class PromptDeployment(Base, Base_Entity):
     """Append-only deployment audit. BIGSERIAL PK; no FK on
     `agent_prompt_config_id` so history outlives cascades.
 
@@ -2127,7 +2136,7 @@ class PromptDeployment(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentPerformanceDaily(Base):
+class AgentPerformanceDaily(Base, Base_Entity):
     """One row per (org, agent_profile, prompt_version, day) bucket.
     Read-only from the app's perspective — the only writer is the
     `aggregate_agent_performance_daily` Celery task. Direct queries
@@ -2197,7 +2206,7 @@ class AgentPerformanceDaily(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentRuntimeLog(Base):
+class AgentRuntimeLog(Base, Base_Entity):
     """One row per `resolve_agent_runtime_config(...)` call.
 
     Independent of `rag_query_runs` so the resolver can fire from
@@ -2274,7 +2283,7 @@ class AgentRuntimeLog(Base):
 # ---------------------------------------------------------------------------
 
 
-class PromptTestRun(Base):
+class PromptTestRun(Base, Base_Entity):
     """One sandbox run. Mirrors `RagQueryRun`'s shape for the fields
     that matter to dashboards (timings, tokens, citations) plus the
     playground-specific `assembled_prompt_text` and
@@ -2338,7 +2347,7 @@ class PromptTestRun(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class AgentAuditEvent(Base):
+class AgentAuditEvent(Base, Base_Entity):
     """Append-only audit log for non-publish mutations. Captures
     profile + config CRUD. Publish/rollback audit lives on
     `prompt_deployments`."""
@@ -2400,7 +2409,7 @@ class AgentAuditEvent(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentEvalRun(Base):
+class AgentEvalRun(Base, Base_Entity):
     """One eval run against a (profile, version) pair. Append-only;
     no body mutations after insert."""
     __tablename__ = "agent_eval_runs"
@@ -2486,7 +2495,7 @@ class AgentEvalRun(Base):
 # ---------------------------------------------------------------------------
 
 
-class AgentToolInvocation(Base):
+class AgentToolInvocation(Base, Base_Entity):
     __tablename__ = "agent_tool_invocations"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
@@ -2549,7 +2558,7 @@ class AgentToolInvocation(Base):
 # ---------------------------------------------------------------------------
 
 
-class OrgMemoryFact(Base):
+class OrgMemoryFact(Base, Base_Entity):
     __tablename__ = "org_memory_facts"
     __table_args__ = (
         CheckConstraint(
@@ -2719,7 +2728,7 @@ class OrgMemoryFact(Base):
 # ---------------------------------------------------------------------------
 
 
-class TemplateBundle(Base):
+class TemplateBundle(Base, Base_Entity):
     """A starter pack — the unit a workspace installs. Carries
     metadata (slug, version, category) and links to a set of
     `template_bundle_items` rows describing what's inside.
@@ -2779,7 +2788,7 @@ class TemplateBundle(Base):
     )
 
 
-class TemplateBundleItem(Base):
+class TemplateBundleItem(Base, Base_Entity):
     """Join row — bundle ↔ (team|category|agent) definition.
     `item_version` null means "latest"; the registry resolves the
     actual version at provisioning time."""
@@ -2828,7 +2837,7 @@ class TemplateBundleItem(Base):
 # ---------------------------------------------------------------------------
 
 
-class TemplateProvisioningJob(Base):
+class TemplateProvisioningJob(Base, Base_Entity):
     """One row per provisioning invocation. Append-only.
 
     `triggered_by` enumerates: 'auto_signup' (from auth_router:register),
@@ -2902,7 +2911,7 @@ class TemplateProvisioningJob(Base):
     )
 
 
-class WorkspaceTemplateLink(Base):
+class WorkspaceTemplateLink(Base, Base_Entity):
     """One row per provisioned workspace entity. The runtime never
     reads this — it's a side-table for the UI + the upgrade detector.
 
@@ -2998,7 +3007,7 @@ class WorkspaceTemplateLink(Base):
 # ---------------------------------------------------------------------------
 
 
-class TemplatePublishEvent(Base):
+class TemplatePublishEvent(Base, Base_Entity):
     """Append-only global audit. The Celery detector scans this
     table for events whose proposals haven't been generated yet."""
     __tablename__ = "template_publish_events"
@@ -3026,7 +3035,7 @@ class TemplatePublishEvent(Base):
 
 
 
-class WorkspaceBehaviorOverride(Base):
+class WorkspaceBehaviorOverride(Base, Base_Entity):
     """Phase 8C — sparse override row for a scoped BehaviorProfile
     dimension.field. Zero rows for a scope means the workspace uses
     template defaults. The runtime resolver (8D) merges these on top
@@ -3112,7 +3121,7 @@ class WorkspaceBehaviorOverride(Base):
     created_by_user = relationship("User", foreign_keys=[created_by_user_id])
 
 
-class TemplateBehaviorProfile(Base):
+class TemplateBehaviorProfile(Base, Base_Entity):
     """Phase 8A (revised) — the canonical AI cognition object.
 
     One table, three scope_kinds:
@@ -3265,7 +3274,7 @@ class TemplateBehaviorProfile(Base):
 # ---------------------------------------------------------------------------
 
 
-class ClosingBriefing(Base):
+class ClosingBriefing(Base, Base_Entity):
     """Audit row for one spoken (or attempted) closing brief.
 
     Lifecycle of `status` (subset of values; full list enforced by CHECK):

@@ -6,6 +6,7 @@ from app.dependencies.auth import get_current_user
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
 from app.utils.logger import setup_logger
+from app.utils.enums import ClosingBriefingStatus
 from typing import Optional
 import json
 from datetime import datetime
@@ -26,17 +27,17 @@ _LAST_EVENT_AT: dict[int, float] = {}
 # The DB column `meetings.closing_briefing_status` is the cross-process
 # source of truth for idempotency: once a meeting transitions past
 # 'pending' it should not re-emit MEETING_ENDED on duplicate webhooks.
-_BRIEFING_STATUS_PENDING = "pending"
-_BRIEFING_STATUS_WINDING_DOWN = "winding_down"
-_BRIEFING_STATUS_ENDED = "ended"
-_BRIEFING_STATUS_FAILED = "failed"
+_BRIEFING_STATUS_PENDING = ClosingBriefingStatus.PENDING
+_BRIEFING_STATUS_WINDING_DOWN = ClosingBriefingStatus.WINDING_DOWN
+_BRIEFING_STATUS_ENDED = ClosingBriefingStatus.ENDED
+_BRIEFING_STATUS_FAILED = ClosingBriefingStatus.FAILED
 
 # Past-pending states block further lifecycle transitions.
 _BRIEFING_PAST_PENDING = {
     _BRIEFING_STATUS_WINDING_DOWN,
     _BRIEFING_STATUS_ENDED,
-    "spoken",
-    "skipped",
+    ClosingBriefingStatus.SPOKEN,
+    ClosingBriefingStatus.SKIPPED,
     _BRIEFING_STATUS_FAILED,
 }
 

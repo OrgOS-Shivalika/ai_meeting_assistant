@@ -51,6 +51,7 @@ from app.services.graph_extractor import (
     extract_from_chunks,
     iter_batches,
 )
+from app.utils.enums import EmbeddingStatus, GraphStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -300,12 +301,12 @@ def _extract_graph_sync(
 
     # Pre-checks. We require embedded chunks — Phase 5 retrieval depends
     # on the embedding/graph pair being consistent.
-    if meeting.embedding_status != "embedded":
+    if meeting.embedding_status != EmbeddingStatus.EMBEDDED:
         logger.info(
-            "extract_graph(%s): skipped (embedding_status=%s, need 'embedded')",
+            "extract_graph(%s): skipped (embedding_status=%s, need 'EMBEDDED')",
             meeting_id, meeting.embedding_status,
         )
-        meeting.graph_status = "skipped"
+        meeting.graph_status = GraphStatus.SKIPPED
         db.commit()
         return {"status": "skipped", "meeting_id": meeting_id, "reason": "not embedded"}
 
@@ -315,7 +316,7 @@ def _extract_graph_sync(
         .order_by(MeetingChunk.chunk_index)
     ).scalars().all()
     if not chunks:
-        meeting.graph_status = "extracted"
+        meeting.graph_status = GraphStatus.EXTRACTED
         meeting.graph_extracted_at = datetime.now(timezone.utc)
         db.commit()
         # Still record a run row for observability.
@@ -336,7 +337,7 @@ def _extract_graph_sync(
         return {"status": "extracted", "meeting_id": meeting_id, "entities": 0, "relationships": 0, "mentions": 0}
 
     scope_type, scope_id = _scope_for(meeting)
-    meeting.graph_status = "processing"
+    meeting.graph_status = GraphStatus.PROCESSING
     db.commit()
 
     raw_responses: list[dict] = []
@@ -441,7 +442,7 @@ def _extract_graph_sync(
         # Mark the meeting failed (no rollback of prior successful batches —
         # those were committed). Write a failed run row with the error.
         try:
-            meeting.graph_status = "failed"
+            meeting.graph_status = GraphStatus.FAILED
             db.commit()
         except Exception:
             db.rollback()
@@ -475,7 +476,7 @@ def _extract_graph_sync(
             "duration_ms": duration_ms,
         }
 
-    meeting.graph_status = "extracted"
+    meeting.graph_status = GraphStatus.EXTRACTED
     meeting.graph_extracted_at = datetime.now(timezone.utc)
     db.commit()
 

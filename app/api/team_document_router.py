@@ -21,6 +21,7 @@ from app.db.models import Category, Team, TeamDocument
 from app.dependencies.auth import get_current_user
 from app.schemas.document_schema import TeamDocumentSchema
 from app.services.storage_service import storage
+from app.utils.enums import EmbeddingStatus, GraphStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -244,7 +245,7 @@ def retry_team_document_embedding(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    doc.embedding_status = "pending"
+    doc.embedding_status = EmbeddingStatus.PENDING
     doc.error_message = None
     db.commit()
     from app.celery_tasks.document_ingest import dispatch_ingest_document
@@ -270,7 +271,7 @@ def retry_team_document_graph(
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc.embedding_status != "embedded":
+    if doc.embedding_status != EmbeddingStatus.EMBEDDED:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -278,7 +279,7 @@ def retry_team_document_graph(
                 f"{doc.embedding_status}); cannot retry graph extraction yet."
             ),
         )
-    doc.graph_status = "pending"
+    doc.graph_status = GraphStatus.PENDING
     db.commit()
     try:
         from app.celery_tasks.document_graph_tasks import (

@@ -30,6 +30,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Meeting, Task
+from app.utils.enums import MeetingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ class LongTermMemory:
             select(Meeting)
             .where(
                 Meeting.organization_id == organization_id,
-                Meeting.status == "completed",
+                Meeting.status == MeetingStatus.COMPLETED,
                 Meeting.summary.isnot(None),
             )
             .order_by(desc(Meeting.created_at))

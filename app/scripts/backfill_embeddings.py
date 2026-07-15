@@ -46,6 +46,7 @@ from sqlalchemy import exists, or_, select
 from app.config.settings import settings
 from app.db.database import SessionLocal
 from app.db.models import Meeting, MeetingChunk
+from app.utils.enums import MeetingStatus, EmbeddingStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -71,9 +72,9 @@ def _eligible_meeting_ids(
     # Branch 1: never succeeded. `pending` covers meetings that finished
     # before Phase 2 even existed; `processing` covers crashes mid-run;
     # `failed` covers the explicit failure path.
-    never_succeeded_states = ["pending", "processing"]
+    never_succeeded_states = [EmbeddingStatus.PENDING, EmbeddingStatus.PROCESSING]
     if include_failed:
-        never_succeeded_states.append("failed")
+        never_succeeded_states.append(EmbeddingStatus.FAILED)
     branches.append(Meeting.embedding_status.in_(never_succeeded_states))
 
     # Branch 2: succeeded under a different (older) model. We use EXISTS
@@ -90,7 +91,7 @@ def _eligible_meeting_ids(
     stmt = (
         select(Meeting.id)
         .where(
-            Meeting.status == "completed",
+            Meeting.status == MeetingStatus.COMPLETED,
             Meeting.transcript_raw.isnot(None),
             or_(*branches),
         )

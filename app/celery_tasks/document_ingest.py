@@ -40,6 +40,7 @@ from app.parsers import parse_document, UnsupportedDocumentError
 from app.services.document_chunker import DocumentChunker
 from app.services.embedder import Embedder
 from app.services.storage_service import storage, StorageNotConfigured
+from app.utils.enums import EmbeddingStatus
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -115,7 +116,7 @@ def _ingest_document_sync(
         msg = "Document storage not configured on this worker."
         logger.error("ingest(%s, %s): %s", doc_kind, doc_id, msg)
         try:
-            doc.embedding_status = "failed"
+            doc.embedding_status = EmbeddingStatus.FAILED
             doc.error_message = msg
             db.commit()
         except Exception:
@@ -123,7 +124,7 @@ def _ingest_document_sync(
         return {"status": "failed", "doc_kind": doc_kind, "doc_id": str(doc_id), "error": msg}
 
     # Flip to processing first so observers see we picked it up.
-    doc.embedding_status = "processing"
+    doc.embedding_status = EmbeddingStatus.PROCESSING
     doc.error_message = None
     db.commit()
 
@@ -155,7 +156,7 @@ def _ingest_document_sync(
                 "ingest(%s, %s): parser %s yielded 0 blocks — marking embedding_status=empty",
                 doc_kind, doc_id, subtype,
             )
-            doc.embedding_status = "empty"
+            doc.embedding_status = EmbeddingStatus.EMPTY
             doc.embedded_at = datetime.now(timezone.utc)
             doc.chunk_count = 0
             doc.total_tokens = 0
@@ -174,7 +175,7 @@ def _ingest_document_sync(
         if not chunks:
             # Almost-empty: blocks existed but every one fell below the
             # whitespace threshold. Same outcome as no-blocks.
-            doc.embedding_status = "empty"
+            doc.embedding_status = EmbeddingStatus.EMPTY
             doc.embedded_at = datetime.now(timezone.utc)
             doc.chunk_count = 0
             doc.total_tokens = 0
@@ -228,7 +229,7 @@ def _ingest_document_sync(
             )
 
         total_tokens = sum(c.token_count for c in chunks)
-        doc.embedding_status = "embedded"
+        doc.embedding_status = EmbeddingStatus.EMBEDDED
         doc.embedded_at = datetime.now(timezone.utc)
         doc.chunk_count = len(chunks)
         doc.total_tokens = total_tokens
@@ -287,7 +288,7 @@ def _record_failure(
 ) -> dict:
     db.rollback()
     try:
-        doc.embedding_status = "failed"
+        doc.embedding_status = EmbeddingStatus.FAILED
         doc.error_message = message[:1000]
         db.commit()
     except Exception:

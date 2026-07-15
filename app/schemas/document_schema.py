@@ -4,15 +4,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.utils.enums import EmbeddingStatus, GraphStatus
+
 
 # Shared lifecycle fields surface to the UI so it can render the
 # pipeline state directly instead of inferring from the storage-level
 # `status` (Phase 1 left `status` as a placeholder; Phase 4 owns the
 # real pipeline via `embedding_status` + `graph_status`).
 class _DocumentLifecycleMixin(BaseModel):
-    embedding_status: str = "pending"
+    embedding_status: str = EmbeddingStatus.PENDING.value
     embedded_at: Optional[datetime] = None
-    graph_status: str = "pending"
+    graph_status: str = GraphStatus.PENDING.value
     graph_extracted_at: Optional[datetime] = None
     chunk_count: Optional[int] = None
     total_tokens: Optional[int] = None
