@@ -1,6 +1,7 @@
 import Layout from "../../../shared/components/Layout";
 import { Skeleton } from "../../../shared/components/Skeleton";
 import { useMeetings } from "../hooks/useMeetings";
+import { useGroupedLatestMeetings } from "../hooks/useGroupedLatestMeetings";
 import { useCategories } from "../hooks/useCategories";
 import MeetingRow from "../components/MeetingRow";
 import MeetingCard from "../components/MeetingCard";
@@ -25,7 +26,7 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import MeetingList from "../components/MeetingList";
 import { deleteMeeting } from "../api";
@@ -350,6 +351,13 @@ function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedS
             </p>
           </div>
         </div>
+        <Link
+          to="/?uncategorized=1"
+          className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors shrink-0 whitespace-nowrap inline-flex items-center gap-0.5"
+        >
+          View all
+          <ChevronRight className="w-3 h-3" />
+        </Link>
       </div>
       <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
@@ -384,17 +392,51 @@ export default function MeetingsPage() {
   const [searchParams] = useSearchParams();
   const categoryId = searchParams.get("category_id");
   const teamId = searchParams.get("team_id");
-  const isFiltered = !!(categoryId || teamId);
+  const uncategorizedFlag = searchParams.get("uncategorized") === "1";
+  const isFiltered = !!(categoryId || teamId || uncategorizedFlag);
+
+  // ── Filter state (client + server) ──
+  // `searchQuery` = live input value (instant visual feedback in the box).
+  // `debouncedSearch` = value we actually send to the server, updated
+  // ~300ms after the user stops typing. Prevents one fetch per keystroke.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    // Clearing the box snaps back to the grouped view instantly; no
+    // point waiting 500ms to render "no filter".
+    if (!searchQuery) {
+      setDebouncedSearch("");
+      return;
+    }
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Server-side search kicks in whenever the debounced value is non-empty.
+  const searchTrimmed = debouncedSearch.trim();
+  const isSearching = searchTrimmed.length > 0;
 
   const filter = useMemo(
     () => ({
       category_id: categoryId ? Number(categoryId) : null,
       team_id: teamId ? Number(teamId) : null,
+      uncategorized: uncategorizedFlag,
+      q: searchTrimmed || null,
     }),
-    [categoryId, teamId],
+    [categoryId, teamId, uncategorizedFlag, searchTrimmed],
   );
 
-  const { data, loading, removeMeeting, addMeeting } = useMeetings(filter);
+  const { data, loading, removeMeeting, addMeeting, hasMore, loadMore, loadingMore, total } =
+    useMeetings(filter);
+  // Grouped view uses a dedicated endpoint that returns latest 10 per
+  // category — bounded query, no pagination noise. Runs alongside
+  // useMeetings (small extra poll) and is consulted only in the
+  // unfiltered code path.
+  const {
+    data: groupedLatest,
+    loading: groupedLoading,
+    removeMeeting: removeMeetingFromGrouped,
+  } = useGroupedLatestMeetings(10);
   const { data: categories } = useCategories();
 
   const [showScheduleForm, setShowScheduleForm] = useState(false);
@@ -402,8 +444,7 @@ export default function MeetingsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const navigate = useNavigate();
 
-  // ── Filter state ──
-  const [searchQuery, setSearchQuery] = useState("");
+  // ── Client-side filter state (search moved server-side above) ──
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [customFrom, setCustomFrom] = useState("");
@@ -478,36 +519,62 @@ export default function MeetingsPage() {
     ? `${activeCategory?.name} · ${activeTeam.name}`
     : activeCategory
       ? activeCategory.name
-      : "Meetings";
+      : uncategorizedFlag
+        ? "Uncategorized"
+        : "Meetings";
 
-  const groupedByCategory = useMemo(() => {
-    const buckets = new Map<number, Meeting[]>();
-    const uncategorized: Meeting[] = [];
-    for (const m of filteredMeetings) {
-      if (m.category) {
-        const list = buckets.get(m.category.id) ?? [];
-        list.push(m);
-        buckets.set(m.category.id, list);
-      } else {
-        uncategorized.push(m);
-      }
+  // Grouped view data source — driven by the /meetings/grouped-latest
+  // endpoint (10 per category, no pagination). Client-side filters
+  // (search/status/date) still apply, but only across the loaded 10 per
+  // category. "View all" on a section switches to the paginated
+  // filtered view where full history is reachable.
+  const applyClientFilters = useCallback(
+    (list: Meeting[]) =>
+      list.filter((m) => {
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const matchTitle = m.title?.toLowerCase().includes(q) ?? false;
+          const matchSummary = m.summary?.toLowerCase().includes(q) ?? false;
+          if (!matchTitle && !matchSummary) return false;
+        }
+        if (statusFilter !== "all" && m.status !== statusFilter) return false;
+        if (dateFilter !== "all") {
+          const ts = new Date(m.created_at).getTime();
+          const now = Date.now();
+          if (dateFilter === "today") {
+            if (new Date(m.created_at).toDateString() !== new Date().toDateString()) return false;
+          } else if (dateFilter === "week") {
+            if (ts < now - 7 * 86_400_000) return false;
+          } else if (dateFilter === "month") {
+            if (ts < now - 30 * 86_400_000) return false;
+          } else if (dateFilter === "custom") {
+            if (customFrom) {
+              const fromTs = new Date(customFrom).setHours(0, 0, 0, 0);
+              if (ts < fromTs) return false;
+            }
+            if (customTo) {
+              const toTs = new Date(customTo).setHours(23, 59, 59, 999);
+              if (ts > toTs) return false;
+            }
+          }
+        }
+        return true;
+      }),
+    [searchQuery, statusFilter, dateFilter, customFrom, customTo],
+  );
+
+  const groupedForRender = useMemo(() => {
+    const sections: { category: Category; meetings: Meeting[] }[] = [];
+    const byCat = groupedLatest?.by_category ?? {};
+    for (const cat of categories) {
+      const list = applyClientFilters(byCat[String(cat.id)] || []);
+      if (list.length > 0) sections.push({ category: cat, meetings: list });
     }
-    const orderedSections = categories
-      .map((c) => ({ category: c, meetings: buckets.get(c.id) ?? [] }))
-      .filter((s) => s.meetings.length > 0);
-    const knownIds = new Set(categories.map((c) => c.id));
-    const orphanCategories: { category: Category; meetings: Meeting[] }[] = [];
-    for (const [id, list] of buckets.entries()) {
-      if (!knownIds.has(id) && list.length > 0) {
-        const sample = list[0].category!;
-        orphanCategories.push({
-          category: { id: sample.id, name: sample.name, color: sample.color ?? null },
-          meetings: list,
-        });
-      }
-    }
-    return { sections: [...orderedSections, ...orphanCategories], uncategorized };
-  }, [filteredMeetings, categories]);
+    const uncategorized = applyClientFilters(groupedLatest?.uncategorized || []);
+    const totalRendered =
+      sections.reduce((n, s) => n + s.meetings.length, 0) + uncategorized.length;
+    return { sections, uncategorized, totalRendered };
+  }, [groupedLatest, categories, applyClientFilters]);
 
   const handleDelete = async (id: number) => {
     if (!window.confirm("Delete this meeting? This cannot be undone.")) return;
@@ -515,6 +582,7 @@ export default function MeetingsPage() {
     try {
       await deleteMeeting(id);
       removeMeeting(id);
+      removeMeetingFromGrouped(id);
     } catch (err) {
       console.error("Delete failed", err);
       alert("Failed to delete meeting. Please try again.");
@@ -524,9 +592,12 @@ export default function MeetingsPage() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Loading
+  // Loading — INITIAL cold load only. Once we've rendered content once,
+  // subsequent refetches (typing in search, filter changes, poll ticks)
+  // must not re-hit this branch or the whole tree unmounts and the
+  // FilterBar's input loses focus.
   // ─────────────────────────────────────────────────────────────────────────────
-  if (loading) {
+  if (loading && meetings.length === 0 && !isSearching) {
     return (
       <Layout>
         <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
@@ -589,9 +660,11 @@ export default function MeetingsPage() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Empty (no meetings at all)
+  // Empty — org genuinely has zero meetings. Skip when actively searching
+  // (that "no matches" case is handled inside the grouped-view search
+  // branch so the FilterBar stays mounted).
   // ─────────────────────────────────────────────────────────────────────────────
-  if (meetings.length === 0) {
+  if (meetings.length === 0 && !isSearching && !loading) {
     const emptyMessage = activeCategory
       ? activeTeam
         ? `No meetings in ${activeTeam.name} yet.`
@@ -757,6 +830,14 @@ export default function MeetingsPage() {
               deletingId={deletingId}
             />
           )}
+
+          <LoadMoreBar
+            loaded={meetings.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onClick={loadMore}
+          />
         </div>
       </Layout>
     );
@@ -775,9 +856,15 @@ export default function MeetingsPage() {
             </p>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
             <p className="text-sm text-slate-500 mt-2">
-              {meetings.length} sessions across{" "}
-              {groupedByCategory.sections.length}{" "}
-              {groupedByCategory.sections.length === 1 ? "category" : "categories"}.
+              {isSearching
+                ? `Search: "${searchTrimmed}" · ${total} match${total === 1 ? "" : "es"} across the organization`
+                : `Showing latest ${groupedLatest?.per_category ?? 10} per category` +
+                  (groupedForRender.sections.length > 0
+                    ? ` · ${groupedForRender.sections.length} ${
+                        groupedForRender.sections.length === 1 ? "category" : "categories"
+                      }`
+                    : "")}
+              .
             </p>
           </div>
           <Button
@@ -802,8 +889,8 @@ export default function MeetingsPage() {
             onCustomFrom={setCustomFrom}
             customTo={customTo}
             onCustomTo={setCustomTo}
-            totalCount={meetings.length}
-            filteredCount={filteredMeetings.length}
+            totalCount={groupedForRender.totalRendered}
+            filteredCount={groupedForRender.totalRendered}
           />
         </div>
 
@@ -817,31 +904,104 @@ export default function MeetingsPage() {
           </div>
         )}
 
-        {/* No filter results */}
-        {hasActiveFilters &&
-          filteredMeetings.length === 0 && (
-            <NoFilterResults onClear={clearFilters} />
-          )}
+        {/* Search mode: flat list backed by the paginated /allmeetings?q=…
+            endpoint — full org search, not just the loaded latest-10. */}
+        {isSearching ? (
+          <>
+            {loading && meetings.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">Searching…</p>
+            ) : filteredMeetings.length === 0 ? (
+              <div className="text-center py-14 bg-white rounded-lg border border-slate-200 border-dashed">
+                <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                  No matches
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Nothing in the organization matches "{searchTrimmed}".
+                </p>
+              </div>
+            ) : (
+              <>
+                <MeetingList
+                  meetings={filteredMeetings}
+                  onDelete={handleDelete}
+                  deletingId={deletingId}
+                />
+                <LoadMoreBar
+                  loaded={meetings.length}
+                  total={total}
+                  hasMore={hasMore}
+                  loading={loadingMore}
+                  onClick={loadMore}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {/* No filter results — client status/date filters emptied out
+                every section in the latest-10 window. */}
+            {hasActiveFilters && groupedForRender.totalRendered === 0 && (
+              <NoFilterResults onClear={clearFilters} />
+            )}
 
-        {/* Category sections */}
-        {groupedByCategory.sections.map(({ category, meetings: catMeetings }) => (
-          <CategorySection
-            key={category.id}
-            category={category}
-            meetings={catMeetings}
-            onDelete={handleDelete}
-            deletingId={deletingId}
-          />
-        ))}
+            {groupedForRender.sections.map(({ category, meetings: catMeetings }) => (
+              <CategorySection
+                key={category.id}
+                category={category}
+                meetings={catMeetings}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
+            ))}
 
-        {groupedByCategory.uncategorized.length > 0 && (
-          <UncategorizedSection
-            meetings={groupedByCategory.uncategorized}
-            onDelete={handleDelete}
-            deletingId={deletingId}
-          />
+            {groupedForRender.uncategorized.length > 0 && (
+              <UncategorizedSection
+                meetings={groupedForRender.uncategorized}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
+            )}
+
+            {groupedLoading && groupedForRender.totalRendered === 0 && !hasActiveFilters && (
+              <p className="text-sm text-slate-400 text-center py-8">Loading meetings…</p>
+            )}
+          </>
         )}
       </div>
     </Layout>
+  );
+}
+
+function LoadMoreBar({
+  loaded,
+  total,
+  hasMore,
+  loading,
+  onClick,
+}: {
+  loaded: number;
+  total: number;
+  hasMore: boolean;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  if (loaded === 0) return null;
+  return (
+    <div className="mt-6 flex items-center justify-center gap-4">
+      <span className="text-xs text-slate-500">
+        {total > 0
+          ? `Showing ${loaded} of ${total}`
+          : `Showing ${loaded}`}
+      </span>
+      {hasMore && (
+        <button
+          onClick={onClick}
+          disabled={loading}
+          className="text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Load more"}
+        </button>
+      )}
+    </div>
   );
 }

@@ -4,16 +4,36 @@ import type { Category, CategoryDocument, Meeting, Team } from "./types";
 export interface MeetingFilter {
   category_id?: number | null;
   team_id?: number | null;
+  uncategorized?: boolean | null;
+  q?: string | null;
+  page?: number | null;
+  page_size?: number | null;
+}
+
+export interface PaginatedMeetings {
+  items: Meeting[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Meetings
 // ---------------------------------------------------------------------------
 
+// Response shape depends on whether pagination params are provided:
+//   - No page/page_size → bare Meeting[] (legacy, kept for DashboardPage)
+//   - With page/page_size → PaginatedMeetings
+// Callers narrow with a type assertion at the call site.
 export const fetchMeetings = (filter: MeetingFilter = {}) => {
   const params = new URLSearchParams();
   if (filter.category_id != null) params.set("category_id", String(filter.category_id));
   if (filter.team_id != null) params.set("team_id", String(filter.team_id));
+  if (filter.uncategorized) params.set("uncategorized", "1");
+  if (filter.q && filter.q.trim()) params.set("q", filter.q.trim());
+  if (filter.page != null) params.set("page", String(filter.page));
+  if (filter.page_size != null) params.set("page_size", String(filter.page_size));
   const qs = params.toString();
   return apiClient(`/allmeetings${qs ? `?${qs}` : ""}`);
 };
@@ -23,6 +43,18 @@ export const fetchMeetingById = (id: string) =>
 
 export const fetchUncategorizedMeetings = (): Promise<Meeting[]> =>
   apiClient("/meetings/uncategorized");
+
+export interface GroupedLatestMeetings {
+  by_category: Record<string, Meeting[]>;   // key is category_id as string
+  uncategorized: Meeting[];
+  per_category: number;
+}
+
+/** Latest N meetings per category — used by the default grouped view. */
+export const fetchGroupedLatestMeetings = (
+  perCategory = 10,
+): Promise<GroupedLatestMeetings> =>
+  apiClient(`/meetings/grouped-latest?per_category=${perCategory}`);
 
 export const fetchTeamMeetings = (teamId: number): Promise<Meeting[]> =>
   apiClient(`/teams/${teamId}/meetings`);
