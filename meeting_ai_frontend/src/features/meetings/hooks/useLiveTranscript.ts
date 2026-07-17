@@ -46,18 +46,29 @@ export interface UseLiveTranscript {
   seed: (lines: LiveFinal[]) => void;
 }
 
-function buildWsUrl(meetingId: number): string {
+// Close codes the backend uses on auth failure. Matches
+// _WS_CLOSE_UNAUTHORIZED / _WS_CLOSE_FORBIDDEN in app/api/ws_router.py.
+// Reconnecting after these is pointless — the token is bad or the
+// user isn't allowed on this meeting. Bail instead of hammering.
+const WS_AUTH_FAILED_CODES = new Set([4401, 4403]);
+
+function buildWsUrl(meetingId: number, token: string | null): string {
   // Use the standard Vite environment variable
   const apiUrl = import.meta.env.VITE_API_URL;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  
+
+  // Token goes on the URL because browser WebSocket() can't send
+  // custom headers. It ends up in server access logs — mitigation is
+  // the short JWT TTL already used for HTTP auth.
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+
   if (apiUrl && apiUrl.startsWith("http")) {
     // Transform http://host:port -> ws://host:port
-    return `${apiUrl.replace(/^http/, "ws")}/ws/${meetingId}`;
+    return `${apiUrl.replace(/^http/, "ws")}/ws/${meetingId}${qs}`;
   }
 
   // Fallback to same-origin (Vite proxy will handle this in dev)
-  return `${protocol}://${window.location.host}/ws/${meetingId}`;
+  return `${protocol}://${window.location.host}/ws/${meetingId}${qs}`;
 }
 
 export function useLiveTranscript(
@@ -102,8 +113,11 @@ export function useLiveTranscript(
 
     const connect = () => {
       if (cancelled) return;
+      // Re-read the token on every (re)connect so if it rotates
+      // between attempts the new one is used automatically.
+      const token = localStorage.getItem("token");
       try {
-        ws = new WebSocket(buildWsUrl(meetingId));
+        ws = new WebSocket(buildWsUrl(meetingId, token));
       } catch (e) {
         // Synchronous WebSocket construction failures (very rare)
         // — schedule a reconnect.
@@ -144,9 +158,18 @@ export function useLiveTranscript(
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         if (cancelled) return;
         setConnected(false);
+        // Auth failure — don't retry; the token isn't going to fix
+        // itself. Anything else is treated as transient.
+        if (WS_AUTH_FAILED_CODES.has(e.code)) {
+          console.warn(
+            "Live-transcript WS auth failed (code %d): %s",
+            e.code, e.reason || "unauthorized",
+          );
+          return;
+        }
         scheduleReconnect();
       };
 
