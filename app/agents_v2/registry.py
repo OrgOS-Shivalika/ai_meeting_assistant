@@ -142,6 +142,30 @@ def _seed_db_rows(slug: str, manifest: dict[str, Any]) -> None:
                 )
                 continue
 
+            # Seed scopes are hardcoded ids (often from a different
+            # environment, e.g. prod). Verify they exist HERE before
+            # inserting, else every boot spams an FK-violation
+            # traceback on dev boxes that don't have that org.
+            from app.db.models import Category, Organization, Team
+            if not db.query(Organization.id).filter(Organization.id == org_id).first():
+                logger.warning(
+                    "agents_v2.bootstrap: %s seed_scope skipped — org %s "
+                    "not in this database", slug, org_id,
+                )
+                continue
+            if cat_id is not None and not db.query(Category.id).filter(Category.id == cat_id).first():
+                logger.warning(
+                    "agents_v2.bootstrap: %s seed_scope skipped — category %s "
+                    "not in this database", slug, cat_id,
+                )
+                continue
+            if team_id is not None and not db.query(Team.id).filter(Team.id == team_id).first():
+                logger.warning(
+                    "agents_v2.bootstrap: %s seed_scope skipped — team %s "
+                    "not in this database", slug, team_id,
+                )
+                continue
+
             q = db.query(AgentV2).filter(
                 AgentV2.slug == slug,
                 AgentV2.organization_id == org_id,

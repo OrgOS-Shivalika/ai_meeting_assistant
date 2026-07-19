@@ -460,6 +460,20 @@ class MeetingPipeline:
                     meeting.id, embed_err,
                 )
 
+            # Continuum Core: if this meeting belongs to a Continuum
+            # client (team linked to a cc_clients row), feed the
+            # transcript into the client's board. Best-effort — the
+            # dispatcher swallows its own errors and skips non-Continuum
+            # meetings cheaply.
+            try:
+                from app.celery_tasks.continuum_tasks import dispatch_continuum_process
+                dispatch_continuum_process(meeting.id)
+            except Exception as cc_err:
+                logger.error(
+                    "Failed to dispatch continuum processing for meeting %s: %s",
+                    meeting.id, cc_err,
+                )
+
             return result_json
 
         except Exception as e:

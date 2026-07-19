@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
+
+logger = logging.getLogger(__name__)
 
 from app.api.db_dependency import get_db
 from app.dependencies.auth import get_current_user
@@ -121,7 +125,7 @@ def _list_teams(db: Session, user, category_id: int):
 
 
 def _create_team(db: Session, user, category_id: int, payload: TeamCreate) -> Team:
-    _get_owned_category(db, user, category_id)
+    category = _get_owned_category(db, user, category_id)
     team = Team(
         category_id=category_id,
         name=payload.name.strip(),
@@ -134,6 +138,45 @@ def _create_team(db: Session, user, category_id: int, payload: TeamCreate) -> Te
         db.rollback()
         raise HTTPException(status_code=409, detail="A team with this name already exists in this meeting type")
     db.refresh(team)
+
+    # Continuum Core: a team in the Continuum category IS a client, so
+    # creating one here must also create the linked client card —
+    # otherwise meetings under this team would be silently skipped by
+    # the Continuum pipeline. Mirror of what POST /continuum/clients
+    # does in the other direction. Best-effort: a hiccup here must not
+    # fail the team creation itself.
+    from app.config.settings import settings as _settings
+    if category.name == _settings.CONTINUUM_CATEGORY_NAME:
+        try:
+            from app.db.models import ContinuumClient
+            exists = (
+                db.query(ContinuumClient)
+                .filter(
+                    ContinuumClient.organization_id == user.organization_id,
+                    (ContinuumClient.team_id == team.id)
+                    | (ContinuumClient.name == team.name),
+                )
+                .first()
+            )
+            if exists is None:
+                db.add(ContinuumClient(
+                    organization_id=user.organization_id,
+                    team_id=team.id,
+                    name=team.name,
+                ))
+                db.commit()
+            elif exists.team_id is None:
+                # Same-named client orphaned earlier (e.g. its team was
+                # deleted) — adopt this new team.
+                exists.team_id = team.id
+                db.commit()
+        except Exception:
+            db.rollback()
+            logger.warning(
+                "continuum: failed to auto-create client for team %s", team.id,
+                exc_info=True,
+            )
+
     return team
 
 

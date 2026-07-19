@@ -52,6 +52,8 @@ const API_PATH_PREFIXES = [
   '/consolidation',
   // Agents v2 admin API (control-panel page).
   '/agents_v2',
+  // Continuum Core — client boards + stage kanban.
+  '/continuum',
 ]
 
 const isHtmlNavigation = (req: IncomingMessage): boolean => {

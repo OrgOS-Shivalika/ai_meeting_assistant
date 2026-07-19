@@ -31,7 +31,13 @@ class Settings:
     # process, we just get no traces.
     LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
     LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
-    LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+    # Accept LANGFUSE_BASE_URL too — it's the name Langfuse's own docs use
+    # in some snippets, so people naturally paste it into .env.
+    LANGFUSE_HOST = (
+        os.getenv("LANGFUSE_HOST")
+        or os.getenv("LANGFUSE_BASE_URL")
+        or "https://cloud.langfuse.com"
+    )
 
     # ---- Recall.ai --------------------------------------------------------
     RECALL_API_KEY = os.getenv("RECALL_API_KEY")
@@ -254,6 +260,15 @@ class Settings:
     RAG_RERANK_W_CHUNK_IMP = float(os.getenv("RAG_RERANK_W_CHUNK_IMP", "0.30"))
     RAG_RERANK_W_ENTITY_IMP = float(os.getenv("RAG_RERANK_W_ENTITY_IMP", "0.20"))
     RAG_RERANK_W_ACCESS = float(os.getenv("RAG_RERANK_W_ACCESS_RERANK", "0.10"))
+
+    # ---------------------------------------------------------------------
+    # Continuum Core meeting agent (client boards + stage kanban).
+    # ---------------------------------------------------------------------
+    # Board reconciliation across a large JSON state is too hard for mini
+    # models; default to full gpt-4o. Volume is low (personal use).
+    CONTINUUM_MODEL = os.getenv("CONTINUUM_MODEL", "gpt-4o")
+    # Meetings whose category has this name auto-flow through the agent.
+    CONTINUUM_CATEGORY_NAME = os.getenv("CONTINUUM_CATEGORY_NAME", "Continuum Core")
 
     # ---------------------------------------------------------------------
     # Phase 12C — Closing briefing composer.

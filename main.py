@@ -28,6 +28,8 @@ from app.api.behavior_router import router as behavior_router
 from app.api.closing_briefing_router import closing_briefing_router
 # Phase 14 K2 — Kanban Boards REST API.
 from app.api.kanban_router import kanban_router
+# Continuum Core — client boards + stage kanban + agent runs.
+from app.api.continuum_router import router as continuum_router
 from app.services.briefing.closing_briefing_orchestrator import get_orchestrator
 from app.utils.logger import setup_logger
 from app.config.settings import settings
@@ -77,6 +79,8 @@ app.include_router(recall_webhook_router)
 app.include_router(closing_briefing_router)
 # Phase 14 K2 — Kanban Boards (boards/columns/task moves).
 app.include_router(kanban_router)
+# Continuum Core meeting agent.
+app.include_router(continuum_router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -149,12 +153,18 @@ frontend_path = os.path.join(os.getcwd(), "meeting_ai_frontend", "dist")
 # XHR / fetch calls (Accept: application/json or */*) pass through and
 # hit the API exactly as before.
 #
-# Add a path here when a new SPA route would otherwise be shadowed by
-# an API route. Paths NOT in this set fall through to the regular API
-# routing + the existing catch-all at the bottom of this file.
-_SPA_OVERLAY_PATHS: set[str] = {
-    "/meeting-types",
-    "/auth/google/callback",
+# Generalized: EVERY top-level HTML navigation gets the SPA shell (or a
+# real file from dist), because a browser refresh never carries the
+# Authorization header — any SPA route that shares a path with an API
+# GET (/, /boards, /agents, /meeting-types, ...) would otherwise return
+# a raw {"detail": "Not authenticated"}. Real XHR/fetch calls (Accept:
+# application/json or */*) are untouched and hit the API as before.
+# Only genuinely-HTML API surfaces are exempted.
+_API_HTML_PASSTHROUGH: set[str] = {
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/health",
 }
 
 
@@ -163,12 +173,23 @@ async def spa_shell_on_html_navigation(request: Request, call_next):
     if (
         request.method == "GET"
         and "text/html" in (request.headers.get("accept") or "").lower()
-        and request.url.path in _SPA_OVERLAY_PATHS
+        and request.url.path not in _API_HTML_PASSTHROUGH
         and os.path.exists(frontend_path)
     ):
+        # Address-bar hit on a real built asset (e.g. an image) → serve it.
+        candidate = os.path.join(frontend_path, request.url.path.lstrip("/"))
+        if os.path.isfile(candidate):
+            return FileResponse(candidate)
         index_file = os.path.join(frontend_path, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            # no-store + Vary: the shell shares its URL with API GETs
+            # (/boards, ...). Without these, the browser caches the HTML
+            # navigation response and later serves it to the SPA's JSON
+            # fetch of the same URL → "Unexpected token '<'".
+            return FileResponse(
+                index_file,
+                headers={"Cache-Control": "no-store", "Vary": "Accept"},
+            )
     return await call_next(request)
 
 
@@ -188,10 +209,14 @@ if os.path.exists(frontend_path):
         if os.path.isfile(file_path):
             return FileResponse(file_path)
 
-        # 2. Fallback to index.html for SPA routing
+        # 2. Fallback to index.html for SPA routing (no-store: see the
+        #    spa_shell_on_html_navigation middleware comment)
         index_file = os.path.join(frontend_path, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(
+                index_file,
+                headers={"Cache-Control": "no-store", "Vary": "Accept"},
+            )
 
         return {"error": "Frontend not found"}
 

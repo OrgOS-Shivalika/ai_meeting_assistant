@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "../../../services/apiClient";
 import { cn } from "@/lib/utils";
-import { Bot, Save, RotateCcw, FileText, ExternalLink } from "lucide-react";
+import { Bot, Briefcase, Save, RotateCcw, FileText, ExternalLink } from "lucide-react";
+import ContinuumControlPanel from "../components/ContinuumControlPanel";
 
 /**
  * Control Panel — lists every agents_v2 row in the caller's org grouped
@@ -110,6 +111,8 @@ export default function AgentControlPage() {
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // Continuum Core is a pinned, non-agents_v2 entry with its own pane.
+  const [continuumSelected, setContinuumSelected] = useState(false);
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -330,6 +333,32 @@ export default function AgentControlPage() {
             {agents.length} agent{agents.length === 1 ? "" : "s"} in this org
           </p>
         </div>
+        {/* Pinned — always visible regardless of agents_v2 list state */}
+        <div className="py-2 border-b border-slate-100">
+          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Continuum Core
+          </div>
+          <button
+            onClick={() => {
+              setContinuumSelected(true);
+              setSelectedId(null);
+            }}
+            className={cn(
+              "w-full text-left px-3 py-2 text-[13px] flex items-center gap-2",
+              continuumSelected
+                ? "bg-emerald-50 text-emerald-900 font-medium border-l-2 border-emerald-600"
+                : "text-slate-700 hover:bg-slate-50 border-l-2 border-transparent",
+            )}
+          >
+            <Briefcase className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span>
+              <span className="block">Continuum Meeting Agent</span>
+              <span className="block text-[10.5px] text-slate-500 mt-0.5">
+                Client boards · prompt · token budget
+              </span>
+            </span>
+          </button>
+        </div>
         {loading ? (
           <div className="p-4 text-xs text-slate-400">Loading…</div>
         ) : agents.length === 0 ? (
@@ -346,7 +375,10 @@ export default function AgentControlPage() {
                 {items.map((a) => (
                   <button
                     key={a.id}
-                    onClick={() => setSelectedId(a.id)}
+                    onClick={() => {
+                      setContinuumSelected(false);
+                      setSelectedId(a.id);
+                    }}
                     className={cn(
                       "w-full text-left px-3 py-2 text-[13px] flex items-center justify-between",
                       selectedId === a.id
@@ -375,7 +407,9 @@ export default function AgentControlPage() {
 
       {/* Detail pane */}
       <main className="flex-1 overflow-y-auto">
-        {!detail || detailLoading ? (
+        {continuumSelected ? (
+          <ContinuumControlPanel />
+        ) : !detail || detailLoading ? (
           <div className="p-8 text-sm text-slate-400">
             {detailLoading ? "Loading agent…" : "Select an agent"}
           </div>

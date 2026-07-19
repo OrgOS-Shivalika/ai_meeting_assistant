@@ -40,6 +40,7 @@ celery = Celery(
         "app.celery_tasks.consolidation_tasks",
         "app.celery_tasks.agent_tasks",
         "app.celery_tasks.calendar_tasks",
+        "app.celery_tasks.continuum_tasks",
     ],
 )
 
