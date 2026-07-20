@@ -130,13 +130,6 @@ const PRIORITY_STYLE: Record<string, string> = {
   low: "bg-slate-100 text-slate-600",
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  completed: "bg-emerald-50 text-emerald-700",
-  failed: "bg-red-50 text-red-700",
-  pending: "bg-amber-50 text-amber-700",
-  processing: "bg-indigo-50 text-indigo-700",
-};
-
 const parseStoredTranscript = (blob: string): LiveFinal[] => {
   return blob
     .split("\n")
@@ -471,31 +464,53 @@ export default function MeetingDetailPage() {
     return ["", "tbd", "unassigned", "unknown", "n/a"].includes(owner);
   };
   const unassignedTaskCount = tasks.filter(isTaskUnassigned).length;
-  const statusBadge = STATUS_STYLE[meeting.status] || "bg-slate-50 text-slate-700 ring-slate-200";
 
   return (
     <Layout>
-      <div className="h-full flex flex-col">
+      <div
+        className="h-full flex flex-col"
+        style={{
+          background: "var(--vb-canvas)",
+          fontFamily: "var(--vb-font-sans)",
+          color: "var(--vb-body)",
+        }}
+      >
         {/* Breadcrumb strip */}
-        <div className="px-8 py-3 flex items-center justify-between border-b border-slate-200 shrink-0">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
-            <Link to="/" className="hover:text-slate-900 transition-colors">
+        <div
+          className="px-8 py-3 flex items-center justify-between shrink-0"
+          style={{ borderBottom: "1px solid var(--vb-hairline)" }}
+        >
+          <div
+            className="flex items-center gap-1.5 min-w-0"
+            style={{ fontSize: 12, color: "var(--vb-muted)" }}
+          >
+            <Link
+              to="/"
+              className="transition-colors"
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--vb-ink)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--vb-muted)")}
+            >
               Meetings
             </Link>
             {meeting.category && (
               <>
-                <span className="text-slate-300">/</span>
+                <span style={{ color: "var(--vb-hairline)" }}>/</span>
                 <Link
                   to={`/?category_id=${meeting.category.id}`}
-                  className="hover:text-slate-900 transition-colors"
+                  className="transition-colors"
                   style={{ color: meeting.category.color || undefined }}
                 >
                   {meeting.category.name}
                 </Link>
               </>
             )}
-            <span className="text-slate-300">/</span>
-            <span className="text-slate-700 font-medium truncate">{title}</span>
+            <span style={{ color: "var(--vb-hairline)" }}>/</span>
+            <span
+              className="truncate"
+              style={{ color: "var(--vb-body-strong)", fontWeight: 500 }}
+            >
+              {title}
+            </span>
           </div>
           <div className="shrink-0">
             <CategoryAssignControl
@@ -510,24 +525,43 @@ export default function MeetingDetailPage() {
         </div>
 
         {/* Header strip */}
-        <div className="px-8 py-6 flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 shrink-0 bg-white">
+        <div
+          className="px-8 py-6 flex flex-col lg:flex-row lg:items-end justify-between gap-4 shrink-0"
+          style={{
+            background: "var(--vb-canvas)",
+            borderBottom: "1px solid var(--vb-hairline)",
+          }}
+        >
           <div className="space-y-3 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className={cn(
-                  "text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded",
-                  statusBadge,
-                )}
-              >
-                {meeting.status}
-              </span>
+              <VbStatusPill status={meeting.status} />
               {meeting.meeting_platform && (
-                <span className="text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: "0.3px",
+                    padding: "4px 9px",
+                    borderRadius: 9999,
+                    background: "var(--vb-surface-card)",
+                    color: "var(--vb-muted)",
+                  }}
+                >
                   {meeting.meeting_platform.replace(/_/g, " ")}
                 </span>
               )}
               {connected && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium tracking-wide px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                <span
+                  className="inline-flex items-center gap-1.5"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "4px 9px",
+                    borderRadius: 9999,
+                    color: "var(--vb-success)",
+                    background: "color-mix(in srgb, var(--vb-success) 12%, white)",
+                  }}
+                >
                   <Radio className="w-2.5 h-2.5" /> Live
                 </span>
               )}
@@ -551,34 +585,69 @@ export default function MeetingDetailPage() {
                 }}
                 autoFocus
                 maxLength={200}
-                className="text-2xl font-semibold text-slate-900 tracking-tight leading-tight bg-white border border-indigo-300 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-500/20 w-full max-w-2xl disabled:opacity-60"
+                style={{
+                  fontFamily: "var(--vb-font-display)",
+                  fontWeight: 500,
+                  fontSize: 32,
+                  letterSpacing: "-1px",
+                  lineHeight: 1.15,
+                  color: "var(--vb-ink)",
+                  background: "var(--vb-canvas)",
+                  border: "1px solid var(--vb-ink)",
+                  borderRadius: 12,
+                  boxShadow: "0 0 0 3px var(--focus-ring)",
+                  padding: "6px 10px",
+                  outline: "none",
+                  width: "100%",
+                  maxWidth: "42rem",
+                }}
               />
             ) : (
               <h1
-                className="text-2xl font-semibold text-slate-900 tracking-tight leading-tight group inline-flex items-center gap-2 cursor-text"
+                className="group inline-flex items-center gap-2 cursor-text"
                 onClick={() => {
                   setTitleDraft(meeting.title || "");
                   setIsEditingTitle(true);
                 }}
                 title="Click to rename"
+                style={{
+                  fontFamily: "var(--vb-font-display)",
+                  fontWeight: 500,
+                  fontSize: 32,
+                  letterSpacing: "-1px",
+                  lineHeight: 1.15,
+                  color: "var(--vb-ink)",
+                  margin: 0,
+                }}
               >
                 <span>{title}</span>
-                <Pencil className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                <Pencil
+                  className="transition-colors group-hover:text-slate-500"
+                  style={{ width: 14, height: 14, color: "var(--vb-muted-soft)" }}
+                />
               </h1>
             )}
-            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+            <div
+              className="flex items-center flex-wrap"
+              style={{
+                gap: 16,
+                fontSize: 13,
+                color: "var(--vb-muted)",
+                marginTop: 12,
+              }}
+            >
               <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <Calendar className="w-3.5 h-3.5" style={{ color: "var(--vb-muted-soft)" }} />
                 {dateStr}
               </span>
               {durationStr && (
                 <span className="inline-flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <Clock className="w-3.5 h-3.5" style={{ color: "var(--vb-muted-soft)" }} />
                   {durationStr}
                 </span>
               )}
               <span className="inline-flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-slate-400" />
+                <Users className="w-3.5 h-3.5" style={{ color: "var(--vb-muted-soft)" }} />
                 {participants.length} participant
                 {participants.length === 1 ? "" : "s"}
               </span>
@@ -587,28 +656,32 @@ export default function MeetingDetailPage() {
 
           <div className="flex items-center gap-2 flex-wrap">
             {meeting.meeting_url && (
-              <Button asChild variant="outline" size="sm">
-                <a href={meeting.meeting_url} target="_blank" rel="noreferrer">
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Open call
-                </a>
-              </Button>
+              <a
+                href={meeting.meeting_url}
+                target="_blank"
+                rel="noreferrer"
+                style={vbSecondaryBtnStyle}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open call
+              </a>
             )}
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               disabled={!meeting.summary}
               onClick={() =>
                 meeting.summary &&
                 navigator.clipboard?.writeText(meeting.summary)
               }
+              style={{
+                ...vbSecondaryBtnStyle,
+                opacity: meeting.summary ? 1 : 0.5,
+                cursor: meeting.summary ? "pointer" : "not-allowed",
+              }}
             >
               <Share2 className="w-3.5 h-3.5" />
               Copy summary
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
+            </button>
+            <button
               disabled={!meeting.transcript}
               onClick={() => {
                 const text = meeting.transcript || "";
@@ -619,19 +692,46 @@ export default function MeetingDetailPage() {
                 a.download = `${title.replace(/[^\w\d]+/g, "_")}-transcript.txt`;
                 a.click();
               }}
+              style={{
+                ...vbPrimaryBtnStyle,
+                opacity: meeting.transcript ? 1 : 0.5,
+                cursor: meeting.transcript ? "pointer" : "not-allowed",
+              }}
             >
               <Download className="w-3.5 h-3.5" />
               Export
-            </Button>
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-slate-50 p-6 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4 min-h-0 overflow-hidden">
+        <div
+          className="flex-1 p-6 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4 min-h-0 overflow-hidden"
+          style={{ background: "var(--vb-canvas)" }}
+        >
           {/* Transcript */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
-            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
-              <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+          <div
+            className="overflow-hidden flex flex-col min-h-0"
+            style={{
+              background: "var(--vb-canvas)",
+              border: "1px solid var(--vb-hairline)",
+              borderRadius: 16,
+            }}
+          >
+            <div
+              className="px-5 py-3.5 flex items-center justify-between gap-3 shrink-0"
+              style={{ borderBottom: "1px solid var(--vb-hairline-soft)" }}
+            >
+              <h3
+                style={{
+                  fontFamily: "var(--vb-font-display)",
+                  fontWeight: 500,
+                  fontSize: 16,
+                  letterSpacing: "-0.3px",
+                  color: "var(--vb-ink)",
+                  margin: 0,
+                }}
+              >
                 {meeting.status === "completed" ? "Transcript" : "Live transcript"}
               </h3>
               {/* <button
@@ -717,38 +817,81 @@ export default function MeetingDetailPage() {
 
           {/* Right column */}
           <div className="space-y-4 overflow-y-auto pr-1 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {/* Summary */}
-            <div className="bg-white rounded-lg border border-slate-200">
-              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
-                  Summary
-                </h3>
+            {/* Summary — cream surface card, matches mockup's AI summary treatment */}
+            <div
+              style={{
+                background: "var(--vb-surface-card)",
+                borderRadius: 20,
+                padding: "20px 22px",
+              }}
+            >
+              <div
+                className="flex items-center gap-2"
+                style={{ marginBottom: 14 }}
+              >
+                <Sparkles
+                  className="w-3.5 h-3.5"
+                  style={{ color: "var(--vb-lavender)" }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: "1px",
+                    textTransform: "uppercase",
+                    color: "var(--vb-muted)",
+                  }}
+                >
+                  AI summary
+                </span>
               </div>
-              <div className="px-5 py-4">
-                {meeting.summary ? (
-                  summaryBullets.length > 1 ? (
-                    <ul className="space-y-2">
-                      {summaryBullets.map((bullet, i) => (
-                        <li key={i} className="flex items-start gap-2.5">
-                          <span className="w-1 h-1 bg-indigo-600 rounded-full mt-2 shrink-0" />
-                          <span className="text-[13px] text-slate-700 leading-relaxed">
-                            {bullet}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[13px] text-slate-700 leading-relaxed">
-                      {meeting.summary}
-                    </p>
-                  )
+              {meeting.summary ? (
+                summaryBullets.length > 1 ? (
+                  <ul className="space-y-2">
+                    {summaryBullets.map((bullet, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <span
+                          style={{
+                            width: 5,
+                            height: 5,
+                            borderRadius: "50%",
+                            marginTop: 8,
+                            flexShrink: 0,
+                            background: "var(--vb-lavender)",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 14,
+                            lineHeight: 1.6,
+                            color: "var(--vb-body-strong)",
+                          }}
+                        >
+                          {bullet}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <p className="text-xs text-slate-400 italic">
-                    No summary yet.
+                  <p
+                    style={{
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      color: "var(--vb-body-strong)",
+                      margin: 0,
+                    }}
+                  >
+                    {meeting.summary}
                   </p>
-                )}
-              </div>
+                )
+              ) : (
+                <p
+                  className="italic"
+                  style={{ fontSize: 12, color: "var(--vb-muted-soft)" }}
+                >
+                  No summary yet.
+                </p>
+              )}
             </div>
 
             {/* Agent insights (agents_v2 side-effect output) — ordered by
@@ -760,14 +903,43 @@ export default function MeetingDetailPage() {
             ))}
 
             {/* Tasks */}
-            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+            <div
+              className="overflow-hidden"
+              style={{
+                background: "var(--vb-canvas)",
+                border: "1px solid var(--vb-hairline)",
+                borderRadius: 16,
+              }}
+            >
+              <div
+                className="px-5 py-3.5 flex items-center justify-between gap-2"
+                style={{ borderBottom: "1px solid var(--vb-hairline-soft)" }}
+              >
+                <h3
+                  style={{
+                    fontFamily: "var(--vb-font-display)",
+                    fontWeight: 500,
+                    fontSize: 16,
+                    letterSpacing: "-0.3px",
+                    color: "var(--vb-ink)",
+                    margin: 0,
+                  }}
+                >
                   Tasks
                 </h3>
                 <div className="flex items-center gap-2">
                   {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
-                  <span className="text-xs font-medium text-slate-500 tabular-nums">
+                  <span
+                    className="tabular-nums"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "var(--vb-muted)",
+                      background: "var(--vb-surface-card)",
+                      padding: "3px 9px",
+                      borderRadius: 9999,
+                    }}
+                  >
                     {completedTaskCount}/{taskCount}
                   </span>
                 </div>
@@ -1043,6 +1215,79 @@ const SKILL_TITLE: Record<string, string> = {
   "participant_sentiment": "Participant Sentiment",
 };
 
+// ─── Vibrant primitives — button styles + status pill ──────────────────────
+
+const vbPrimaryBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  height: 40,
+  padding: "0 15px",
+  background: "var(--vb-ink)",
+  color: "var(--vb-on-ink)",
+  border: "none",
+  borderRadius: 12,
+  fontFamily: "var(--vb-font-sans)",
+  fontSize: 13,
+  fontWeight: 500,
+  cursor: "pointer",
+  textDecoration: "none",
+};
+
+const vbSecondaryBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  height: 40,
+  padding: "0 15px",
+  background: "var(--vb-canvas)",
+  border: "1px solid var(--vb-hairline)",
+  borderRadius: 12,
+  fontFamily: "var(--vb-font-sans)",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "var(--vb-body-strong)",
+  cursor: "pointer",
+  textDecoration: "none",
+};
+
+// Meeting status → vibrant color pair (matches MeetingCard's STATUS_STYLE).
+const VB_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  completed:  { label: "Completed",  color: "var(--vb-success)", bg: "color-mix(in srgb, var(--vb-success) 12%, white)" },
+  processing: { label: "Processing", color: "var(--vb-info)",    bg: "color-mix(in srgb, var(--vb-info) 12%, white)" },
+  pending:    { label: "Pending",    color: "var(--vb-warning)", bg: "color-mix(in srgb, var(--vb-warning) 14%, white)" },
+  failed:     { label: "Failed",     color: "var(--vb-error)",   bg: "color-mix(in srgb, var(--vb-error) 12%, white)" },
+};
+
+function VbStatusPill({ status }: { status?: string | null }) {
+  const s = VB_STATUS[status || ""] ?? VB_STATUS.pending;
+  return (
+    <span
+      className="inline-flex items-center"
+      style={{
+        gap: 6,
+        fontSize: 11,
+        fontWeight: 600,
+        padding: "4px 9px",
+        borderRadius: 9999,
+        color: s.color,
+        background: s.bg,
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: s.color,
+        }}
+      />
+      {s.label}
+    </span>
+  );
+}
+
+
 function AgentInsightCard({ insight }: { insight: AgentInsight }) {
   const { prompt_key, payload } = insight;
   const title = SKILL_TITLE[prompt_key] || prompt_key;
@@ -1051,10 +1296,29 @@ function AgentInsightCard({ insight }: { insight: AgentInsight }) {
   if (!body) return null;   // empty payloads suppress the card
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
-        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-        <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+    <div
+      className="overflow-hidden"
+      style={{
+        background: "var(--vb-canvas)",
+        border: "1px solid var(--vb-hairline)",
+        borderRadius: 16,
+      }}
+    >
+      <div
+        className="px-5 py-3.5 flex items-center gap-2"
+        style={{ borderBottom: "1px solid var(--vb-hairline-soft)" }}
+      >
+        <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--vb-mint)" }} />
+        <h3
+          style={{
+            fontFamily: "var(--vb-font-display)",
+            fontWeight: 500,
+            fontSize: 16,
+            letterSpacing: "-0.3px",
+            color: "var(--vb-ink)",
+            margin: 0,
+          }}
+        >
           {title}
         </h3>
       </div>

@@ -10,9 +10,7 @@ import {
   CheckCircle2,
   Check,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import AuthShell from "../components/AuthShell";
+import AuthShell, { VbButton, VbLabel, VbTextInput } from "../components/AuthShell";
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -71,15 +69,15 @@ export default function RegisterPage() {
   };
 
   const canSubmit =
-    formData.name &&
-    formData.email &&
-    formData.password &&
-    formData.confirmPassword &&
+    !!formData.name &&
+    !!formData.email &&
+    !!formData.password &&
+    !!formData.confirmPassword &&
     agreeToTerms &&
     !isLoading;
 
   const passwordMatch =
-    formData.password === formData.confirmPassword && formData.password;
+    formData.password === formData.confirmPassword && !!formData.password;
   const passwordStrong = formData.password.length >= 8;
 
   if (success) {
@@ -88,14 +86,30 @@ export default function RegisterPage() {
         eyebrow="Welcome"
         heading="You're in."
         subheading="Redirecting you to sign-in…"
+        variant="register"
       >
-        <div className="rounded-lg border border-slate-200 p-6 text-center bg-slate-50/50">
-          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
-          <p className="text-sm text-slate-600">
+        <div
+          className="rounded-lg p-6 text-center"
+          style={{
+            background: "var(--vb-surface-soft)",
+            border: "1px solid var(--vb-hairline)",
+          }}
+        >
+          <CheckCircle2
+            className="w-10 h-10 mx-auto mb-3"
+            style={{ color: "var(--vb-success)" }}
+          />
+          <p style={{ fontSize: 14, color: "var(--vb-body)" }}>
             Your account is ready. One moment.
           </p>
-          <div className="mt-5 w-full h-0.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-600 animate-pulse" />
+          <div
+            className="mt-5 w-full h-0.5 rounded-full overflow-hidden"
+            style={{ background: "var(--vb-hairline)" }}
+          >
+            <div
+              className="h-full animate-pulse"
+              style={{ background: "var(--vb-ink)" }}
+            />
           </div>
         </div>
       </AuthShell>
@@ -107,23 +121,30 @@ export default function RegisterPage() {
       eyebrow="Get started"
       heading="Create your account"
       subheading="Set up your workspace in under a minute."
+      variant="register"
     >
-      <form onSubmit={handleRegister} className="space-y-5">
+      <form onSubmit={handleRegister} className="flex flex-col gap-4">
         {error && (
-          <div className="flex items-start gap-2.5 p-3 bg-red-50 border border-red-100 rounded-md">
-            <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-red-600 leading-relaxed">{error}</p>
+          <div
+            className="flex items-start gap-2.5 p-3 rounded-md"
+            style={{
+              background: "color-mix(in srgb, var(--vb-error) 8%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--vb-error) 25%, transparent)",
+            }}
+          >
+            <AlertCircle
+              className="w-4 h-4 shrink-0 mt-0.5"
+              style={{ color: "var(--vb-error)" }}
+            />
+            <p className="text-xs leading-relaxed" style={{ color: "var(--vb-error)" }}>
+              {error}
+            </p>
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <label
-            htmlFor="name"
-            className="block text-xs font-medium text-slate-700"
-          >
-            Full name
-          </label>
-          <Input
+        <div className="flex flex-col gap-1.75">
+          <VbLabel>Full name</VbLabel>
+          <VbTextInput
             id="name"
             name="name"
             placeholder="Jane Doe"
@@ -131,18 +152,12 @@ export default function RegisterPage() {
             onChange={handleChange}
             required
             disabled={isLoading}
-            className="h-10"
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label
-            htmlFor="email"
-            className="block text-xs font-medium text-slate-700"
-          >
-            Work email
-          </label>
-          <Input
+        <div className="flex flex-col gap-1.75">
+          <VbLabel>Work email</VbLabel>
+          <VbTextInput
             id="email"
             name="email"
             type="email"
@@ -151,19 +166,13 @@ export default function RegisterPage() {
             onChange={handleChange}
             required
             disabled={isLoading}
-            className="h-10"
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label
-            htmlFor="password"
-            className="block text-xs font-medium text-slate-700"
-          >
-            Password
-          </label>
+        <div className="flex flex-col gap-1.75">
+          <VbLabel>Password</VbLabel>
           <div className="relative">
-            <Input
+            <VbTextInput
               id="password"
               name="password"
               type={showPassword ? "text" : "password"}
@@ -172,49 +181,49 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               disabled={isLoading}
-              className="h-10 pr-10"
+              style={{ paddingRight: 42 }}
             />
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               disabled={isLoading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 disabled:opacity-50 transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 disabled:opacity-50 transition-colors"
+              style={{ color: "var(--vb-muted-soft)" }}
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
           {formData.password && (
             <div className="flex items-center gap-1.5 pt-0.5">
-              <div className="flex-1 h-0.5 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className="flex-1 h-0.5 rounded-full overflow-hidden"
+                style={{ background: "var(--vb-hairline)" }}
+              >
                 <div
-                  className={`h-full transition-all ${
-                    passwordStrong
-                      ? "w-full bg-emerald-500"
-                      : "w-1/3 bg-amber-400"
-                  }`}
+                  className="h-full transition-all"
+                  style={{
+                    width: passwordStrong ? "100%" : "33%",
+                    background: passwordStrong
+                      ? "var(--vb-success)"
+                      : "var(--vb-warning)",
+                  }}
                 />
               </div>
-              <span className="text-[10px] text-slate-500 tabular-nums">
+              <span
+                className="tabular-nums"
+                style={{ fontSize: 10, color: "var(--vb-muted)" }}
+              >
                 {formData.password.length}/8
               </span>
             </div>
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <label
-            htmlFor="confirmPassword"
-            className="block text-xs font-medium text-slate-700"
-          >
-            Confirm password
-          </label>
+        <div className="flex flex-col gap-1.75">
+          <VbLabel>Confirm password</VbLabel>
           <div className="relative">
-            <Input
+            <VbTextInput
               id="confirmPassword"
               name="confirmPassword"
               type={showConfirm ? "text" : "password"}
@@ -223,27 +232,26 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               disabled={isLoading}
-              className="h-10 pr-10"
+              style={{ paddingRight: 42 }}
             />
             <button
               type="button"
               onClick={() => setShowConfirm((v) => !v)}
               disabled={isLoading}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 disabled:opacity-50 transition-colors"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 disabled:opacity-50 transition-colors"
+              style={{ color: "var(--vb-muted-soft)" }}
               aria-label={showConfirm ? "Hide password" : "Show password"}
             >
-              {showConfirm ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
+              {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
           {formData.confirmPassword && (
             <p
-              className={`text-[11px] flex items-center gap-1 ${
-                passwordMatch ? "text-emerald-600" : "text-red-500"
-              }`}
+              className="flex items-center gap-1"
+              style={{
+                fontSize: 11,
+                color: passwordMatch ? "var(--vb-success)" : "var(--vb-error)",
+              }}
             >
               {passwordMatch ? (
                 <>
@@ -256,52 +264,55 @@ export default function RegisterPage() {
           )}
         </div>
 
-        <label className="flex items-start gap-2 cursor-pointer text-xs text-slate-500 hover:text-slate-900 transition-colors select-none">
+        <label
+          className="flex items-start gap-2.5 cursor-pointer select-none leading-relaxed"
+          style={{ fontSize: 12, color: "var(--vb-muted)" }}
+        >
           <input
             type="checkbox"
             checked={agreeToTerms}
             onChange={(e) => setAgreeToTerms(e.target.checked)}
             disabled={isLoading}
-            className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-1 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 mt-0.5"
+            className="w-3.75 h-3.75 mt-0.5 shrink-0 cursor-pointer disabled:opacity-50"
+            style={{ accentColor: "var(--vb-ink)" }}
           />
-          <span className="leading-relaxed">
+          <span>
             I agree to the{" "}
             <Link
               to="/terms"
-              className="text-slate-900 hover:text-indigo-600 font-medium"
+              style={{ color: "var(--vb-ink)", fontWeight: 600 }}
             >
               Terms
             </Link>{" "}
             and{" "}
             <Link
               to="/privacy"
-              className="text-slate-900 hover:text-indigo-600 font-medium"
+              style={{ color: "var(--vb-ink)", fontWeight: 600 }}
             >
               Privacy Policy
             </Link>
           </span>
         </label>
 
-        <Button
-          type="submit"
-          disabled={!canSubmit}
-          className="w-full h-10 group"
-        >
+        <VbButton type="submit" disabled={!canSubmit}>
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <>
               <span>Create account</span>
-              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight className="w-4 h-4" />
             </>
           )}
-        </Button>
+        </VbButton>
 
-        <p className="text-center text-xs text-slate-500 pt-2">
+        <p
+          className="text-center"
+          style={{ fontSize: 12, color: "var(--vb-muted)", marginTop: 6 }}
+        >
           Already have an account?{" "}
           <Link
             to="/login"
-            className="text-slate-900 hover:text-indigo-600 font-medium transition-colors"
+            style={{ color: "var(--vb-ink)", fontWeight: 600 }}
           >
             Sign in
           </Link>
