@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/calendar" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1000px; margin:0 auto; padding:44px 44px 72px;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:32px;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span style="width:52px; height:52px; border-radius:16px; background:color-mix(in srgb, var(--vb-info) 12%, white); display:flex; align-items:center; justify-content:center;"><i data-lucide="calendar" style="width:24px; height:24px; color:var(--vb-info);"></i></span>
+          <div>
+            <h1 style="font-family:var(--font-display); font-weight:500; font-size:30px; letter-spacing:-1px; color:var(--vb-ink); margin:0;">Google Calendar</h1>
+            <p style="font-size:14px; color:var(--vb-muted); margin:4px 0 0;">Sync and automate your meetings.</p>
+          </div>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 16px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:600; color:var(--vb-body); cursor:pointer;"><i data-lucide="refresh-cw" style="width:15px; height:15px;"></i>Sync now</button>
+      </div>
+
+      <!-- Profile / connection card -->
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:24px; padding:28px; display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:24px;">
+        <div style="display:flex; align-items:center; gap:20px;">
+          <span style="width:64px; height:64px; border-radius:18px; background:var(--vb-pink); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:600; font-size:24px; color:#fff;">D</span>
+          <div>
+            <h2 style="font-family:var(--font-display); font-weight:500; font-size:22px; letter-spacing:-0.5px; color:var(--vb-ink); margin:0;">Dana Cho</h2>
+            <p style="font-size:14px; color:var(--vb-muted); margin:3px 0 8px;">dana@acme.com</p>
+            <span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--vb-success); background:color-mix(in srgb, var(--vb-success) 12%, white); padding:5px 11px; border-radius:999px;"><i data-lucide="check-circle-2" style="width:14px; height:14px;"></i>Connected</span>
+          </div>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 16px; background:transparent; border:1px solid var(--vb-hairline); border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:600; color:var(--vb-error); cursor:pointer;"><i data-lucide="log-out" style="width:15px; height:15px;"></i>Disconnect</button>
+      </div>
+
+      <!-- Upcoming meetings -->
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:24px; overflow:hidden;">
+        <div style="padding:24px 28px; border-bottom:1px solid var(--vb-hairline-soft); display:flex; align-items:center; justify-content:space-between;">
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0;">Upcoming meetings</h3>
+          <span style="font-size:12px; font-weight:600; color:var(--vb-muted); background:var(--vb-surface-card); padding:5px 11px; border-radius:999px;">4 events</span>
+        </div>
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="4">
+          <div style="padding:22px 28px; border-bottom:1px solid var(--vb-hairline-soft);">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:20px;">
+              <div style="flex:1;">
+                <h4 style="font-family:var(--font-display); font-weight:500; font-size:17px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 8px;">{{ e.title }}</h4>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:16px; font-size:13px; color:var(--vb-muted);">
+                  <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="calendar" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i>{{ e.date }}</span>
+                  <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="clock" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i>{{ e.time }}</span>
+                  <span style="display:inline-flex; align-items:center; gap:6px; color:var(--vb-info); font-weight:600;"><i data-lucide="video" style="width:14px; height:14px;"></i>Google Meet</span>
+                </div>
+              </div>
+              <span style="width:38px; height:38px; border-radius:12px; border:1px solid var(--vb-hairline); display:flex; align-items:center; justify-content:center; color:var(--vb-muted-soft);"><i data-lucide="external-link" style="width:16px; height:16px;"></i></span>
+            </div>
+            <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--vb-hairline-soft);">
+              <div style="display:flex; align-items:center; gap:7px; margin-bottom:10px;"><i data-lucide="users" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i><span style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted-soft);">Participants</span></div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <sc-for list="{{ e.attendees }}" as="p" hint-placeholder-count="3">
+                  <span style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; background:var(--vb-surface-card); border-radius:10px; font-size:12px; font-weight:500; color:var(--vb-body);">
+                    <span style="width:20px; height:20px; border-radius:6px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); display:inline-flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; color:var(--vb-muted);">{{ p.initial }}</span>{{ p.name }}<sc-if value="{{ p.host }}" hint-placeholder-val="{{ false }}"><span style="font-size:9px; font-weight:600; background:color-mix(in srgb, var(--vb-info) 14%, white); color:var(--vb-info); padding:2px 7px; border-radius:999px;">Host</span></sc-if>
+                  </span>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mk = (name, host) => ({ name, initial: name[0].toUpperCase(), host: !!host });
+    return {
+      events: [
+        { title: "Platform sync — Q3 roadmap", date: "Thu, Jul 10", time: "10:00 AM", attendees: [mk("Dana Cho", true), mk("Ada Lovelace"), mk("Ravi Shah"), mk("Mei Chen")] },
+        { title: "Design review — agent harness", date: "Thu, Jul 10", time: "1:30 PM", attendees: [mk("Lena Ito", true), mk("Sam Diaz"), mk("Ada Lovelace")] },
+        { title: "Customer call — Globex renewal", date: "Fri, Jul 11", time: "11:00 AM", attendees: [mk("Nina Patel", true), mk("Carl Vos")] },
+        { title: "Weekly staff meeting", date: "Mon, Jul 14", time: "4:00 PM", attendees: [mk("Dana Cho", true), mk("Nina Patel"), mk("Ravi Shah")] },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

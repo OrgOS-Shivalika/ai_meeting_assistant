@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1120px; margin:0 auto; padding:36px 44px 72px;">
+
+      <!-- Breadcrumb + header -->
+      <a href="Meetings.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:18px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>Back to meetings</a>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:8px;">
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+            <span style="font-size:11px; font-weight:600; letter-spacing:0.3px; padding:4px 9px; border-radius:999px; color:var(--vb-info); background:color-mix(in srgb, var(--vb-info) 12%, white);">Engineering</span>
+            <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:4px 9px; border-radius:999px; color:var(--vb-success); background:color-mix(in srgb, var(--vb-success) 12%, white);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Completed</span>
+          </div>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:32px; letter-spacing:-1px; color:var(--vb-ink); margin:0;">Platform sync — Q3 roadmap</h1>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin-top:12px; font-size:13px; color:var(--vb-muted);">
+            <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="calendar" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i>Jul 8, 2026 · 10:00 AM</span>
+            <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="video" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i>Google Meet</span>
+            <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="clock" style="width:14px; height:14px; color:var(--vb-muted-soft);"></i>48 min</span>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button style="display:inline-flex; align-items:center; gap:7px; height:40px; padding:0 15px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:600; color:var(--vb-body); cursor:pointer;"><i data-lucide="share-2" style="width:15px; height:15px;"></i>Share</button>
+          <button style="display:inline-flex; align-items:center; gap:7px; height:40px; padding:0 15px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:500; cursor:pointer;"><i data-lucide="download" style="width:15px; height:15px;"></i>Export</button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex; gap:4px; margin:24px 0 24px; border-bottom:1px solid var(--vb-hairline);">
+        <span style="padding:10px 4px; margin-right:20px; font-size:14px; font-weight:600; color:var(--vb-ink); border-bottom:2px solid var(--vb-ink);">Summary</span>
+        <span style="padding:10px 4px; margin-right:20px; font-size:14px; font-weight:500; color:var(--vb-muted);">Transcript</span>
+        <span style="padding:10px 4px; margin-right:20px; font-size:14px; font-weight:500; color:var(--vb-muted);">Tasks</span>
+        <span style="padding:10px 4px; font-size:14px; font-weight:500; color:var(--vb-muted);">Participants</span>
+      </div>
+
+      <!-- Two-column -->
+      <div style="display:grid; grid-template-columns:1fr 320px; gap:28px; align-items:start;">
+
+        <!-- Main -->
+        <div style="display:flex; flex-direction:column; gap:24px;">
+          <!-- Summary card -->
+          <div style="background:var(--vb-surface-card); border-radius:20px; padding:28px;">
+            <div style="display:flex; align-items:center; gap:9px; margin-bottom:14px;"><i data-lucide="sparkles" style="width:16px; height:16px; color:var(--vb-lavender);"></i><span style="font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted);">AI summary</span></div>
+            <p style="font-size:15px; line-height:1.65; color:var(--vb-body-strong); margin:0;">The team aligned on the Q3 migration timeline, agreeing to ship the ingestion rewrite in two phases with a dark-launch behind a flag. Ownership was split between the platform and search pods. The main open risk is the connection-pool leak surfaced in last week's incident, which must be resolved before the phase-two cutover.</p>
+          </div>
+
+          <!-- Key decisions -->
+          <div>
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 14px;">Key decisions</h3>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; gap:12px; padding:16px 18px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:14px;"><i data-lucide="check-circle-2" style="width:18px; height:18px; color:var(--vb-success); flex-shrink:0; margin-top:1px;"></i><p style="font-size:14px; line-height:1.5; color:var(--vb-body); margin:0;">Ship the ingestion rewrite in two phases; dark-launch phase one behind a feature flag.</p></div>
+              <div style="display:flex; gap:12px; padding:16px 18px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:14px;"><i data-lucide="check-circle-2" style="width:18px; height:18px; color:var(--vb-success); flex-shrink:0; margin-top:1px;"></i><p style="font-size:14px; line-height:1.5; color:var(--vb-body); margin:0;">Platform pod owns ingestion; search pod owns the reranking migration.</p></div>
+              <div style="display:flex; gap:12px; padding:16px 18px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:14px;"><i data-lucide="check-circle-2" style="width:18px; height:18px; color:var(--vb-success); flex-shrink:0; margin-top:1px;"></i><p style="font-size:14px; line-height:1.5; color:var(--vb-body); margin:0;">Block the phase-two cutover until the connection-pool leak is fixed.</p></div>
+            </div>
+          </div>
+
+          <!-- Transcript preview -->
+          <div>
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 14px;">Transcript</h3>
+            <div style="display:flex; flex-direction:column; gap:18px;">
+              <sc-for list="{{ transcript }}" as="turn" hint-placeholder-count="4">
+                <div style="display:flex; gap:12px;">
+                  <span style="width:32px; height:32px; border-radius:10px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:#fff; background:{{ turn.color }};">{{ turn.initials }}</span>
+                  <div style="flex:1;">
+                    <div style="display:flex; align-items:baseline; gap:9px; margin-bottom:4px;"><span style="font-size:13px; font-weight:600; color:var(--vb-ink);">{{ turn.name }}</span><span style="font-family:var(--font-mono); font-size:11px; color:var(--vb-muted-soft);">{{ turn.time }}</span></div>
+                    <p style="font-size:14px; line-height:1.55; color:var(--vb-body); margin:0;">{{ turn.text }}</p>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right rail -->
+        <div style="display:flex; flex-direction:column; gap:20px; position:sticky; top:0;">
+          <!-- Tasks -->
+          <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;"><h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0;">Action items</h3><span style="font-size:11px; font-weight:600; color:var(--vb-muted); background:var(--vb-surface-card); padding:3px 9px; border-radius:999px;">3</span></div>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; gap:10px;"><span style="width:16px; height:16px; border-radius:5px; border:2px solid var(--vb-hairline); flex-shrink:0; margin-top:1px;"></span><div><p style="font-size:13px; line-height:1.4; color:var(--vb-body); margin:0 0 4px;">Draft the migration timeline</p><span style="font-size:11px; color:var(--vb-muted);">Ada Lovelace · <span style="color:var(--vb-warning);">Jul 12</span></span></div></div>
+              <div style="display:flex; gap:10px;"><span style="width:16px; height:16px; border-radius:5px; border:2px solid var(--vb-hairline); flex-shrink:0; margin-top:1px;"></span><div><p style="font-size:13px; line-height:1.4; color:var(--vb-body); margin:0 0 4px;">Add p99 latency alerting</p><span style="font-size:11px; color:var(--vb-muted);">Ravi Shah · <span style="color:var(--vb-warning);">Jul 12</span></span></div></div>
+              <div style="display:flex; gap:10px;"><span style="width:16px; height:16px; border-radius:5px; border:2px solid var(--vb-warning); flex-shrink:0; margin-top:1px;"></span><div><p style="font-size:13px; line-height:1.4; color:var(--vb-body); margin:0 0 4px;">Spike the flag rollout plan</p><span style="font-size:11px; color:var(--vb-warning);">Unassigned</span></div></div>
+            </div>
+          </div>
+
+          <!-- Participants -->
+          <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;"><h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0;">Participants</h3><span style="font-size:11px; font-weight:600; color:var(--vb-muted); background:var(--vb-surface-card); padding:3px 9px; border-radius:999px;">4</span></div>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <sc-for list="{{ participants }}" as="p" hint-placeholder-count="4">
+                <div style="display:flex; align-items:center; gap:11px;"><span style="width:30px; height:30px; border-radius:9px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:#fff; background:{{ p.color }};">{{ p.initials }}</span><div><div style="font-size:13px; font-weight:500; color:var(--vb-ink);">{{ p.name }}</div><div style="font-size:11px; color:var(--vb-muted);">{{ p.role }}</div></div></div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- Memory status -->
+          <div style="background:var(--vb-surface-dark); border-radius:16px; padding:18px 20px; color:var(--vb-on-ink);">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;"><i data-lucide="brain" style="width:15px; height:15px; color:var(--vb-lavender);"></i><span style="font-size:12px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:var(--vb-on-ink-soft);">Memory</span></div>
+            <div style="display:flex; flex-direction:column; gap:8px; font-size:12px; color:var(--vb-on-ink-soft);">
+              <div style="display:flex; align-items:center; gap:8px;"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Embedded into knowledge base</div>
+              <div style="display:flex; align-items:center; gap:8px;"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Added to knowledge graph</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    const C = ["var(--vb-pink)","var(--vb-info)","var(--vb-ochre)","var(--vb-coral)"];
+    const ppl = [["Ada Lovelace","Platform lead"],["Ravi Shah","Backend"],["Mei Chen","Search"],["Dana Cho","EM"]];
+    const participants = ppl.map((p, i) => ({ name: p[0], role: p[1], initials: p[0].split(" ").map(w=>w[0]).join(""), color: C[i%C.length] }));
+    const t = [
+      ["Ada Lovelace","10:02","Let's start with the migration. I want us to commit to a two-phase plan so we're not doing a big-bang cutover."],
+      ["Ravi Shah","10:04","Agreed. Phase one behind a flag, dark-launched. But we can't move to phase two until the pool leak is fixed — that's what bit us last week."],
+      ["Mei Chen","10:06","Search side is ready whenever ingestion is. The reranking migration is decoupled, so we can run them in parallel."],
+      ["Dana Cho","10:08","Good. Ada owns ingestion, Mei owns reranking. Ravi, can you take the alerting so we catch the leak early next time?"],
+    ];
+    const transcript = t.map((r) => {
+      const p = participants.find(x => x.name === r[0]);
+      return { name: r[0], time: r[1], text: r[2], initials: p.initials, color: p.color };
+    });
+    return { participants, transcript };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/agent-control" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1100px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:24px;">
+        <div>
+          <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Intelligence</p>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Agents</h1>
+          <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">The harness runtime — what's running, and how it's behaving.</p>
+        </div>
+      </header>
+
+      <!-- Tabs -->
+      <div style="display:flex; gap:24px; margin-bottom:28px; border-bottom:1px solid var(--vb-hairline);">
+        <span style="padding:10px 2px; font-size:14px; font-weight:600; color:var(--vb-ink); border-bottom:2px solid var(--vb-ink);">Overview</span>
+        <a href="Harness Runs.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Runs</a>
+        <a href="Harness Metrics.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Metrics</a>
+        <a href="Agent Profiles.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Profiles</a>
+      </div>
+
+      <!-- Live status band -->
+      <div style="background:var(--vb-surface-dark); border-radius:20px; padding:24px 28px; color:var(--vb-on-ink); margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <span style="width:44px; height:44px; border-radius:13px; background:rgba(255,255,255,0.1); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="activity" style="width:20px; height:20px; color:var(--vb-mint);"></i></span>
+          <div><div style="font-family:var(--font-display); font-weight:500; font-size:18px;">Harness healthy</div><div style="font-size:13px; color:var(--vb-on-ink-soft); margin-top:2px;">3 agents live · 12 runs today · last run 4 min ago</div></div>
+        </div>
+        <div style="display:flex; gap:28px;">
+          <div><div style="font-family:var(--font-mono); font-size:22px; font-weight:500; color:var(--vb-mint);">99.2%</div><div style="font-size:11px; color:var(--vb-on-ink-soft); margin-top:3px;">Success rate</div></div>
+          <div><div style="font-family:var(--font-mono); font-size:22px; font-weight:500;">1.8s</div><div style="font-size:11px; color:var(--vb-on-ink-soft); margin-top:3px;">Median latency</div></div>
+          <div><div style="font-family:var(--font-mono); font-size:22px; font-weight:500;">$4.20</div><div style="font-size:11px; color:var(--vb-on-ink-soft); margin-top:3px;">Spend today</div></div>
+        </div>
+      </div>
+
+      <!-- Agent cards -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">
+        <sc-for list="{{ agents }}" as="a" hint-placeholder-count="3">
+          <a href="Agent Detail.dc.html" style="display:block; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:18px; padding:22px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+              <span style="width:40px; height:40px; border-radius:12px; background:{{ a.chipBg }}; display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="{{ a.icon }}" style="width:18px; height:18px; color:{{ a.color }};"></i></span>
+              <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:{{ a.stColor }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ a.stColor }};"></span>{{ a.state }}</span>
+            </div>
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:17px; color:var(--vb-ink); margin:0 0 5px;">{{ a.name }}</h3>
+            <p style="font-size:13px; line-height:1.5; color:var(--vb-muted); margin:0 0 16px; min-height:38px;">{{ a.desc }}</p>
+            <div style="display:flex; align-items:center; gap:16px; padding-top:14px; border-top:1px solid var(--vb-hairline-soft); font-family:var(--font-mono); font-size:11px; color:var(--vb-muted);">
+              <span>{{ a.runs }} runs</span><span>{{ a.success }} success</span>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mix = (v) => `color-mix(in srgb, ${v} 12%, white)`;
+    const raw = [
+      { name: "Summarizer", icon: "file-text", color: "var(--vb-info)", desc: "Turns raw transcripts into summaries, decisions and risks.", state: "Idle", ok: true, runs: 412, success: "99.5%" },
+      { name: "Task router", icon: "check-square", color: "var(--vb-pink)", desc: "Extracts action items and assigns owners from context.", state: "Running", ok: null, runs: 388, success: "98.1%" },
+      { name: "Graph extractor", icon: "network", color: "var(--vb-lavender)", desc: "Pulls entities and relationships into the knowledge graph.", state: "Idle", ok: true, runs: 401, success: "99.8%" },
+    ];
+    return { agents: raw.map(a => ({ ...a, chipBg: mix(a.color),
+      stColor: a.state === "Running" ? "var(--vb-info)" : "var(--vb-success)" })) };
+  }
+}
+</script>
+</body>
+</html>

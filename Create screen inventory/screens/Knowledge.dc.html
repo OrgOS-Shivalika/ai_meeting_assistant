@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/knowledge-hub" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1100px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:28px;">
+        <div>
+          <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Intelligence</p>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Knowledge</h1>
+          <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">Documents and meeting memory the agents draw on to answer.</p>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 18px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;"><i data-lucide="upload" style="width:16px; height:16px;"></i>Upload</button>
+      </header>
+
+      <!-- Search -->
+      <div style="position:relative; margin-bottom:28px; max-width:480px;">
+        <i data-lucide="search" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:var(--vb-muted-soft);"></i>
+        <input type="text" placeholder="Search documents…" style="width:100%; box-sizing:border-box; padding:12px 14px 12px 42px; font-family:var(--font-sans); font-size:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; color:var(--vb-ink); outline:none;" />
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px;">
+        <sc-for list="{{ docs }}" as="d" hint-placeholder-count="6">
+          <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+            <div style="display:flex; align-items:flex-start; gap:14px;">
+              <span style="width:44px; height:44px; border-radius:12px; flex-shrink:0; background:{{ d.chipBg }}; display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="{{ d.icon }}" style="width:20px; height:20px; color:{{ d.color }};"></i></span>
+              <div style="flex:1; min-width:0;">
+                <h3 style="font-size:15px; font-weight:600; color:var(--vb-ink); margin:0 0 4px; line-height:1.35;">{{ d.title }}</h3>
+                <p style="font-size:12px; color:var(--vb-muted); margin:0;">{{ d.meta }}</p>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:16px; padding-top:14px; border-top:1px solid var(--vb-hairline-soft);">
+              <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:{{ d.statusColor }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ d.statusColor }};"></span>{{ d.status }}</span>
+              <span style="font-size:11px; color:var(--vb-muted-soft); margin-left:auto; font-family:var(--font-mono);">{{ d.chunks }} chunks</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mix = (v) => `color-mix(in srgb, ${v} 12%, white)`;
+    const raw = [
+      { title: "Q3 Platform Migration RFC", meta: "PDF · added Jul 2 · Ada Lovelace", icon: "file-text", color: "var(--vb-info)", status: "Indexed", ok: true, chunks: 42 },
+      { title: "Globex Master Service Agreement", meta: "DOCX · added Jun 28 · Nina Patel", icon: "file", color: "var(--vb-pink)", status: "Indexed", ok: true, chunks: 88 },
+      { title: "Pricing experiment results", meta: "XLSX · added Jul 5 · Dana Cho", icon: "table", color: "var(--vb-ochre)", status: "Indexed", ok: true, chunks: 19 },
+      { title: "Product launch plan — v3", meta: "PDF · added Jul 7 · Lena Ito", icon: "file-text", color: "var(--vb-lavender)", status: "Processing", ok: false, chunks: 0 },
+      { title: "Security review checklist", meta: "PDF · added Jun 30 · Ravi Shah", icon: "file-text", color: "var(--vb-coral)", status: "Indexed", ok: true, chunks: 27 },
+      { title: "Onboarding runbook", meta: "DOCX · added Jul 1 · Sam Diaz", icon: "file", color: "var(--vb-mint)", status: "Indexed", ok: true, chunks: 34 },
+    ];
+    return { docs: raw.map(d => ({ ...d, chipBg: mix(d.color),
+      statusColor: d.ok ? "var(--vb-success)" : "var(--vb-warning)" })) };
+  }
+}
+</script>
+</body>
+</html>

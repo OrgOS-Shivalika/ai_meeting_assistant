@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body); overflow:hidden;">
+  <dc-import name="Sidebar" active="/boards" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+
+    <!-- Board header -->
+    <div style="padding:28px 36px 0; flex-shrink:0;">
+      <a href="Boards.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:12px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>All boards</a>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:20px;">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <span style="width:40px; height:40px; border-radius:12px; background:color-mix(in srgb, var(--vb-info) 12%, white); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="layout-grid" style="width:19px; height:19px; color:var(--vb-info);"></i></span>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:26px; letter-spacing:-0.8px; color:var(--vb-ink); margin:0;">Q3 Platform</h1>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex;">
+            <span style="width:28px; height:28px; border-radius:8px; margin-left:-4px; border:2px solid var(--vb-canvas); background:var(--vb-pink); display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; color:#fff;">AL</span>
+            <span style="width:28px; height:28px; border-radius:8px; margin-left:-4px; border:2px solid var(--vb-canvas); background:var(--vb-info); display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; color:#fff;">RS</span>
+            <span style="width:28px; height:28px; border-radius:8px; margin-left:-4px; border:2px solid var(--vb-canvas); background:var(--vb-ochre); display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; color:#fff;">MC</span>
+          </div>
+          <button style="display:inline-flex; align-items:center; gap:7px; height:38px; padding:0 15px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:500; cursor:pointer;"><i data-lucide="plus" style="width:15px; height:15px;"></i>Add card</button>
+        </div>
+      </div>
+      <div style="display:flex; gap:24px; margin-top:20px; border-bottom:1px solid var(--vb-hairline);">
+        <span style="padding:10px 2px; font-size:14px; font-weight:600; color:var(--vb-ink); border-bottom:2px solid var(--vb-ink);">Board</span>
+        <a href="Board Summary.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Summary</a>
+      </div>
+    </div>
+
+    <!-- Columns -->
+    <div style="flex:1; overflow-x:auto; overflow-y:hidden; padding:24px 36px;">
+      <div style="display:flex; gap:16px; height:100%; align-items:flex-start;">
+        <sc-for list="{{ columns }}" as="col" hint-placeholder-count="4">
+          <div style="width:300px; flex-shrink:0; background:var(--vb-surface-soft); border-radius:16px; padding:14px; max-height:100%; display:flex; flex-direction:column;">
+            <div style="display:flex; align-items:center; gap:9px; padding:4px 6px 12px;">
+              <span style="width:9px; height:9px; border-radius:50%; background:{{ col.color }};"></span>
+              <span style="font-size:13px; font-weight:600; color:var(--vb-ink);">{{ col.name }}</span>
+              <span style="font-size:11px; font-weight:600; color:var(--vb-muted); background:var(--vb-canvas); padding:2px 8px; border-radius:999px;">{{ col.count }}</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto;">
+              <sc-for list="{{ col.cards }}" as="card" hint-placeholder-count="3">
+                <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; padding:14px; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                  <sc-if value="{{ card.tag }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; font-size:10px; font-weight:600; letter-spacing:0.3px; padding:3px 8px; border-radius:6px; margin-bottom:9px; color:{{ card.tagColor }}; background:{{ card.tagBg }};">{{ card.tag }}</span></sc-if>
+                  <p style="font-size:13px; line-height:1.45; color:var(--vb-ink); margin:0 0 12px; font-weight:500;">{{ card.title }}</p>
+                  <div style="display:flex; align-items:center; justify-content:space-between;">
+                    <span style="display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:10px; color:var(--vb-muted);"><i data-lucide="calendar" style="width:11px; height:11px;"></i>{{ card.due }}</span>
+                    <span style="width:22px; height:22px; border-radius:7px; background:{{ card.avColor }}; display:inline-flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; color:#fff;">{{ card.initials }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}">
+class Component extends DCLogic {
+  renderVals() {
+    const AV = { AL: "var(--vb-pink)", RS: "var(--vb-info)", MC: "var(--vb-ochre)", DC: "var(--vb-coral)" };
+    const TAG = {
+      bug: { color: "var(--vb-error)", bg: "color-mix(in srgb, var(--vb-error) 10%, white)" },
+      feat: { color: "var(--vb-info)", bg: "color-mix(in srgb, var(--vb-info) 10%, white)" },
+      chore: { color: "var(--vb-ochre)", bg: "color-mix(in srgb, var(--vb-ochre) 14%, white)" },
+    };
+    const card = (title, tag, due, who) => {
+      const t = tag ? TAG[tag] : null;
+      return { title, tag: tag ? tag.toUpperCase() : "", tagColor: t?t.color:"", tagBg: t?t.bg:"", due, initials: who, avColor: AV[who] };
+    };
+    const columns = [
+      { name: "Backlog", color: "var(--vb-muted-soft)", cards: [
+        card("Spike: flag rollout framework", "feat", "Jul 18", "AL"),
+        card("Audit connection-pool config", "chore", "Jul 15", "RS"),
+        card("Draft phase-two cutover doc", null, "Jul 20", "MC"),
+      ]},
+      { name: "In progress", color: "var(--vb-info)", cards: [
+        card("Ingestion rewrite — phase one", "feat", "Jul 12", "AL"),
+        card("Fix p99 latency leak", "bug", "Jul 12", "RS"),
+      ]},
+      { name: "Review", color: "var(--vb-ochre)", cards: [
+        card("Cross-encoder eval harness", "feat", "Jul 11", "MC"),
+        card("Alerting dashboard", "chore", "Jul 10", "RS"),
+      ]},
+      { name: "Done", color: "var(--vb-success)", cards: [
+        card("Migration RFC sign-off", null, "Jul 8", "DC"),
+        card("Incident retro write-up", null, "Jul 6", "RS"),
+      ]},
+    ];
+    return { columns: columns.map(c => ({ ...c, count: c.cards.length })) };
+  }
+}
+</script>
+</body>
+</html>
