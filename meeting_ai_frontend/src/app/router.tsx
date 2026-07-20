@@ -29,6 +29,7 @@ import BoardLayout from "../features/kanban/pages/BoardLayout";
 import BoardPage from "../features/kanban/pages/BoardPage";
 import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
 import SettingsPage from "../features/settings/pages/SettingsPage";
+import ContinuumBoardPage from "../features/continuum/pages/ContinuumBoardPage";
 
 export const router = createBrowserRouter([
   {
@@ -137,6 +138,12 @@ export const router = createBrowserRouter([
       {
         path: "/boards",
         element: <BoardListPage />,
+      },
+      {
+        // Continuum Core — special client-stage board. Static segment,
+        // so it wins over the dynamic /board/:id route below.
+        path: "/board/continuum",
+        element: <ContinuumBoardPage />,
       },
       {
         // Phase 14 — nested routes. BoardLayout owns Layout + the

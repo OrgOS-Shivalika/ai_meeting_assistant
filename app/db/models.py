@@ -3363,3 +3363,266 @@ class ClosingBriefing(Base):
     )
     organization = relationship("Organization")
     meeting = relationship("Meeting", back_populates="closing_briefing")
+
+
+# =====================================================================
+# Agents v2 — per-team agent registry (see AGENTS_V2_PLAN.md).
+# Each row = one agent scoped to (org) or (org, cat) or (org, cat, team).
+# Manifest defaults live in code; DB row overrides win when non-empty.
+# =====================================================================
+
+class AgentV2(Base):
+    __tablename__ = "agents_v2"
+
+    id = Column(BigInteger, primary_key=True)
+    slug = Column(Text, nullable=False, index=True)
+
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    category_id = Column(
+        BigInteger, ForeignKey("categories.id", ondelete="CASCADE"), nullable=True,
+    )
+    team_id = Column(
+        BigInteger, ForeignKey("teams.id", ondelete="CASCADE"), nullable=True,
+    )
+    parent_id = Column(
+        BigInteger, ForeignKey("agents_v2.id", ondelete="SET NULL"), nullable=True,
+    )
+
+    name = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active", server_default="active")
+
+    # Override columns — empty = use manifest defaults, non-empty = wins.
+    allowed_skills = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    allowed_tools = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    system_prompt_key = Column(Text, nullable=False, default="master.md", server_default="master.md")
+    model = Column(Text, nullable=False, default="gpt-4o-mini", server_default="gpt-4o-mini")
+    max_tokens = Column(Integer, nullable=False, default=4000, server_default="4000")
+    harness_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    # LLM sampling params — NULL = use manifest / model default.
+    # DB range CHECKs enforce OpenAI's valid ranges.
+    temperature = Column(Float, nullable=True)
+    top_p = Column(Float, nullable=True)
+    frequency_penalty = Column(Float, nullable=True)
+    presence_penalty = Column(Float, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+
+class AgentPrompt(Base):
+    """Versioned prompt storage. One active row per (agent_id, prompt_key).
+    Every edit inserts a NEW row and flips the previous active off.
+    Full history is kept for audit + rollback."""
+    __tablename__ = "agent_prompts"
+
+    id = Column(BigInteger, primary_key=True)
+    agent_id = Column(
+        BigInteger,
+        ForeignKey("agents_v2.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version = Column(Integer, nullable=False)
+    prompt_key = Column(Text, nullable=False, default="master.md", server_default="master.md")
+    prompt_text = Column(Text, nullable=False)
+    prompt_hash = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    notes = Column(Text, nullable=True)
+
+
+class AgentInsight(Base):
+    """Per-meeting insight payloads produced by a secondary agent prompt.
+
+    Primary extraction (tasks / facts / summary) still flows through the
+    generic pipeline. This table holds agent-specific artifacts that
+    don't fit `ExtractionSummary` — e.g. training gaps + coaching
+    moments for the HR L&D agent.
+
+    One row per (meeting, agent, prompt_key). Re-running an insight
+    prompt overwrites the previous row via upsert.
+    """
+    __tablename__ = "agent_insights"
+
+    id = Column(BigInteger, primary_key=True)
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_id = Column(
+        BigInteger,
+        ForeignKey("agents_v2.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    prompt_key = Column(Text, nullable=False)
+    prompt_version = Column(Integer, nullable=True)
+    prompt_hash = Column(Text, nullable=True)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+
+class ContinuumClient(Base):
+    """Continuum Core meeting agent — one row per consulting client.
+
+    Each client is 1:1-linked to a Team under the org's "Continuum Core"
+    category — the team is the meeting-routing key (a meeting recorded
+    under the team auto-updates this client's board). The kanban stage
+    view reads `board["pipeline"]["stage"]`.
+
+    `board` is the persistent Client Board JSON (Section 5 of the
+    Continuum prompt), LLM-rewritten every MODE A run, `board_version`
+    incremented. Stage moves are human-confirmed: the agent only writes
+    `latest_recommendation`; the PATCH /stage endpoint (drag on the
+    kanban) is what actually changes `board.pipeline.stage`.
+    """
+    __tablename__ = "cc_clients"
+
+    id = Column(BigInteger, primary_key=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # SET NULL (not CASCADE): deleting the team must never delete the
+    # client's accumulated board. App code always sets this on create.
+    team_id = Column(
+        Integer,
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    name = Column(String, nullable=False)
+    board = Column(JSONB, nullable=True)
+    board_version = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    # {"recommended_stage": "...", "rationale": "..."} from the latest
+    # MODE A run, or null. Cleared on human stage confirmation.
+    latest_recommendation = Column(JSONB, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_cc_client_org_name"),
+    )
+
+
+class ContinuumAgentConfig(Base):
+    """Per-org runtime controls for the Continuum agent (Control Panel).
+
+    One row per org; absent row / NULL column = use the built-in default
+    (settings.CONTINUUM_MODEL, no token cap, model-default temperature,
+    prompt.md from disk). `system_prompt_override` replaces the master
+    prompt wholesale — the service re-appends the Section 14 response
+    contract if the override lost it, so a bad edit can't break JSON
+    parsing.
+    """
+    __tablename__ = "cc_agent_config"
+
+    id = Column(BigInteger, primary_key=True)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    model = Column(String, nullable=True)
+    max_tokens = Column(Integer, nullable=True)
+    temperature = Column(Float, nullable=True)
+    system_prompt_override = Column(Text, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+
+class ContinuumRun(Base):
+    """One row per Continuum agent invocation (MODE A process or MODE B
+    brief). Keeps the full input envelope and output package so board
+    history is never lost — the board on cc_clients is LLM-rewritten
+    each run; this table is the undo/audit trail.
+
+    `meeting_id` is set when the run was auto-triggered by a recorded
+    meeting (null for manual paste / briefs). The partial unique index
+    guarantees a meeting is never processed into a board twice.
+    """
+    __tablename__ = "cc_runs"
+
+    id = Column(BigInteger, primary_key=True)
+    client_id = Column(
+        BigInteger,
+        ForeignKey("cc_clients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    meeting_id = Column(
+        Integer,
+        ForeignKey("meetings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    mode = Column(String, nullable=False)  # process | brief
+    model = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="completed")  # completed | failed
+    input_envelope = Column(JSONB, nullable=True)
+    package_markdown = Column(Text, nullable=True)
+    board_after = Column(JSONB, nullable=True)      # MODE A only
+    board_version_after = Column(Integer, nullable=True)
+    stage_recommendation = Column(JSONB, nullable=True)
+    playbook_delta = Column(JSONB, nullable=True)   # stored for later; not yet consumed
+    error_message = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        # A meeting may only ever have ONE completed process run.
+        Index(
+            "uq_cc_run_meeting_completed",
+            "meeting_id",
+            unique=True,
+            postgresql_where=text("meeting_id IS NOT NULL AND status = 'completed'"),
+        ),
+    )

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fetchMeetingById, updateMeeting, updateTask } from "../api";
+import { apiClient } from "../../../services/apiClient";
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components/Skeleton";
 import CategoryAssignControl from "../components/CategoryAssignControl";
@@ -34,6 +35,21 @@ import {
 
 type TaskOverride = Partial<Omit<Task, "owner">> & {
   owner?: string | null;
+};
+
+type AgentInsight = {
+  id: number;
+  agent_id: number;
+  agent_slug: string;
+  agent_name: string;
+  prompt_key: string;
+  prompt_version: number | null;
+  // Shape depends on prompt_key — dispatched in AgentInsightCard.
+  // Kept as `any` here since the concrete shape belongs to each
+  // skill's renderer, not the fetch call.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload: any;
+  created_at_iso: string;
 };
 
 type TranscriptGroup = {
@@ -176,6 +192,7 @@ export default function MeetingDetailPage() {
   // so the meeting content (transcript, tasks) gets the full visual focus.
   // Cmd+K toggles, ? opens, Esc closes (wired inside the panel).
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [agentInsights, setAgentInsights] = useState<AgentInsight[]>([]);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
@@ -269,6 +286,16 @@ export default function MeetingDetailPage() {
     if (!meeting?.transcript) return;
     seed(parseStoredTranscript(meeting.transcript));
   }, [meeting?.transcript, seed]);
+
+  // Agent insights (agents_v2). Empty for legacy-pipeline meetings.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    apiClient(`/agents_v2/meetings/${id}/insights`)
+      .then((rows) => { if (!cancelled) setAgentInsights(rows as AgentInsight[]); })
+      .catch((err) => console.warn("Agent insights unavailable:", err));
+    return () => { cancelled = true; };
+  }, [id]);
 
   useEffect(() => {
     const container = transcriptContainerRef.current;
@@ -724,6 +751,14 @@ export default function MeetingDetailPage() {
               </div>
             </div>
 
+            {/* Agent insights (agents_v2 side-effect output) — ordered by
+                the SKILL_ORDER map below so blockers/key-moments rank
+                above softer signals. Unknown prompt_keys render as
+                collapsible JSON. */}
+            {sortInsights(agentInsights).map((ins) => (
+              <AgentInsightCard key={ins.id} insight={ins} />
+            ))}
+
             {/* Tasks */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
               <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
@@ -980,5 +1015,327 @@ export default function MeetingDetailPage() {
         )}
       </div>
     </Layout>
+  );
+}
+
+// Higher = shown first. Missing keys sort to the bottom.
+const SKILL_ORDER: Record<string, number> = {
+  "blocker_detector": 100,
+  "key_moments_extractor": 90,
+  "commitment_watcher": 80,
+  "insights.md": 70,             // legacy L&D four-bucket
+  "followup_drafter": 60,
+  "participant_sentiment": 50,
+};
+
+function sortInsights(items: AgentInsight[]): AgentInsight[] {
+  return [...items].sort(
+    (a, b) => (SKILL_ORDER[b.prompt_key] ?? 0) - (SKILL_ORDER[a.prompt_key] ?? 0),
+  );
+}
+
+const SKILL_TITLE: Record<string, string> = {
+  "blocker_detector": "Blockers",
+  "key_moments_extractor": "Key Moments",
+  "commitment_watcher": "Commitments",
+  "insights.md": "L&D Insights",
+  "followup_drafter": "Follow-up Draft",
+  "participant_sentiment": "Participant Sentiment",
+};
+
+function AgentInsightCard({ insight }: { insight: AgentInsight }) {
+  const { prompt_key, payload } = insight;
+  const title = SKILL_TITLE[prompt_key] || prompt_key;
+
+  const body = renderInsightBody(prompt_key, payload);
+  if (!body) return null;   // empty payloads suppress the card
+
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+        <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+          {title}
+        </h3>
+      </div>
+      <div className="px-5 py-4">{body}</div>
+    </div>
+  );
+}
+
+// Returns null when payload has no items to show (so the card is hidden entirely).
+function renderInsightBody(promptKey: string, payload: any): ReactNode {
+  switch (promptKey) {
+    case "insights.md":
+      return renderLDInsights(payload);
+    case "blocker_detector":
+      return renderBlockers(payload);
+    case "commitment_watcher":
+      return renderCommitments(payload);
+    case "key_moments_extractor":
+      return renderKeyMoments(payload);
+    case "participant_sentiment":
+      return renderSentiment(payload);
+    case "followup_drafter":
+      return renderFollowup(payload);
+    default:
+      return renderUnknown(payload);
+  }
+}
+
+function renderLDInsights(payload: any) {
+  const gaps = payload?.training_gaps ?? [];
+  const coaching = payload?.coaching_moments ?? [];
+  const requests = payload?.skill_development_requests ?? [];
+  const debrief = payload?.facilitator_debrief ?? [];
+  if (!gaps.length && !coaching.length && !requests.length && !debrief.length) return null;
+  return (
+    <div className="space-y-4">
+      {gaps.length > 0 && (
+        <InsightList
+          label="Training gaps"
+          items={gaps.map((g: any) => ({
+            primary: g.description,
+            secondary: g.affected_person ? `Affected: ${g.affected_person}` : null,
+          }))}
+        />
+      )}
+      {coaching.length > 0 && (
+        <InsightList
+          label="Coaching moments"
+          items={coaching.map((c: any) => ({
+            primary: c.description,
+            secondary: [
+              c.delivered_by ? `From: ${c.delivered_by}` : null,
+              c.received_by ? `To: ${c.received_by}` : null,
+              c.tone,
+            ].filter(Boolean).join(" · "),
+          }))}
+        />
+      )}
+      {requests.length > 0 && (
+        <InsightList
+          label="Skill development requests"
+          items={requests.map((r: any) => ({
+            primary: r.skill,
+            secondary: r.learner ? `Learner: ${r.learner}` : null,
+          }))}
+        />
+      )}
+      {debrief.length > 0 && (
+        <InsightList
+          label="Facilitator debrief"
+          items={debrief.map((d: any) => ({
+            primary: d.observation,
+            secondary: (d.category || "").replace(/_/g, " "),
+          }))}
+        />
+      )}
+    </div>
+  );
+}
+
+function renderBlockers(payload: any) {
+  const blockers = payload?.blockers ?? [];
+  if (!blockers.length) return null;
+  return (
+    <ul className="space-y-3">
+      {blockers.map((b: any, i: number) => (
+        <li key={i} className="flex items-start gap-2.5">
+          <span className="w-1 h-1 bg-red-600 rounded-full mt-2 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[13px] text-slate-700 leading-relaxed">
+              {b.speaker && <span className="font-medium">{b.speaker}: </span>}
+              {b.blocked_on}
+              {b.waiting_on && (
+                <span className="text-slate-500"> — waiting on {b.waiting_on}</span>
+              )}
+            </p>
+            {b.evidence && (
+              <p className="text-[11px] text-slate-500 mt-0.5 italic">
+                "{b.evidence}"
+              </p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function renderCommitments(payload: any) {
+  const delivered = payload?.delivered ?? [];
+  const atRisk = payload?.at_risk ?? [];
+  const fresh = payload?.new_commitment ?? [];
+  if (!delivered.length && !atRisk.length && !fresh.length) return null;
+  return (
+    <div className="space-y-4">
+      {delivered.length > 0 && (
+        <InsightList
+          label="Delivered"
+          items={delivered.map((d: any) => ({
+            primary: d.task,
+            secondary: d.owner ? `by ${d.owner}` : null,
+          }))}
+        />
+      )}
+      {atRisk.length > 0 && (
+        <InsightList
+          label="At risk"
+          items={atRisk.map((d: any) => ({
+            primary: d.task,
+            secondary: [d.owner, d.reason].filter(Boolean).join(" · "),
+          }))}
+        />
+      )}
+      {fresh.length > 0 && (
+        <InsightList
+          label="New commitment"
+          items={fresh.map((d: any) => ({
+            primary: d.commitment,
+            secondary: [d.owner, d.related_task ? `re: ${d.related_task}` : null]
+              .filter(Boolean).join(" · "),
+          }))}
+        />
+      )}
+    </div>
+  );
+}
+
+function renderKeyMoments(payload: any) {
+  const moments = payload?.moments ?? [];
+  if (!moments.length) return null;
+  const typeColor: Record<string, string> = {
+    decision: "bg-indigo-100 text-indigo-800",
+    reveal: "bg-emerald-100 text-emerald-800",
+    reversal: "bg-amber-100 text-amber-800",
+    disagreement: "bg-red-100 text-red-800",
+  };
+  return (
+    <ul className="space-y-3">
+      {moments.map((m: any, i: number) => (
+        <li key={i} className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded",
+              typeColor[m.type] || "bg-slate-200 text-slate-700",
+            )}>{m.type}</span>
+            {m.speaker && (
+              <span className="text-[11px] text-slate-500 font-medium">{m.speaker}</span>
+            )}
+          </div>
+          <blockquote className="text-[13px] text-slate-800 border-l-2 border-slate-200 pl-3 italic">
+            "{m.quote}"
+          </blockquote>
+          {m.why_significant && (
+            <p className="text-[11px] text-slate-500">{m.why_significant}</p>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function renderSentiment(payload: any) {
+  const parts = payload?.participants ?? [];
+  if (!parts.length) return null;
+  const toneColor: Record<string, string> = {
+    positive: "text-emerald-700",
+    neutral: "text-slate-600",
+    frustrated: "text-red-700",
+    hesitant: "text-amber-700",
+    assertive: "text-indigo-700",
+  };
+  return (
+    <ul className="space-y-2">
+      {parts.map((p: any, i: number) => (
+        <li key={i} className="flex items-start gap-3">
+          <span className="text-[13px] font-medium text-slate-800 min-w-24">
+            {p.speaker}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px]">
+              <span className={cn("font-medium", toneColor[p.tone] || "text-slate-700")}>
+                {p.tone}
+              </span>
+              <span className="text-slate-400"> · engagement {p.engagement}</span>
+            </p>
+            {p.evidence && (
+              <p className="text-[11px] text-slate-500 italic mt-0.5">"{p.evidence}"</p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function renderFollowup(payload: any) {
+  const subject = payload?.subject;
+  const body = payload?.body_markdown;
+  const recipients = payload?.recipients_hint;
+  if (!subject && !body) return null;
+  return (
+    <div className="space-y-3">
+      {subject && (
+        <p className="text-[13px] font-semibold text-slate-900">{subject}</p>
+      )}
+      {recipients && (
+        <p className="text-[11px] text-slate-500">
+          Suggested recipients: {recipients}
+        </p>
+      )}
+      {body && (
+        <pre className="text-[12.5px] text-slate-700 whitespace-pre-wrap font-sans leading-relaxed bg-slate-50 rounded p-3 border border-slate-100">
+          {body}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function renderUnknown(payload: any) {
+  // Fallback: skill we don't have a bespoke renderer for. Show JSON so
+  // outputs aren't lost while a real renderer is being built.
+  return (
+    <details className="text-[12px]">
+      <summary className="text-slate-500 cursor-pointer">Raw output</summary>
+      <pre className="mt-2 text-[11px] text-slate-700 bg-slate-50 rounded p-2 overflow-x-auto">
+        {JSON.stringify(payload, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
+function InsightList({
+  label,
+  items,
+}: {
+  label: string;
+  items: { primary: string; secondary: string | null }[];
+}) {
+  return (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+        {label}
+      </h4>
+      <ul className="space-y-2">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="w-1 h-1 bg-emerald-600 rounded-full mt-2 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[13px] text-slate-700 leading-relaxed">
+                {it.primary}
+              </p>
+              {it.secondary && (
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {it.secondary}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
