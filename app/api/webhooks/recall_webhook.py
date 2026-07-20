@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from app.db.database import SessionLocal
 from app.db.models import Meeting
 from app.api.ws_router import manager
+from app.config.settings import settings
 from app.dependencies.auth import get_current_user
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
@@ -327,10 +328,47 @@ async def process_participant_event(meeting_id: int, event: str, payload: dict) 
     meeting_lifecycle_monitor.on_participant_event(str(meeting_id), event, participant)
 
 
+def _verify_recall_signature(headers, body: bytes) -> None:
+    """Verify the Svix signature Recall attaches to every webhook.
+
+    - If RECALL_WEBHOOK_SECRET is unset (local dev), log a loud warning
+      and accept. Set the env var in production to enforce verification.
+    - If set, use Svix's Webhook.verify(): HMAC over the raw body plus
+      the svix-id + svix-timestamp headers, constant-time compared, with
+      a built-in ±5min timestamp window. Any mismatch → 401.
+    """
+    secret = settings.RECALL_WEBHOOK_SECRET
+    if not secret:
+        logger.warning(
+            "Recall webhook received without RECALL_WEBHOOK_SECRET configured — "
+            "signature NOT verified. Set the env var to enforce.",
+        )
+        return
+
+    # svix expects a plain dict of headers, not the Starlette Headers
+    # multi-dict. Case-insensitive on their side, we pass as-is.
+    from svix.webhooks import Webhook, WebhookVerificationError
+    try:
+        Webhook(secret).verify(body, dict(headers))
+    except WebhookVerificationError as exc:
+        logger.warning("Recall webhook signature verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+
 @recall_webhook_router.post("/webhook/recall/{meeting_id}")
 async def handle_recall_webhook(meeting_id: int, request: Request):
+    # Read RAW body first — required for signature verification. Any
+    # JSON parsing happens AFTER the signature check passes so a forged
+    # request never reaches downstream handlers.
+    body = await request.body()
+    _verify_recall_signature(request.headers, body)
+
     try:
-        payload = await request.json()
+        payload = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    try:
         event = payload.get("event", "unknown")
 
         logger.debug(f"Webhook from Recall | event={event} | meeting_id={meeting_id}")
@@ -348,6 +386,8 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
             logger.info(f"Ignoring unknown event type: {event}")
 
         return {"status": "ok"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error handling recall webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal Server Error")

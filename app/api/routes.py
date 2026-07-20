@@ -301,16 +301,105 @@ def create_meeting(
 def get_meetings(
     category_id: Optional[int] = Query(None),
     team_id: Optional[int] = Query(None),
+    uncategorized: Optional[bool] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
+    """Meetings list, org-scoped.
+
+    Backwards-compat: with NO pagination params → returns a bare array
+    (legacy callers like DashboardPage stay working). With either
+    `page` or `page_size` set → returns a paginated object:
+        { items, total, page, page_size, has_more }
+    """
     query = db.query(Meeting).filter(Meeting.organization_id == user.organization_id)
-    if category_id is not None:
+    if uncategorized:
+        query = query.filter(Meeting.category_id.is_(None))
+    elif category_id is not None:
         query = query.filter(Meeting.category_id == category_id)
     if team_id is not None:
         query = query.filter(Meeting.team_id == team_id)
-    meetings = query.order_by(Meeting.created_at.desc()).all()
-    return [_meeting_dict(m) for m in meetings]
+    if q and q.strip():
+        # Case-insensitive substring across title + summary. Postgres
+        # ILIKE — cheap without an index while volume is small; add a
+        # trigram / full-text index when the meetings table gets large.
+        needle = f"%{q.strip()}%"
+        query = query.filter(
+            (Meeting.title.ilike(needle)) | (Meeting.summary.ilike(needle))
+        )
+    query = query.order_by(Meeting.created_at.desc())
+
+    if page is None and page_size is None:
+        return [_meeting_dict(m) for m in query.all()]
+
+    p = page or 1
+    ps = page_size or 25
+    total = query.count()
+    meetings = query.limit(ps).offset((p - 1) * ps).all()
+    return {
+        "items": [_meeting_dict(m) for m in meetings],
+        "total": total,
+        "page": p,
+        "page_size": ps,
+        "has_more": (p * ps) < total,
+    }
+
+
+@router.get("/meetings/grouped-latest")
+def get_meetings_grouped_latest(
+    per_category: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Latest N meetings per category, org-scoped. Powers the default
+    grouped view on the meetings page.
+
+    N+1 SQL by design — org has O(10) categories typically. Cheaper
+    than a window function and easier to read.
+
+    Response:
+        {
+          "by_category": { "<category_id>": [Meeting, ...], ... },
+          "uncategorized": [Meeting, ...],
+          "per_category": int
+        }
+    """
+    org_id = user.organization_id
+    result_by_category: dict[str, list] = {}
+
+    cats = db.query(Category).filter(Category.organization_id == org_id).all()
+    for cat in cats:
+        rows = (
+            db.query(Meeting)
+            .filter(
+                Meeting.organization_id == org_id,
+                Meeting.category_id == cat.id,
+            )
+            .order_by(Meeting.created_at.desc())
+            .limit(per_category)
+            .all()
+        )
+        result_by_category[str(cat.id)] = [_meeting_dict(m) for m in rows]
+
+    uncat = (
+        db.query(Meeting)
+        .filter(
+            Meeting.organization_id == org_id,
+            Meeting.category_id.is_(None),
+        )
+        .order_by(Meeting.created_at.desc())
+        .limit(per_category)
+        .all()
+    )
+
+    return {
+        "by_category": result_by_category,
+        "uncategorized": [_meeting_dict(m) for m in uncat],
+        "per_category": per_category,
+    }
 
 
 # Spec: GET /meetings/uncategorized — meetings without a team assignment.

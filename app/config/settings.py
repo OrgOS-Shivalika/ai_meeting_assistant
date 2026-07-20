@@ -28,6 +28,11 @@ class Settings:
     # ---- Recall.ai --------------------------------------------------------
     RECALL_API_KEY = os.getenv("RECALL_API_KEY")
     BASE_URL = os.getenv("BASE_URL")
+    # Svix-signed webhook secret ("whsec_…"). When set, /webhook/recall/{id}
+    # verifies the Svix signature (HMAC over id.timestamp.body) and rejects
+    # forged/replayed requests. When unset (local dev without live Recall
+    # traffic), the endpoint logs a warning and accepts anyway.
+    RECALL_WEBHOOK_SECRET = os.getenv("RECALL_WEBHOOK_SECRET")
 
     # ---- Phase 13A — Transcription provider abstraction -------------------
     # Recall.ai routes audio through a third-party transcription provider.
