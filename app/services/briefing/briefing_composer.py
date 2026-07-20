@@ -190,15 +190,22 @@ class BriefingComposer:
             logger.info(f"[BRIEFING] meeting={meeting_id} no state in store; skipping")
             return None
 
+        # Sparsity floor removed — when a user explicitly asks for a
+        # briefing ("iris summarize this", "let's wrap up", etc.), the
+        # bot should always speak SOMETHING, even for a short meeting.
+        # The previous behavior refused when live state had no
+        # decisions/tasks/summary — which meant every short test meeting
+        # silently died with "state too sparse". Downstream min_seconds
+        # check (~line 298) still catches truly empty briefs.
         if not self._has_minimum_signal(snapshot):
             logger.info(
-                f"[BRIEFING] meeting={meeting_id} state too sparse "
+                f"[BRIEFING] meeting={meeting_id} state is sparse "
                 f"(decisions={len(snapshot['decisions'])}, "
                 f"assigned={len(snapshot['assigned_tasks'])}, "
                 f"unassigned={len(snapshot['unassigned_tasks'])}, "
-                f"summary={'yes' if snapshot['summary'] else 'no'}); skipping"
+                f"summary={'yes' if snapshot['summary'] else 'no'}) "
+                f"— composing anyway (user asked for a brief)."
             )
-            return None
 
         # 2. Detect target language for the spoken briefing.
         #
@@ -295,7 +302,10 @@ class BriefingComposer:
                     script = retry_script
 
         # 5. Floor — too-short briefings aren't worth speaking.
-        if script.estimated_seconds < min_seconds:
+        # BUT: if the state was sparse, a short brief is expected —
+        # don't reject it, the user still asked for something to be said.
+        state_was_sparse = not self._has_minimum_signal(snapshot)
+        if script.estimated_seconds < min_seconds and not state_was_sparse:
             logger.info(
                 f"[BRIEFING] meeting={meeting_id} composed brief too short "
                 f"({script.estimated_seconds:.1f}s < {min_seconds}s); skipping"

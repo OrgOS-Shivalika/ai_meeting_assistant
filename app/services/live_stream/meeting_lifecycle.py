@@ -53,182 +53,113 @@ _STATUS_ENDED = "call_ended"
 _STATUS_DONE = "done"  # arrives AFTER bot has left — purely cleanup
 _STATUS_FAILED = {"recording_permission_denied", "fatal"}
 
-# Wrap-up phrases that linguistically signal "we're about to end."
+# Briefing trigger phrases — any match fires the closing briefing.
 #
-# Tuning history:
-#  v1 (initial): patterns too strict.
-#  v2 (broad): patterns too loose — "thank you" matched in
-#       "I often say thank you little baby Jesus..." (Talladega Nights
-#       quote, mid-meeting), causing premature speak.
-#  v3 (current): cost asymmetry FLIPPED. winding_down is now the
-#       authoritative SPEAK trigger (not just pre-render), so false
-#       positives are very expensive (bot interrupts the meeting).
-#       False negatives are mildly bad (no closing brief that meeting).
-#       => Patterns now require EXPLICIT group pronouns (everyone, all,
-#          guys, y'all, folks) for "thanks"/"bye"/"take care". Solo
-#          "thanks" or "bye" no longer match.
+# Explicit command (preferred):
+#   "iris summarize this" (punctuation-tolerant, sz spelling agnostic)
+#
+# Plus the previous natural-language phrases as fallbacks so users don't
+# have to remember the magic phrase.
 _WRAP_UP_PATTERNS = [
-    # "let's wrap (this|it)? up", "let's wrap things up" — definitive
-    re.compile(r"\blet'?s\s+wrap\s+(?:\w+\s+){0,2}up\b", re.IGNORECASE),
-
-    # "any (final|last) (thoughts|questions|comments)" — meeting-end
-    # convention. Drop "other" — too generic mid-meeting.
+    # Explicit assistant command — generous to transcription errors.
+    # Matches:
+    #   iris summarize this
+    #   iris summarize this meeting / call / session / conversation / discussion
+    #   iris summarise this (British spelling)
+    #   iris wrap up / end / finish / finalize / close (this) (meeting/…)
+    #   hey iris, summarize this
+    # Mishearings of "iris" that Deepgram/AssemblyAI frequently produce:
+    #   irish, eris, aris, isis  (all sound-alikes)
+    # Trailing noun ("meeting", "call", etc.) is optional so "iris summarize this" alone still fires.
     re.compile(
-        r"\bany\s+(?:final|last)\s+(?:thoughts|questions|comments)\b",
+        r"\b(?:iris|irish|eris|aris|isis)[\s,.\-:]+"
+        # 0-3 filler words (please / can you / could you please / kindly / now / just / etc.)
+        r"(?:\S+\s+){0,3}"
+        r"(?:summari[sz]e|summary|wrap\s+(?:up)?|end|finish|finalize|finalise|close|recap)"
+        r"(?:\s+this)?"
+        r"(?:\s+(?:meeting|call|session|conversation|discussion|one|thing))?"
+        r"\b",
         re.IGNORECASE,
     ),
 
-    # "we'll end/finish/wrap (it|things) (there|here|now|today)"
+    # Definitive end-of-meeting phrases
+    re.compile(r"\blet'?s\s+wrap\s+(?:\w+\s+){0,2}up\b", re.IGNORECASE),
+    re.compile(r"\bthat'?s\s+a\s+wrap\b", re.IGNORECASE),
+    re.compile(r"\b(?:end|close|finish|stop)\s+the\s+(?:meeting|call)\b", re.IGNORECASE),
+    re.compile(r"\bany\s+(?:final|last)\s+(?:thoughts|questions|comments)\b", re.IGNORECASE),
     re.compile(
         r"\bwe'?ll\s+(?:end|finish|wrap|stop)\s+(?:\w+\s+){0,2}(?:there|here|now|today)\b",
         re.IGNORECASE,
     ),
-
-    # "thanks/thank you, (guys|y'all|folks|all|everyone|everybody)"
-    # REQUIRES the group pronoun. The [,.\s]+ between the words allows
-    # natural punctuation like "Thanks, everyone." (a real failure
-    # we caught: comma-separated greetings used to break the match).
-    # Solo "thanks"/"thank you" still don't match — that's intentional
-    # (was false-firing on Talladega Nights movie quotes mid-conversation).
-    re.compile(
-        r"\b(?:thanks|thank\s+you)[,.\-:\s]+(?:guys|y'?all|folks|all|everyone|everybody)\b",
-        re.IGNORECASE,
-    ),
-
-    # "that's all/it (for|from) (me|today|now|us)" — explicit
     re.compile(
         r"\bthat'?s\s+(?:all|it)\s+(?:for|from)\s+(?:me|us|today|now)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\b(?:i'?ll|we'?ll)\s+let\s+you(?:\s+all)?\s+go\b",
+        re.IGNORECASE,
+    ),
 
-    # "(end|close|finish|stop) the (meeting|call)" — definitive
-    re.compile(r"\b(?:end|close|finish|stop)\s+the\s+(?:meeting|call)\b", re.IGNORECASE),
-
-    # "see you (later|tomorrow|next|on Monday|...)" with optional filler
-    # ("see you all later", "see you guys next week")
+    # Group-scoped farewells (require the pronoun to avoid mid-meeting fires)
+    re.compile(
+        r"\b(?:thanks|thank\s+you)[,.\-:\s]+(?:guys|y'?all|folks|all|everyone|everybody)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:bye|goodbye)[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\btake\s+care[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"\bsee\s+you(?:\s+\w+){0,3}\s+"
         r"(?:later|tomorrow|next|on|in|soon|monday|tuesday|wednesday|"
         r"thursday|friday|saturday|sunday)\b",
         re.IGNORECASE,
     ),
-
-    # "(bye|goodbye), (everyone|all|guys|folks|y'all|everybody)"
-    # REQUIRES pronoun + punctuation-tolerant separator. Solo "bye" or
-    # "goodbye" doesn't match (too generic mid-meeting — "say goodbye
-    # to the old API").
-    re.compile(
-        r"\b(?:bye|goodbye)[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
-        re.IGNORECASE,
-    ),
-
-    # "take care, (everyone|all|guys|folks|y'all|everybody)"
-    # REQUIRES pronoun + punctuation tolerance. Solo "take care" was
-    # matching mid-meeting ("we need to take care of the migration").
-    re.compile(
-        r"\btake\s+care[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
-        re.IGNORECASE,
-    ),
-
-    # "catch you later", "talk to y'all later", "catch up with you later"
     re.compile(
         r"\b(?:catch|talk)\s+(?:(?:to|up|with)\s+)?"
         r"(?:you|y'?all|yall)(?:\s+\w+){0,2}\s+later\b",
         re.IGNORECASE,
     ),
-
-    # "that's a wrap" — definitive
-    re.compile(r"\bthat'?s\s+a\s+wrap\b", re.IGNORECASE),
-
-    # "I'll/we'll let you (go|all go)" — polite meeting-end
-    re.compile(
-        r"\b(?:i'?ll|we'?ll)\s+let\s+you(?:\s+all)?\s+go\b",
-        re.IGNORECASE,
-    ),
-
-    # "have a good day/weekend/evening/night/one" — parting wish
     re.compile(
         r"\bhave\s+a\s+(?:good|great|nice)\s+(?:day|weekend|evening|night|one)\b",
         re.IGNORECASE,
     ),
 
-    # ----------------------------------------------------------------------
-    # Phase 13E — Hindi (Devanagari) wrap-up phrases.
-    # Hindi script doesn't use \b word boundaries the same way Latin script
-    # does, so patterns use explicit whitespace / punctuation anchors.
-    # ----------------------------------------------------------------------
-
-    # "धन्यवाद सबको / सभी / आप सब" — thanks everyone
+    # Hindi + Hinglish
     re.compile(r"धन्यवाद\s+(?:सबको|सब|सभी|आप\s+सब)"),
-
-    # "अलविदा सबको / सभी" — goodbye everyone (requires group pronoun
-    # to avoid mid-meeting false fires)
     re.compile(r"अलविदा\s+(?:सबको|सब|सभी|दोस्तों)"),
-
-    # "फिर मिलेंगे" — see you again
     re.compile(r"फिर\s+मिलेंगे"),
-    re.compile(r"मिलते\s+हैं\s+(?:कल|बाद|अगले|सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार)"),
-
-    # "मीटिंग खत्म / समाप्त" — meeting ended (definitive)
     re.compile(r"(?:मीटिंग|बैठक)\s+(?:खत्म|समाप्त|बंद)"),
-
-    # "ठीक है, चलते हैं / चलिए / चलो" — ok, let's go (with comma/space)
-    re.compile(r"(?:ठीक\s+है|अच्छा)[\s,.।]+(?:चलते|चलिए|चलो)"),
-
-    # "बस इतना ही" / "इतना ही था" — that's all
     re.compile(r"(?:बस\s+)?इतना\s+ही(?:\s+था|\s+के\s+लिए)?"),
-
-    # "आज के लिए बस इतना" — that's it for today
     re.compile(r"आज\s+के\s+लिए\s+(?:बस\s+)?इतना"),
-
-    # "अच्छा दिन हो" / "शुभ दिन" / "शुभ रात्रि" — have a good day/night
-    re.compile(r"(?:अच्छा|शुभ)\s+(?:दिन|रात्रि|शाम|प्रभात|वीकेंड)\s+(?:हो|बिताएं|रहे)?"),
-
-    # ----------------------------------------------------------------------
-    # Phase 13E — Hinglish (transliterated Hindi + English mix).
-    # ----------------------------------------------------------------------
-
-    # "thik hai chalo/chaliye/chalte hain" — ok, let's go
     re.compile(
         r"\b(?:thik|theek)\s+hai[\s,.]*(?:chalo|chaliye|chalte\s+hain?|band\s+karte\s+hain?)",
         re.IGNORECASE,
     ),
-
-    # "chaliye/chalo (band|khatam|finish|wrap) karte hain" — let's end this
     re.compile(
         r"\b(?:chaliye|chalo)\s+(?:band|khatam|finish|wrap|end)\s+(?:karte\s+hain?|kar\s+lete\s+hain?)",
         re.IGNORECASE,
     ),
-
-    # "phir milenge" — see you later
     re.compile(r"\b(?:phir|firr|fir)\s+milenge\b", re.IGNORECASE),
-
-    # "shukriya/dhanyawad/dhanyavad (sab|sabko|everyone|all)" — thanks everyone
-    # Punctuation-tolerant separator (same fix as the English "Thanks,
-    # everyone" pattern).
     re.compile(
         r"\b(?:shukriya|dhanyawad|dhanyavad|dhanyvad)[,.\-:\s]+"
         r"(?:sab|sabko|sabhi|everyone|all|guys|folks|everybody)\b",
         re.IGNORECASE,
     ),
-
-    # "alvida, sab/sabko" — bye everyone (transliterated)
     re.compile(
         r"\balvida[,.\-:\s]+(?:sab|sabko|sabhi|everyone|all|dosto|everybody)\b",
         re.IGNORECASE,
     ),
-
-    # "bas itna hi" / "itna hi tha" — that's it
     re.compile(r"\b(?:bas\s+)?itna\s+hi(?:\s+tha)?\b", re.IGNORECASE),
 ]
 
 # Participant-detector tunables.
 _PARTICIPANT_LOW_WATER = 1          # ≤ this many active participants
 _PARTICIPANT_LINGER_S = 30          # ...for at least this long
-# Linguistic-detector tunable: ignore wrap-up phrases in the first N
-# seconds of a meeting (someone might say "thanks everyone" while
-# people are still joining).
-_LINGUISTIC_GRACE_S = 120
 
 
 @dataclass
@@ -377,16 +308,16 @@ class MeetingLifecycleMonitor:
         if phase.winding_down_emitted:
             return
 
-        # Grace period: ignore wrap-up phrases in the first N seconds
-        # (someone might say "thanks everyone" while people are joining).
-        if (time.time() - phase.session_started_at) < _LINGUISTIC_GRACE_S:
-            return
+        # No grace period — the trigger is now an EXPLICIT command
+        # ("iris summarize this"), so the user always means it. The
+        # previous 2-min grace existed only because the old patterns
+        # (thanks/bye/etc.) could false-fire during meeting warmup.
 
         for pattern in _WRAP_UP_PATTERNS:
             if pattern.search(text):
                 matched = pattern.pattern
                 logger.info(
-                    f"[LIFECYCLE] meeting={meeting_id} wrap-up phrase detected: "
+                    f"[LIFECYCLE] meeting={meeting_id} briefing phrase detected: "
                     f"{matched!r}"
                 )
                 self._maybe_emit_winding_down(

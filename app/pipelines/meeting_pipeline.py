@@ -253,6 +253,43 @@ class MeetingPipeline:
                 )
                 bot_id = meeting.bot_id
             else:
+                # Cross-meeting dedup — protects against the "two rows
+                # racing to dispatch a bot for the same Meet URL" case.
+                # Happens when /inject-bot and the calendar-sync beat
+                # tick fire concurrently against the same URL, or when
+                # a user pastes a URL that already has an active bot
+                # from another entry point.
+                #
+                # If ANOTHER active meeting for the same URL already has
+                # a bot, don't send a second one — mark this meeting as
+                # failed so it doesn't sit as "processing" forever.
+                from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                cutoff = _dt.now(_tz.utc) - _td(minutes=15)
+                other = (
+                    db.query(Meeting)
+                    .filter(
+                        Meeting.id != meeting.id,
+                        Meeting.meeting_url == meeting_url,
+                        Meeting.bot_id.isnot(None),
+                        Meeting.status.in_(("pending", "processing")),
+                        Meeting.created_at >= cutoff,
+                    )
+                    .order_by(Meeting.created_at.desc())
+                    .first()
+                )
+                if other:
+                    logger.warning(
+                        "⛔ Meeting %s aborted — another meeting %s already "
+                        "dispatched bot %s for %s; not sending a duplicate.",
+                        meeting.id, other.id, other.bot_id, meeting_url,
+                    )
+                    meeting.status = "failed"
+                    meeting.error_message = (
+                        f"Duplicate — bot already dispatched by meeting {other.id}."
+                    )
+                    db.commit()
+                    return
+
                 logger.info(f"🤖 Creating bot for URL: {meeting_url}")
                 bot = self.recall.create_bot(meeting_url, meeting.id)
                 bot_id = bot["id"]

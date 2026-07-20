@@ -212,6 +212,18 @@ async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
                     # We use to_thread because ingest_chunk is currently synchronous and calls OpenAI
                     asyncio.create_task(asyncio.to_thread(stream_manager.ingest_chunk, str(meeting_id), chunk))
 
+                    # Linguistic briefing-trigger detector. Same call the
+                    # HTTP webhook path makes — must be duplicated here
+                    # because Recall's realtime stream can arrive over
+                    # EITHER transport and only the HTTP path was wired.
+                    # Without this, "iris summarize this" (and every
+                    # earlier natural-language phrase) never fires the
+                    # closing briefing when the WS transport is active.
+                    from app.services.live_stream.meeting_lifecycle import (
+                        meeting_lifecycle_monitor,
+                    )
+                    meeting_lifecycle_monitor.on_transcript_text(str(meeting_id), text)
+
                 # Save final chunks to DB so late joiners see history.
                 # Fire-and-forget on a worker thread — see
                 # app/services/transcript_persistence.py for why
