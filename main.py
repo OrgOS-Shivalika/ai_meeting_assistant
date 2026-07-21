@@ -135,7 +135,7 @@ def health_check():
     return {"status": "healthy"}
 
 # Serve Frontend (MUST be last to not interfere with API routes)
-frontend_path = os.path.join(os.getcwd(), "meeting_ai_frontend", "dist")
+frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meeting_ai_frontend", "dist")
 
 
 # Some SPA routes collide by name with API routes — the most painful is
