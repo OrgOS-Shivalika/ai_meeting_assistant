@@ -1,14 +1,52 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, List
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from typing import Dict, List, Optional
 import json
 import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
-from app.db.models import Meeting
+from app.db.models import Meeting, User
+from app.dependencies.auth import resolve_user_from_token
 from app.services.transcript_persistence import schedule_transcript_save
 
 logger = logging.getLogger(__name__)
+
+
+# WebSocket close codes in the private-use range (4000-4999). Chosen so
+# the browser's `event.code` on close is inspectable by the client and
+# distinct from the 1000-series standard codes.
+_WS_CLOSE_UNAUTHORIZED = 4401
+_WS_CLOSE_FORBIDDEN = 4401  # same code as unauth — refusing to leak
+                             # whether the meeting exists in another org.
+
+
+async def _authenticate_ws(
+    websocket: WebSocket,
+    token: Optional[str],
+    meeting_id: int,
+    db: Session,
+) -> Optional[User]:
+    """Validate the JWT + org scope on a WebSocket handshake.
+
+    Closes with 4401 on any failure (invalid token, missing token,
+    cross-org meeting, meeting not found — all treated the same to
+    avoid leaking meeting-existence).
+
+    Must be called BEFORE `websocket.accept()` so the handshake fails
+    cleanly on the client side with the reason attached.
+    """
+    if not token:
+        await websocket.close(code=_WS_CLOSE_UNAUTHORIZED, reason="Missing token")
+        return None
+    user = resolve_user_from_token(db, token)
+    if user is None:
+        await websocket.close(code=_WS_CLOSE_UNAUTHORIZED, reason="Invalid token")
+        return None
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting or meeting.organization_id != user.organization_id:
+        await websocket.close(code=_WS_CLOSE_FORBIDDEN, reason="Unauthorized")
+        return None
+    return user
 
 ws_router = APIRouter()
 
@@ -84,7 +122,25 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
 
 # --- Existing Frontend Endpoint ---
 @ws_router.websocket("/ws/{meeting_id}")
-async def websocket_endpoint(websocket: WebSocket, meeting_id: int):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    meeting_id: int,
+    token: Optional[str] = Query(None),
+):
+    """Live transcript / cognitive-event stream for one meeting.
+
+    Auth: JWT via `?token=` on the WS URL (browser `WebSocket()` can't
+    send custom headers). Rejects with close code 4401 on any auth
+    failure or cross-org access. Only after auth passes do we accept
+    the connection and register with the ConnectionManager.
+    """
+    db = SessionLocal()
+    try:
+        user = await _authenticate_ws(websocket, token, meeting_id, db)
+    finally:
+        db.close()
+    if user is None:
+        return
     await manager.connect(websocket, meeting_id)
     try:
         while True:
@@ -155,6 +211,18 @@ async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
                     
                     # We use to_thread because ingest_chunk is currently synchronous and calls OpenAI
                     asyncio.create_task(asyncio.to_thread(stream_manager.ingest_chunk, str(meeting_id), chunk))
+
+                    # Linguistic briefing-trigger detector. Same call the
+                    # HTTP webhook path makes — must be duplicated here
+                    # because Recall's realtime stream can arrive over
+                    # EITHER transport and only the HTTP path was wired.
+                    # Without this, "iris summarize this" (and every
+                    # earlier natural-language phrase) never fires the
+                    # closing briefing when the WS transport is active.
+                    from app.services.live_stream.meeting_lifecycle import (
+                        meeting_lifecycle_monitor,
+                    )
+                    meeting_lifecycle_monitor.on_transcript_text(str(meeting_id), text)
 
                 # Save final chunks to DB so late joiners see history.
                 # Fire-and-forget on a worker thread — see

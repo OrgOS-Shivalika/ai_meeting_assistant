@@ -5,7 +5,7 @@
 // affordance opens an inline modal for board creation.
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LayoutGrid, Plus, Sparkles } from "lucide-react";
+import { Briefcase, LayoutGrid, Plus, Sparkles } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { createBoard, fetchBoards } from "../api";
@@ -130,18 +130,45 @@ export default function BoardListPage() {
           <div className="text-center py-12 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">
             {error}
           </div>
-        ) : boards.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <div className="w-14 h-14 bg-indigo-50 rounded-md flex items-center justify-center mx-auto mb-3">
-              <LayoutGrid className="w-7 h-7 text-indigo-500" />
-            </div>
-            <h3 className="text-lg font-bold text-[#0F1523] mb-1">No boards yet</h3>
-            <p className="text-[#777681] max-w-xs mx-auto text-sm">
-              Create a board to start visualizing tasks as cards on a Kanban.
-            </p>
-          </div>
         ) : (
+          // Continuum Core is pinned and always present, so the grid
+          // renders even with zero task boards (the old empty-state
+          // branch hid the pinned card for fresh accounts).
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Continuum Core — pinned special board. Clients across the
+                6 engagement stages, not tasks; lives in its own tables. */}
+            <Link
+              to="/board/continuum"
+              className="group block bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center">
+                    <Briefcase className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900 leading-snug">
+                    Continuum Core
+                  </h3>
+                </div>
+                <span
+                  title="Client engagements tracked by the Continuum agent"
+                  className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  Clients
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 line-clamp-2 mb-3">
+                Client deals across the 6 engagement stages — boards update
+                automatically from recorded meetings.
+              </p>
+              <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                <span>Discovery → Delivery</span>
+                <span className="ml-auto text-[10px] uppercase tracking-wider text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                  Open →
+                </span>
+              </div>
+            </Link>
             {boards.map((b) => (
               <Link
                 key={b.id}

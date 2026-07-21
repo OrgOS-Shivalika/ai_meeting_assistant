@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/agent-control" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1100px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="margin-bottom:24px;">
+        <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Intelligence</p>
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Agents</h1>
+      </header>
+      <div style="display:flex; gap:24px; margin-bottom:28px; border-bottom:1px solid var(--vb-hairline);">
+        <a href="Agents.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Overview</a>
+        <a href="Harness Runs.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Runs</a>
+        <span style="padding:10px 2px; font-size:14px; font-weight:600; color:var(--vb-ink); border-bottom:2px solid var(--vb-ink);">Metrics</span>
+        <a href="Agent Profiles.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Profiles</a>
+      </div>
+
+      <!-- KPI row -->
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px;">
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-size:12px; color:var(--vb-muted);">Runs (7d)</div><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-ink); margin-top:8px;">1,204</div><div style="font-size:12px; color:var(--vb-success); margin-top:6px;">▲ 9% vs prev</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-size:12px; color:var(--vb-muted);">Success rate</div><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-ink); margin-top:8px;">99.1%</div><div style="font-size:12px; color:var(--vb-success); margin-top:6px;">▲ 0.4%</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-size:12px; color:var(--vb-muted);">Median latency</div><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-ink); margin-top:8px;">1.8s</div><div style="font-size:12px; color:var(--vb-error); margin-top:6px;">▲ 0.2s</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-size:12px; color:var(--vb-muted);">Spend (7d)</div><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-ink); margin-top:8px;">$28.40</div><div style="font-size:12px; color:var(--vb-success); margin-top:6px;">▼ 4%</div></div>
+      </div>
+
+      <!-- Bar chart: runs per day -->
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; padding:26px; margin-bottom:24px;">
+        <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 24px;">Runs per day</h3>
+        <div style="display:flex; align-items:flex-end; gap:14px; height:180px;">
+          <sc-for list="{{ bars }}" as="b" hint-placeholder-count="7">
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:10px; height:100%; justify-content:flex-end;">
+              <div style="width:100%; max-width:52px; border-radius:8px 8px 0 0; background:{{ b.color }}; height:{{ b.h }};"></div>
+              <span style="font-size:11px; color:var(--vb-muted);">{{ b.day }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Per-agent breakdown -->
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; padding:26px;">
+        <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 18px;">By agent</h3>
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <sc-for list="{{ agents }}" as="a" hint-placeholder-count="3">
+            <div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;"><span style="font-size:14px; font-weight:500; color:var(--vb-ink);">{{ a.name }}</span><span style="font-family:var(--font-mono); font-size:12px; color:var(--vb-muted);">{{ a.runs }} runs · {{ a.success }}</span></div>
+              <div style="height:8px; border-radius:999px; background:var(--vb-surface-card); overflow:hidden;"><span style="display:block; height:100%; width:{{ a.pct }}; background:{{ a.color }};"></span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    const vals = [120, 160, 140, 200, 180, 90, 110];
+    const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const max = Math.max(...vals);
+    const colors = ["var(--vb-pink)","var(--vb-info)","var(--vb-lavender)","var(--vb-ochre)","var(--vb-peach)","var(--vb-coral)","var(--vb-mint)"];
+    const bars = vals.map((v,i) => ({ h: Math.round(v/max*100)+"%", day: days[i], color: colors[i%colors.length] }));
+    const agents = [
+      { name: "Summarizer", runs: 412, success: "99.5%", pct: "88%", color: "var(--vb-info)" },
+      { name: "Task router", runs: 388, success: "98.1%", pct: "82%", color: "var(--vb-pink)" },
+      { name: "Graph extractor", runs: 404, success: "99.8%", pct: "86%", color: "var(--vb-lavender)" },
+    ];
+    return { bars, agents };
+  }
+}
+</script>
+</body>
+</html>

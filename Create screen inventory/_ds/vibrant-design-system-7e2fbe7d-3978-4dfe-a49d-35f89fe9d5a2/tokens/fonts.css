@@ -1,0 +1,7 @@
+/* Appu — Webfonts
+   Display + UI: Hanken Grotesk (warm geometric grotesque, substitute for Clay's "Plain")
+   Mono: JetBrains Mono (data tables, MCP/code, agent logs)
+   NOTE: Clay's licensed "Plain Black" is not public — Hanken Grotesk @ 500/600 with
+   negative tracking is the closest warm-rounded grotesque on Google Fonts. Flagged to user. */
+
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');

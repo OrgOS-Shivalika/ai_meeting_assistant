@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/templates" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1100px; margin:0 auto; padding:44px 44px 72px;">
+
+      <a href="Templates.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:14px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>Marketplace</a>
+      <header style="margin-bottom:24px;">
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:36px; letter-spacing:-1.2px; color:var(--vb-ink); margin:0;">Browse templates</h1>
+        <p style="font-size:15px; color:var(--vb-muted); margin:8px 0 0;">23 bundles you can install into your workspace.</p>
+      </header>
+
+      <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
+        <span style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:600; background:var(--vb-ink); color:var(--vb-on-ink);">All</span>
+        <span style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; background:var(--vb-canvas); border:1px solid var(--vb-hairline); color:var(--vb-body);">Sales</span>
+        <span style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; background:var(--vb-canvas); border:1px solid var(--vb-hairline); color:var(--vb-body);">Engineering</span>
+        <span style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; background:var(--vb-canvas); border:1px solid var(--vb-hairline); color:var(--vb-body);">Leadership</span>
+        <span style="padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; background:var(--vb-canvas); border:1px solid var(--vb-hairline); color:var(--vb-body);">Customer success</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px;">
+        <sc-for list="{{ bundles }}" as="b" hint-placeholder-count="6">
+          <a href="Bundle Preview.dc.html" style="display:block; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; overflow:hidden;">
+            <div style="height:96px; background:{{ b.band }}; display:flex; align-items:center; padding:0 24px;"><i data-lucide="{{ b.icon }}" style="width:32px; height:32px; color:{{ b.iconColor }};"></i></div>
+            <div style="padding:20px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;"><h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; color:var(--vb-ink); margin:0;">{{ b.name }}</h3><span style="font-size:11px; font-weight:600; color:var(--vb-muted); background:var(--vb-surface-card); padding:3px 9px; border-radius:999px;">{{ b.tag }}</span></div>
+              <p style="font-size:13px; line-height:1.5; color:var(--vb-muted); margin:0 0 16px; min-height:38px;">{{ b.desc }}</p>
+              <div style="display:flex; align-items:center; gap:14px; font-size:12px; color:var(--vb-muted); font-family:var(--font-mono);"><span style="display:inline-flex; align-items:center; gap:5px;"><i data-lucide="download" style="width:13px; height:13px;"></i>{{ b.installs }}</span><span style="display:inline-flex; align-items:center; gap:5px;"><i data-lucide="layers" style="width:13px; height:13px;"></i>{{ b.items }} items</span></div>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const band = (v) => `color-mix(in srgb, ${v} 16%, white)`;
+    const raw = [
+      { name: "Sales starter", icon: "briefcase", color: "var(--vb-pink)", tag: "Sales", desc: "Discovery, demo and renewal categories with owner routing.", installs: "1.2k", items: 9 },
+      { name: "Eng standups", icon: "code", color: "var(--vb-info)", tag: "Engineering", desc: "Standup, retro and incident boards plus a crisp summarizer.", installs: "980", items: 7 },
+      { name: "Board & staff", icon: "rocket", color: "var(--vb-ochre)", tag: "Leadership", desc: "Staff-meeting rollups and board-prep briefings.", installs: "610", items: 5 },
+      { name: "CS playbook", icon: "heart-handshake", color: "var(--vb-coral)", tag: "Customer success", desc: "Onboarding, QBR and escalation flows.", installs: "740", items: 8 },
+      { name: "Product discovery", icon: "lightbulb", color: "var(--vb-lavender)", tag: "Product", desc: "Research readouts and launch-planning categories.", installs: "530", items: 6 },
+      { name: "Hiring loop", icon: "users", color: "var(--vb-mint)", tag: "Hiring", desc: "Interview debriefs and headcount planning.", installs: "410", items: 4 },
+    ];
+    return { bundles: raw.map(b => ({ ...b, band: band(b.color), iconColor: b.color })) };
+  }
+}
+</script>
+</body>
+</html>

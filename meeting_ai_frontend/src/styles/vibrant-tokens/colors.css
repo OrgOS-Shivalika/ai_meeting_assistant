@@ -1,0 +1,57 @@
+/* Appu — Color tokens
+   Cream-canvas claymation palette. Dark near-black CTAs, saturated single-color
+   feature cards, cream-throughout surfaces (no dark footer). */
+
+:root {
+  /* ---- Base: ink / primary ---- */
+  --vb-ink: #0a0a0a;            /* headlines, primary CTA fill */
+  --vb-ink-active: #1f1f1f;     /* primary pressed */
+  --vb-ink-disabled: #e5e5e5;   /* disabled fill */
+  --vb-body-strong: #1a1a1a;    /* emphasized body / lead */
+  --vb-body: #3a3a3a;           /* default running text */
+  --vb-muted: #6a6a6a;          /* sub-headings, captions */
+  --vb-muted-soft: #9a9a9a;     /* fine print, placeholders */
+  --vb-on-ink: #ffffff;         /* text on ink / dark surfaces */
+  --vb-on-ink-soft: #a0a0a0;    /* muted text on dark */
+
+  /* ---- Surfaces (cream-tinted) ---- */
+  --vb-canvas: #fffaf0;         /* default page floor */
+  --vb-surface-soft: #faf5e8;   /* footer / CTA bands */
+  --vb-surface-card: #f5f0e0;   /* cream cards, testimonials */
+  --vb-surface-strong: #ebe6d6; /* emphasized cream bands */
+  --vb-surface-dark: #0a1a1a;   /* rare dark teal-black cards */
+  --vb-surface-dark-elev: #1a2a2a;
+
+  /* ---- Hairlines ---- */
+  --vb-hairline: #e5e5e5;
+  --vb-hairline-soft: #f0f0f0;
+
+  /* ---- Brand feature-card palette (6 saturated + 2 accents) ---- */
+  --vb-pink: #ff4d8b;           /* outbound / sequencer */
+  --vb-teal: #1a3a3a;           /* enterprise / featured (dark) */
+  --vb-lavender: #b8a4ed;       /* AI-agent products */
+  --vb-peach: #ffb084;          /* general warmth */
+  --vb-ochre: #e8b94a;          /* community / experts */
+  --vb-mint: #a4d4c5;           /* illustration / badge accent */
+  --vb-coral: #ff6b5a;          /* highlight accent */
+
+  /* ---- Semantic ---- */
+  --vb-success: #22c55e;
+  --vb-warning: #f59e0b;
+  --vb-error: #ef4444;
+  --vb-info: #2a6fdb;
+
+  /* ---- Semantic aliases (use these in components) ---- */
+  --text-heading: var(--vb-ink);
+  --text-body: var(--vb-body);
+  --text-muted: var(--vb-muted);
+  --text-on-dark: var(--vb-on-ink);
+  --surface-page: var(--vb-canvas);
+  --surface-raised: var(--vb-canvas);
+  --surface-sunken: var(--vb-surface-soft);
+  --surface-card: var(--vb-surface-card);
+  --border-default: var(--vb-hairline);
+  --border-strong: var(--vb-ink);
+  --accent-primary: var(--vb-ink);
+  --focus-ring: color-mix(in oklch, var(--vb-ink) 35%, transparent);
+}

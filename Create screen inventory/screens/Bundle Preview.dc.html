@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/templates" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1000px; margin:0 auto; padding:36px 44px 72px;">
+
+      <a href="Browse Templates.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:18px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>Browse</a>
+
+      <!-- Header band -->
+      <div style="background:var(--vb-pink); border-radius:24px; padding:36px; color:#fff; margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:18px;">
+          <span style="width:60px; height:60px; border-radius:16px; background:rgba(255,255,255,0.2); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="briefcase" style="width:28px; height:28px;"></i></span>
+          <div>
+            <h1 style="font-family:var(--font-display); font-weight:500; font-size:30px; letter-spacing:-1px; margin:0;">Sales starter</h1>
+            <p style="font-size:14px; opacity:0.85; margin:6px 0 0;">Discovery, demo and renewal categories with owner routing.</p>
+          </div>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 22px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;"><i data-lucide="download" style="width:16px; height:16px;"></i>Install bundle</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 260px; gap:24px; align-items:start;">
+        <!-- Contents -->
+        <div>
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 14px;">What's included</h3>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <sc-for list="{{ items }}" as="it" hint-placeholder-count="5">
+              <div style="display:flex; align-items:center; gap:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:14px; padding:16px 18px;">
+                <span style="width:38px; height:38px; border-radius:11px; flex-shrink:0; background:{{ it.chipBg }}; display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="{{ it.icon }}" style="width:17px; height:17px; color:{{ it.color }};"></i></span>
+                <div style="flex:1;"><div style="font-size:14px; font-weight:600; color:var(--vb-ink);">{{ it.name }}</div><div style="font-size:12px; color:var(--vb-muted); margin-top:2px;">{{ it.desc }}</div></div>
+                <span style="font-size:11px; font-weight:600; color:var(--vb-muted); background:var(--vb-surface-card); padding:3px 9px; border-radius:999px;">{{ it.type }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <!-- Meta -->
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:15px; color:var(--vb-ink); margin:0 0 14px;">Details</h3>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:13px;">
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--vb-muted);">Installs</span><span style="font-family:var(--font-mono); color:var(--vb-ink);">1,204</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--vb-muted);">Items</span><span style="font-family:var(--font-mono); color:var(--vb-ink);">9</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--vb-muted);">Version</span><span style="font-family:var(--font-mono); color:var(--vb-ink);">2.1.0</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--vb-muted);">Updated</span><span style="color:var(--vb-ink);">Jul 2</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="color:var(--vb-muted);">Author</span><span style="color:var(--vb-ink);">OrgOS</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mix = (v) => `color-mix(in srgb, ${v} 12%, white)`;
+    const raw = [
+      { name: "Discovery calls", icon: "search", color: "var(--vb-pink)", desc: "Category + prompt tuned for needs discovery", type: "Category" },
+      { name: "Demos", icon: "monitor-play", color: "var(--vb-info)", desc: "Demo category with follow-up task routing", type: "Category" },
+      { name: "Renewals", icon: "refresh-cw", color: "var(--vb-ochre)", desc: "Renewal tracking with risk flags", type: "Category" },
+      { name: "Sales summarizer", icon: "file-text", color: "var(--vb-lavender)", desc: "Prompt config emphasizing objections & next steps", type: "Agent" },
+      { name: "Pipeline board", icon: "layout-grid", color: "var(--vb-coral)", desc: "Kanban seeded with deal stages", type: "Board" },
+    ];
+    return { items: raw.map(i => ({ ...i, chipBg: mix(i.color) })) };
+  }
+}
+</script>
+</body>
+</html>

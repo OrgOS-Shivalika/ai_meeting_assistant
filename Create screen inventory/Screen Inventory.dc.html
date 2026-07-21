@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/_ds_bundle.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>
+    body { margin: 0; background: var(--vb-canvas); }
+    a { color: var(--vb-ink); text-decoration: none; }
+    a:hover { color: var(--vb-body); }
+  </style>
+</helmet>
+<div style="min-height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body); padding:56px 48px 80px;">
+
+  <div style="max-width:1240px; margin:0 auto;">
+
+    <!-- Masthead -->
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:32px; flex-wrap:wrap; margin-bottom:8px;">
+      <div style="max-width:640px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+          <span style="width:26px; height:26px; border-radius:8px; background:var(--vb-pink); display:inline-flex; align-items:center; justify-content:center;">
+            <span style="width:11px; height:11px; border-radius:3px; background:var(--vb-peach);"></span>
+          </span>
+          <span style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-muted);">Engineering handoff</span>
+        </div>
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:52px; line-height:1.05; letter-spacing:-2px; color:var(--vb-ink); margin:0 0 14px;">Screen inventory</h1>
+        <p style="font-size:17px; line-height:1.55; color:var(--vb-muted); margin:0;">Every route in the Agentic Meeting Assistant frontend, grouped by user journey. Route, owning module and build status for each screen.</p>
+      </div>
+
+      <!-- Totals -->
+      <div style="display:flex; gap:10px;">
+        <div style="background:var(--vb-surface-card); border-radius:16px; padding:18px 22px; min-width:96px;">
+          <div style="font-family:var(--font-mono); font-size:30px; font-weight:500; color:var(--vb-ink); line-height:1;">{{ totalScreens }}</div>
+          <div style="font-size:12px; color:var(--vb-muted); margin-top:8px; letter-spacing:0.2px;">Screens</div>
+        </div>
+        <div style="background:var(--vb-surface-card); border-radius:16px; padding:18px 22px; min-width:96px;">
+          <div style="font-family:var(--font-mono); font-size:30px; font-weight:500; color:var(--vb-ink); line-height:1;">{{ totalJourneys }}</div>
+          <div style="font-size:12px; color:var(--vb-muted); margin-top:8px; letter-spacing:0.2px;">Journeys</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Legend / status counts -->
+    <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin:28px 0 44px; padding:16px 20px; background:var(--vb-surface-soft); border:1px solid var(--vb-hairline); border-radius:14px;">
+      <span style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-muted-soft);">Status</span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:9px; height:9px; border-radius:50%; background:var(--vb-success);"></span>
+        <span style="font-size:14px; color:var(--vb-body);">Done</span>
+        <span style="font-family:var(--font-mono); font-size:13px; color:var(--vb-muted);">{{ doneCount }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:9px; height:9px; border-radius:50%; background:var(--vb-warning);"></span>
+        <span style="font-size:14px; color:var(--vb-body);">In progress</span>
+        <span style="font-family:var(--font-mono); font-size:13px; color:var(--vb-muted);">{{ wipCount }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="width:9px; height:9px; border-radius:50%; background:var(--vb-muted-soft);"></span>
+        <span style="font-size:14px; color:var(--vb-body);">Planned</span>
+        <span style="font-family:var(--font-mono); font-size:13px; color:var(--vb-muted);">{{ plannedCount }}</span>
+      </div>
+    </div>
+
+    <!-- Journeys -->
+    <sc-for list="{{ journeys }}" as="journey" hint-placeholder-count="6">
+      <section style="margin-bottom:52px;">
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:22px; padding-bottom:14px; border-bottom:1px solid var(--vb-hairline);">
+          <span style="width:12px; height:12px; border-radius:4px; background:{{ journey.color }}; flex-shrink:0; align-self:center;"></span>
+          <h2 style="font-family:var(--font-display); font-weight:500; font-size:24px; letter-spacing:-0.4px; color:var(--vb-ink); margin:0;">{{ journey.name }}</h2>
+          <span style="font-size:15px; color:var(--vb-muted); flex:1;">{{ journey.blurb }}</span>
+          <span style="font-family:var(--font-mono); font-size:13px; color:var(--vb-muted-soft);">{{ journey.count }}</span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px;">
+          <sc-for list="{{ journey.screens }}" as="screen" hint-placeholder-count="4">
+            <a href="{{ screen.href }}" style="display:block; text-decoration:none; color:inherit; position:relative; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:22px 22px 22px 24px; overflow:hidden; transition:border-color 140ms ease, box-shadow 140ms ease;" style-hover="border-color:var(--vb-ink); box-shadow:0 6px 20px rgba(0,0,0,0.06);">
+              <span style="position:absolute; left:0; top:0; bottom:0; width:4px; background:{{ screen.color }};"></span>
+
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
+                <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; letter-spacing:0.3px; color:{{ screen.statusColor }};">
+                  <span style="width:8px; height:8px; border-radius:50%; background:{{ screen.statusColor }};"></span>
+                  {{ screen.statusLabel }}
+                </span>
+                <span style="font-size:11px; font-weight:500; letter-spacing:0.4px; text-transform:uppercase; color:var(--vb-muted-soft); background:var(--vb-surface-card); padding:4px 9px; border-radius:999px;">{{ screen.module }}</span>
+              </div>
+
+              <h3 style="font-family:var(--font-display); font-weight:500; font-size:19px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 8px;">{{ screen.name }}</h3>
+              <div style="font-family:var(--font-mono); font-size:12.5px; color:var(--vb-info); margin-bottom:12px; word-break:break-all;">{{ screen.route }}</div>
+              <p style="font-size:14px; line-height:1.5; color:var(--vb-body); margin:0;">{{ screen.purpose }}</p>
+            </a>
+          </sc-for>
+        </div>
+      </section>
+    </sc-for>
+
+    <div style="margin-top:24px; padding-top:24px; border-top:1px solid var(--vb-hairline); font-size:13px; color:var(--vb-muted-soft);">
+      Source: <span style="font-family:var(--font-mono);">meeting_ai_frontend/src/app/router.tsx</span> · Status reflects current build state and is editable.
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1320,&quot;height&quot;:900},&quot;hideDone&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Filter&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const STATUS = {
+      done:    { label: "Done",        color: "var(--vb-success)" },
+      wip:     { label: "In progress", color: "var(--vb-warning)" },
+      planned: { label: "Planned",     color: "var(--vb-muted-soft)" },
+    };
+
+    const raw = [
+      {
+        name: "Access", color: "var(--vb-pink)",
+        blurb: "Sign in, create a workspace, connect Google.",
+        screens: [
+          { name: "Sign in", route: "/login", module: "auth", status: "done", purpose: "Email + password sign-in with Google option." },
+          { name: "Register", route: "/register", module: "auth", status: "done", purpose: "Create an account and bootstrap a new workspace." },
+          { name: "Google callback", route: "/auth/google/callback", module: "auth", status: "done", purpose: "Completes the Google OAuth handshake and redirects in." },
+        ],
+      },
+      {
+        name: "Capture meetings", color: "var(--vb-teal)",
+        blurb: "Send the bot in, watch it transcribe, read the result.",
+        screens: [
+          { name: "Meetings", route: "/", module: "meetings", status: "done", purpose: "List of meetings as platform-detected cards; entry point to join a new one." },
+          { name: "Meeting detail", route: "/meeting/:id", module: "meetings", status: "done", purpose: "Live transcript, AI summary, decisions, tasks and participants for one meeting." },
+          { name: "Categories", route: "/meeting-types", module: "meetings", status: "done", purpose: "Define and manage meeting types used to tag and route meetings." },
+          { name: "Calendar", route: "/calendar", module: "calendar", status: "done", purpose: "Google-linked calendar view of upcoming and past meetings." },
+        ],
+      },
+      {
+        name: "Act on outcomes", color: "var(--vb-peach)",
+        blurb: "Turn extracted action items into tracked work.",
+        screens: [
+          { name: "Tasks", route: "/action-items", module: "meetings", status: "done", purpose: "All AI-extracted action items across meetings, filterable by owner and priority." },
+          { name: "Boards", route: "/boards", module: "kanban", status: "done", purpose: "List of kanban boards for organising tasks into workflows." },
+          { name: "Board", route: "/board/:id", module: "kanban", status: "done", purpose: "Drag-and-drop kanban board of tasks with columns and cards." },
+          { name: "Board summary", route: "/board/:id/summary", module: "kanban", status: "done", purpose: "AI-generated rollup of a board's state and progress." },
+        ],
+      },
+      {
+        name: "Ask & understand", color: "var(--vb-lavender)",
+        blurb: "Query, browse and visualise organisational knowledge.",
+        screens: [
+          { name: "Dashboard", route: "/dashboard", module: "dashboard", status: "done", purpose: "Workspace overview: recent meetings, tasks and activity at a glance." },
+          { name: "Ask AI", route: "/ask", module: "ask", status: "done", purpose: "Natural-language Q&A over meetings, documents and knowledge." },
+          { name: "Knowledge", route: "/knowledge-hub", module: "knowledge", status: "done", purpose: "Ingested documents and the searchable knowledge base." },
+          { name: "Graph", route: "/knowledge-graph", module: "knowledge", status: "done", purpose: "Interactive entity and relationship graph explorer." },
+        ],
+      },
+      {
+        name: "Operate agents", color: "var(--vb-ochre)",
+        blurb: "Configure agents and observe the harness runtime.",
+        screens: [
+          { name: "Agents", route: "/agent-control", module: "agent-control", status: "done", purpose: "Control centre for the agent harness and its live activity." },
+          { name: "Harness runs", route: "/agent-control/runs", module: "agent-control", status: "done", purpose: "History and observability for individual agent runs." },
+          { name: "Harness metrics", route: "/agent-control/metrics", module: "agent-control", status: "done", purpose: "Aggregate performance metrics across agent runs." },
+          { name: "Agent profiles", route: "/agents", module: "agents", status: "done", purpose: "List of configured agent profiles and their behaviour." },
+          { name: "Agent detail", route: "/agents/:profileId", module: "agents", status: "done", purpose: "Single agent's configuration, prompts and versions." },
+        ],
+      },
+      {
+        name: "Administer workspace", color: "var(--vb-coral)",
+        blurb: "Templates, integrations, members, reports and settings.",
+        screens: [
+          { name: "Templates", route: "/templates", module: "templates", status: "done", purpose: "Landing page for the template marketplace." },
+          { name: "Browse templates", route: "/templates/browse", module: "templates", status: "done", purpose: "Browse available template bundles by category." },
+          { name: "Bundle preview", route: "/templates/browse/:slug", module: "templates", status: "done", purpose: "Preview a template bundle's contents before installing." },
+          { name: "Installed templates", route: "/templates/installed", module: "templates", status: "done", purpose: "Manage bundles installed into the workspace." },
+          { name: "Integrations", route: "/integrations", module: "integrations", status: "done", purpose: "Connect external services such as Google Calendar." },
+          { name: "Members", route: "/members", module: "members", status: "done", purpose: "Team members, roles and workspace access." },
+          { name: "Reports", route: "/reports", module: "reports", status: "done", purpose: "Analytics and exportable reports across meetings and tasks." },
+          { name: "Settings", route: "/settings", module: "settings", status: "done", purpose: "Workspace and account configuration." },
+        ],
+      },
+    ];
+
+    const FILE = {
+      "/login": "Login", "/register": "Register", "/auth/google/callback": "Google Callback",
+      "/": "Meetings", "/meeting/:id": "Meeting Detail", "/meeting-types": "Categories", "/calendar": "Calendar",
+      "/action-items": "Tasks", "/boards": "Boards", "/board/:id": "Board", "/board/:id/summary": "Board Summary",
+      "/dashboard": "Dashboard", "/ask": "Ask AI", "/knowledge-hub": "Knowledge", "/knowledge-graph": "Graph",
+      "/agent-control": "Agents", "/agent-control/runs": "Harness Runs", "/agent-control/metrics": "Harness Metrics",
+      "/agents": "Agent Profiles", "/agents/:profileId": "Agent Detail",
+      "/templates": "Templates", "/templates/browse": "Browse Templates", "/templates/browse/:slug": "Bundle Preview",
+      "/templates/installed": "Installed Templates", "/integrations": "Integrations", "/members": "Members",
+      "/reports": "Reports", "/settings": "Settings",
+    };
+
+    const hideDone = this.props.hideDone ?? false;
+
+    let done = 0, wip = 0, planned = 0, total = 0;
+    const journeys = raw.map((j) => {
+      const screens = j.screens
+        .filter((s) => !(hideDone && s.status === "done"))
+        .map((s) => {
+          const meta = STATUS[s.status];
+          const f = FILE[s.route];
+          return { ...s, color: j.color, statusLabel: meta.label, statusColor: meta.color,
+            href: f ? ("screens/" + f + ".dc.html") : "#" };
+        });
+      j.screens.forEach((s) => {
+        total++;
+        if (s.status === "done") done++;
+        else if (s.status === "wip") wip++;
+        else planned++;
+      });
+      return { name: j.name, color: j.color, blurb: j.blurb, screens, count: screens.length };
+    }).filter((j) => j.screens.length > 0);
+
+    return {
+      journeys,
+      totalScreens: total,
+      totalJourneys: raw.length,
+      doneCount: done,
+      wipCount: wip,
+      plannedCount: planned,
+    };
+  }
+}
+</script>
+</body>
+</html>

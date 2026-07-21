@@ -1,6 +1,7 @@
 import Layout from "../../../shared/components/Layout";
 import { Skeleton } from "../../../shared/components/Skeleton";
 import { useMeetings } from "../hooks/useMeetings";
+import { useGroupedLatestMeetings } from "../hooks/useGroupedLatestMeetings";
 import { useCategories } from "../hooks/useCategories";
 import MeetingRow from "../components/MeetingRow";
 import MeetingCard from "../components/MeetingCard";
@@ -25,7 +26,7 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import MeetingList from "../components/MeetingList";
 import { deleteMeeting } from "../api";
@@ -51,10 +52,10 @@ type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; dot: string }[] = [
   { value: "all",        label: "All",        dot: "" },
-  { value: "completed",  label: "Completed",  dot: "bg-emerald-500" },
-  { value: "processing", label: "Processing", dot: "bg-indigo-500" },
-  { value: "pending",    label: "Pending",    dot: "bg-amber-500" },
-  { value: "failed",     label: "Failed",     dot: "bg-red-500" },
+  { value: "completed",  label: "Completed",  dot: "var(--vb-success)" },
+  { value: "processing", label: "Processing", dot: "var(--vb-info)" },
+  { value: "pending",    label: "Pending",    dot: "var(--vb-warning)" },
+  { value: "failed",     label: "Failed",     dot: "var(--vb-error)" },
 ];
 
 const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
@@ -112,22 +113,46 @@ function FilterBar({
   };
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Search input */}
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+    <div className="flex flex-col gap-2.5" style={{ fontFamily: "var(--vb-font-sans)" }}>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Search input — vibrant style */}
+        <div className="relative flex-1 min-w-50 max-w-xs">
+          <Search
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ width: 15, height: 15, color: "var(--vb-muted-soft)" }}
+          />
           <input
             type="text"
             placeholder="Search meetings…"
             value={searchQuery}
             onChange={(e) => onSearch(e.target.value)}
-            className="w-full pl-8 pr-7 py-2 text-sm bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "10px 32px 10px 38px",
+              fontFamily: "var(--vb-font-sans)",
+              fontSize: 14,
+              background: "var(--vb-canvas)",
+              border: "1px solid var(--vb-hairline)",
+              borderRadius: 12,
+              color: "var(--vb-ink)",
+              outline: "none",
+              transition: "border-color 160ms ease, box-shadow 160ms ease",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--vb-ink)";
+              e.currentTarget.style.boxShadow = "0 0 0 3px var(--focus-ring)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--vb-hairline)";
+              e.currentTarget.style.boxShadow = "none";
+            }}
           />
           {searchQuery && (
             <button
               onClick={() => onSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors"
+              style={{ color: "var(--vb-muted-soft)" }}
               aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -135,44 +160,32 @@ function FilterBar({
           )}
         </div>
 
-        {/* Status filter */}
-        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+        {/* Status filter — cream pill container */}
+        <PillGroup>
           {STATUS_OPTIONS.map(({ value, label, dot }) => (
-            <button
+            <PillOption
               key={value}
+              active={statusFilter === value}
+              dotColor={dot}
               onClick={() => onStatusFilter(value)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
-                statusFilter === value
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
             >
-              {dot && (
-                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
-              )}
               {label}
-            </button>
+            </PillOption>
           ))}
-        </div>
+        </PillGroup>
 
-        {/* Date filter */}
-        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+        {/* Date filter — same pill treatment */}
+        <PillGroup>
           {DATE_OPTIONS.map(({ value, label }) => (
-            <button
+            <PillOption
               key={value}
+              active={dateFilter === value}
               onClick={() => onDateFilter(value)}
-              className={cn(
-                "px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
-                dateFilter === value
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
             >
               {label}
-            </button>
+            </PillOption>
           ))}
-        </div>
+        </PillGroup>
 
         {/* Custom date range inputs */}
         {dateFilter === "custom" && (
@@ -182,16 +195,43 @@ function FilterBar({
               value={customFrom}
               onChange={(e) => onCustomFrom(e.target.value)}
               title="From date"
-              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+              style={{
+                padding: "6px 10px",
+                fontSize: 11,
+                fontFamily: "var(--vb-font-sans)",
+                fontWeight: 500,
+                background: "var(--vb-canvas)",
+                border: "1px solid var(--vb-hairline)",
+                borderRadius: 10,
+                color: "var(--vb-ink)",
+                outline: "none",
+                cursor: "pointer",
+              }}
             />
-            <span className="text-[11px] text-slate-400 select-none">→</span>
+            <span
+              className="select-none"
+              style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}
+            >
+              →
+            </span>
             <input
               type="date"
               value={customTo}
               min={customFrom || undefined}
               onChange={(e) => onCustomTo(e.target.value)}
               title="To date"
-              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+              style={{
+                padding: "6px 10px",
+                fontSize: 11,
+                fontFamily: "var(--vb-font-sans)",
+                fontWeight: 500,
+                background: "var(--vb-canvas)",
+                border: "1px solid var(--vb-hairline)",
+                borderRadius: 10,
+                color: "var(--vb-ink)",
+                outline: "none",
+                cursor: "pointer",
+              }}
             />
           </div>
         )}
@@ -200,7 +240,14 @@ function FilterBar({
         {hasActive && (
           <button
             onClick={clearAll}
-            className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors rounded-md"
+            className="flex items-center gap-1 transition-colors"
+            style={{
+              padding: "6px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--vb-muted-soft)",
+              borderRadius: 10,
+            }}
           >
             <X className="w-3 h-3" />
             Clear
@@ -210,22 +257,89 @@ function FilterBar({
 
       {/* Results summary */}
       {hasActive && (
-        <p className="text-[11px] text-slate-400">
+        <p style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}>
           {filteredCount === 0 ? (
-            <span className="text-slate-500">No meetings match your filters.</span>
+            <span style={{ color: "var(--vb-muted)" }}>
+              No meetings match your filters.
+            </span>
           ) : filteredCount === totalCount ? (
             `${totalCount} ${totalCount === 1 ? "meeting" : "meetings"}`
           ) : (
             <>
-              <span className="font-semibold text-slate-700">{filteredCount}</span>
+              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+                {filteredCount}
+              </span>
               {" of "}
-              <span className="font-semibold text-slate-700">{totalCount}</span>
+              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+                {totalCount}
+              </span>
               {" meetings"}
             </>
           )}
         </p>
       )}
     </div>
+  );
+}
+
+// ─── Pill toggle primitives (used by FilterBar) ──────────────────────────────
+
+function PillGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        gap: 2,
+        padding: 3,
+        background: "var(--vb-surface-card)",
+        borderRadius: 9999,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PillOption({
+  active,
+  dotColor,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dotColor?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center whitespace-nowrap transition-all"
+      style={{
+        gap: 6,
+        padding: "7px 14px",
+        borderRadius: 9999,
+        fontSize: 12,
+        fontFamily: "var(--vb-font-sans)",
+        fontWeight: active ? 600 : 500,
+        background: active ? "var(--vb-canvas)" : "transparent",
+        color: active ? "var(--vb-ink)" : "var(--vb-muted)",
+        boxShadow: active ? "0 1px 2px rgba(10,10,10,0.05)" : "none",
+        border: "none",
+      }}
+    >
+      {dotColor && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: dotColor,
+          }}
+        />
+      )}
+      {children}
+    </button>
   );
 }
 
@@ -247,7 +361,26 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
     <div className="relative group/scroll">
       <button
         onClick={() => scrollBy(-360)}
-        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center opacity-0 group-hover/scroll:opacity-100 transition-all"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: "var(--vb-canvas)",
+          border: "1px solid var(--vb-hairline)",
+          boxShadow: "var(--shadow-soft)",
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--vb-ink)";
+          e.currentTarget.style.color = "var(--vb-on-ink)";
+          e.currentTarget.style.borderColor = "var(--vb-ink)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--vb-canvas)";
+          e.currentTarget.style.color = "var(--vb-muted)";
+          e.currentTarget.style.borderColor = "var(--vb-hairline)";
+        }}
         aria-label="Scroll left"
         type="button"
       >
@@ -255,7 +388,26 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
       </button>
       <button
         onClick={() => scrollBy(360)}
-        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center opacity-0 group-hover/scroll:opacity-100 transition-all"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: "var(--vb-canvas)",
+          border: "1px solid var(--vb-hairline)",
+          boxShadow: "var(--shadow-soft)",
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--vb-ink)";
+          e.currentTarget.style.color = "var(--vb-on-ink)";
+          e.currentTarget.style.borderColor = "var(--vb-ink)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--vb-canvas)";
+          e.currentTarget.style.color = "var(--vb-muted)";
+          e.currentTarget.style.borderColor = "var(--vb-hairline)";
+        }}
         aria-label="Scroll right"
         type="button"
       >
@@ -289,36 +441,22 @@ interface CategorySectionProps {
 }
 
 function CategorySection({ category, meetings, onDelete, deletingId }: CategorySectionProps) {
-  const color = category.color || "#4F46E5";
+  const color = category.color || "var(--vb-lavender)";
   const Icon = (category.icon && CATEGORY_ICONS[category.icon]) || Tag;
   return (
-    <section className="mb-10">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
-            style={{ backgroundColor: color + "14" }}
-          >
-            <Icon className="w-4 h-4" style={{ color }} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 tracking-tight truncate">
-              {category.name}
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-              {category.description ? ` · ${category.description}` : ""}
-            </p>
-          </div>
-        </div>
-        <Link
-          to={`/?category_id=${category.id}`}
-          className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors shrink-0 whitespace-nowrap inline-flex items-center gap-0.5"
-        >
-          View all
-          <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
+    <section style={{ marginBottom: 40 }}>
+      <SectionHeader
+        chipBg={`color-mix(in srgb, ${color} 12%, white)`}
+        icon={<Icon className="w-4 h-4" style={{ color }} />}
+        title={category.name}
+        meta={
+          <>
+            {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+            {category.description ? ` · ${category.description}` : ""}
+          </>
+        }
+        viewAllHref={`/?category_id=${category.id}`}
+      />
       <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
   );
@@ -334,25 +472,103 @@ interface UncategorizedSectionProps {
 
 function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedSectionProps) {
   return (
-    <section className="mt-10 pt-8 border-t border-slate-200">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-md bg-slate-50 flex items-center justify-center shrink-0">
-            <Inbox className="w-4 h-4 text-slate-500" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 tracking-tight truncate">
-              Uncategorized
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-              <span className="text-slate-400"> · not yet classified</span>
-            </p>
-          </div>
-        </div>
-      </div>
+    <section
+      style={{
+        marginTop: 40,
+        paddingTop: 32,
+        borderTop: "1px solid var(--vb-hairline)",
+      }}
+    >
+      <SectionHeader
+        chipBg="var(--vb-surface-card)"
+        icon={<Inbox className="w-4 h-4" style={{ color: "var(--vb-muted)" }} />}
+        title="Uncategorized"
+        meta={
+          <>
+            {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+            <span style={{ color: "var(--vb-muted-soft)" }}> · not yet classified</span>
+          </>
+        }
+        viewAllHref="/?uncategorized=1"
+      />
       <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
+  );
+}
+
+// ─── SectionHeader (shared by CategorySection + UncategorizedSection) ────────
+
+function SectionHeader({
+  chipBg,
+  icon,
+  title,
+  meta,
+  viewAllHref,
+}: {
+  chipBg: string;
+  icon: React.ReactNode;
+  title: string;
+  meta: React.ReactNode;
+  viewAllHref: string;
+}) {
+  return (
+    <div
+      className="flex items-end justify-between gap-3"
+      style={{ marginBottom: 18 }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className="inline-flex items-center justify-center shrink-0"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: chipBg,
+          }}
+        >
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h2
+            className="truncate"
+            style={{
+              fontFamily: "var(--vb-font-display)",
+              fontWeight: 500,
+              fontSize: 18,
+              letterSpacing: "-0.3px",
+              color: "var(--vb-ink)",
+              margin: 0,
+            }}
+          >
+            {title}
+          </h2>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--vb-muted)",
+              margin: "3px 0 0",
+            }}
+          >
+            {meta}
+          </p>
+        </div>
+      </div>
+      <Link
+        to={viewAllHref}
+        className="inline-flex items-center transition-colors whitespace-nowrap shrink-0"
+        style={{
+          gap: 2,
+          fontSize: 13,
+          fontWeight: 500,
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--vb-ink)")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--vb-muted)")}
+      >
+        View all
+        <ChevronRight className="w-3.5 h-3.5" />
+      </Link>
+    </div>
   );
 }
 
@@ -384,17 +600,51 @@ export default function MeetingsPage() {
   const [searchParams] = useSearchParams();
   const categoryId = searchParams.get("category_id");
   const teamId = searchParams.get("team_id");
-  const isFiltered = !!(categoryId || teamId);
+  const uncategorizedFlag = searchParams.get("uncategorized") === "1";
+  const isFiltered = !!(categoryId || teamId || uncategorizedFlag);
+
+  // ── Filter state (client + server) ──
+  // `searchQuery` = live input value (instant visual feedback in the box).
+  // `debouncedSearch` = value we actually send to the server, updated
+  // ~300ms after the user stops typing. Prevents one fetch per keystroke.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    // Clearing the box snaps back to the grouped view instantly; no
+    // point waiting 500ms to render "no filter".
+    if (!searchQuery) {
+      setDebouncedSearch("");
+      return;
+    }
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Server-side search kicks in whenever the debounced value is non-empty.
+  const searchTrimmed = debouncedSearch.trim();
+  const isSearching = searchTrimmed.length > 0;
 
   const filter = useMemo(
     () => ({
       category_id: categoryId ? Number(categoryId) : null,
       team_id: teamId ? Number(teamId) : null,
+      uncategorized: uncategorizedFlag,
+      q: searchTrimmed || null,
     }),
-    [categoryId, teamId],
+    [categoryId, teamId, uncategorizedFlag, searchTrimmed],
   );
 
-  const { data, loading, removeMeeting, addMeeting } = useMeetings(filter);
+  const { data, loading, removeMeeting, addMeeting, hasMore, loadMore, loadingMore, total } =
+    useMeetings(filter);
+  // Grouped view uses a dedicated endpoint that returns latest 10 per
+  // category — bounded query, no pagination noise. Runs alongside
+  // useMeetings (small extra poll) and is consulted only in the
+  // unfiltered code path.
+  const {
+    data: groupedLatest,
+    loading: groupedLoading,
+    removeMeeting: removeMeetingFromGrouped,
+  } = useGroupedLatestMeetings(10);
   const { data: categories } = useCategories();
 
   const [showScheduleForm, setShowScheduleForm] = useState(false);
@@ -402,8 +652,7 @@ export default function MeetingsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const navigate = useNavigate();
 
-  // ── Filter state ──
-  const [searchQuery, setSearchQuery] = useState("");
+  // ── Client-side filter state (search moved server-side above) ──
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [customFrom, setCustomFrom] = useState("");
@@ -478,36 +727,62 @@ export default function MeetingsPage() {
     ? `${activeCategory?.name} · ${activeTeam.name}`
     : activeCategory
       ? activeCategory.name
-      : "Meetings";
+      : uncategorizedFlag
+        ? "Uncategorized"
+        : "Meetings";
 
-  const groupedByCategory = useMemo(() => {
-    const buckets = new Map<number, Meeting[]>();
-    const uncategorized: Meeting[] = [];
-    for (const m of filteredMeetings) {
-      if (m.category) {
-        const list = buckets.get(m.category.id) ?? [];
-        list.push(m);
-        buckets.set(m.category.id, list);
-      } else {
-        uncategorized.push(m);
-      }
+  // Grouped view data source — driven by the /meetings/grouped-latest
+  // endpoint (10 per category, no pagination). Client-side filters
+  // (search/status/date) still apply, but only across the loaded 10 per
+  // category. "View all" on a section switches to the paginated
+  // filtered view where full history is reachable.
+  const applyClientFilters = useCallback(
+    (list: Meeting[]) =>
+      list.filter((m) => {
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const matchTitle = m.title?.toLowerCase().includes(q) ?? false;
+          const matchSummary = m.summary?.toLowerCase().includes(q) ?? false;
+          if (!matchTitle && !matchSummary) return false;
+        }
+        if (statusFilter !== "all" && m.status !== statusFilter) return false;
+        if (dateFilter !== "all") {
+          const ts = new Date(m.created_at).getTime();
+          const now = Date.now();
+          if (dateFilter === "today") {
+            if (new Date(m.created_at).toDateString() !== new Date().toDateString()) return false;
+          } else if (dateFilter === "week") {
+            if (ts < now - 7 * 86_400_000) return false;
+          } else if (dateFilter === "month") {
+            if (ts < now - 30 * 86_400_000) return false;
+          } else if (dateFilter === "custom") {
+            if (customFrom) {
+              const fromTs = new Date(customFrom).setHours(0, 0, 0, 0);
+              if (ts < fromTs) return false;
+            }
+            if (customTo) {
+              const toTs = new Date(customTo).setHours(23, 59, 59, 999);
+              if (ts > toTs) return false;
+            }
+          }
+        }
+        return true;
+      }),
+    [searchQuery, statusFilter, dateFilter, customFrom, customTo],
+  );
+
+  const groupedForRender = useMemo(() => {
+    const sections: { category: Category; meetings: Meeting[] }[] = [];
+    const byCat = groupedLatest?.by_category ?? {};
+    for (const cat of categories) {
+      const list = applyClientFilters(byCat[String(cat.id)] || []);
+      if (list.length > 0) sections.push({ category: cat, meetings: list });
     }
-    const orderedSections = categories
-      .map((c) => ({ category: c, meetings: buckets.get(c.id) ?? [] }))
-      .filter((s) => s.meetings.length > 0);
-    const knownIds = new Set(categories.map((c) => c.id));
-    const orphanCategories: { category: Category; meetings: Meeting[] }[] = [];
-    for (const [id, list] of buckets.entries()) {
-      if (!knownIds.has(id) && list.length > 0) {
-        const sample = list[0].category!;
-        orphanCategories.push({
-          category: { id: sample.id, name: sample.name, color: sample.color ?? null },
-          meetings: list,
-        });
-      }
-    }
-    return { sections: [...orderedSections, ...orphanCategories], uncategorized };
-  }, [filteredMeetings, categories]);
+    const uncategorized = applyClientFilters(groupedLatest?.uncategorized || []);
+    const totalRendered =
+      sections.reduce((n, s) => n + s.meetings.length, 0) + uncategorized.length;
+    return { sections, uncategorized, totalRendered };
+  }, [groupedLatest, categories, applyClientFilters]);
 
   const handleDelete = async (id: number) => {
     if (!window.confirm("Delete this meeting? This cannot be undone.")) return;
@@ -515,6 +790,7 @@ export default function MeetingsPage() {
     try {
       await deleteMeeting(id);
       removeMeeting(id);
+      removeMeetingFromGrouped(id);
     } catch (err) {
       console.error("Delete failed", err);
       alert("Failed to delete meeting. Please try again.");
@@ -524,9 +800,12 @@ export default function MeetingsPage() {
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Loading
+  // Loading — INITIAL cold load only. Once we've rendered content once,
+  // subsequent refetches (typing in search, filter changes, poll ticks)
+  // must not re-hit this branch or the whole tree unmounts and the
+  // FilterBar's input loses focus.
   // ─────────────────────────────────────────────────────────────────────────────
-  if (loading) {
+  if (loading && meetings.length === 0 && !isSearching) {
     return (
       <Layout>
         <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
@@ -589,9 +868,11 @@ export default function MeetingsPage() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Empty (no meetings at all)
+  // Empty — org genuinely has zero meetings. Skip when actively searching
+  // (that "no matches" case is handled inside the grouped-view search
+  // branch so the FilterBar stays mounted).
   // ─────────────────────────────────────────────────────────────────────────────
-  if (meetings.length === 0) {
+  if (meetings.length === 0 && !isSearching && !loading) {
     const emptyMessage = activeCategory
       ? activeTeam
         ? `No meetings in ${activeTeam.name} yet.`
@@ -757,6 +1038,14 @@ export default function MeetingsPage() {
               deletingId={deletingId}
             />
           )}
+
+          <LoadMoreBar
+            loaded={meetings.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onClick={loadMore}
+          />
         </div>
       </Layout>
     );
@@ -767,27 +1056,93 @@ export default function MeetingsPage() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-8 py-10">
-        <header className="flex items-end justify-between gap-4 flex-wrap mb-6">
+      <div
+        style={{
+          maxWidth: 1180,
+          margin: "0 auto",
+          padding: "44px 44px 72px",
+          // Override the cream canvas token → white for this whole page,
+          // so every child using var(--vb-canvas) (cards, filter bar, …)
+          // inherits white without editing each one.
+          ["--vb-canvas" as string]: "#ffffff",
+          background: "#ffffff",
+          minHeight: "100vh",
+          fontFamily: "var(--vb-font-sans)",
+          color: "var(--vb-body)",
+        } as React.CSSProperties}
+      >
+        <header
+          className="flex items-end justify-between flex-wrap"
+          style={{ gap: 24, marginBottom: 28 }}
+        >
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
+            <p
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                color: "var(--vb-pink)",
+                margin: "0 0 10px",
+              }}
+            >
               Overview
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
-            <p className="text-sm text-slate-500 mt-2">
-              {meetings.length} sessions across{" "}
-              {groupedByCategory.sections.length}{" "}
-              {groupedByCategory.sections.length === 1 ? "category" : "categories"}.
+            <h1
+              style={{
+                fontFamily: "var(--vb-font-display)",
+                fontWeight: 500,
+                fontSize: 40,
+                letterSpacing: "-1.4px",
+                color: "var(--vb-ink)",
+                margin: 0,
+              }}
+            >
+              Meetings
+            </h1>
+            <p
+              style={{
+                fontSize: 15,
+                color: "var(--vb-muted)",
+                margin: "10px 0 0",
+              }}
+            >
+              {isSearching
+                ? `Search: "${searchTrimmed}" · ${total} match${total === 1 ? "" : "es"} across the organization`
+                : `Showing latest ${groupedLatest?.per_category ?? 10} per category` +
+                  (groupedForRender.sections.length > 0
+                    ? ` · ${groupedForRender.sections.length} ${
+                        groupedForRender.sections.length === 1 ? "category" : "categories"
+                      }`
+                    : "")}
+              .
             </p>
           </div>
-          <Button
-            size="sm"
+          <button
             onClick={() => setShowScheduleForm(!showScheduleForm)}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-sm shadow-indigo-600/20"
+            className="inline-flex items-center transition-colors"
+            style={{
+              gap: 8,
+              height: 44,
+              padding: "0 18px",
+              background: "var(--vb-ink)",
+              color: "var(--vb-on-ink)",
+              border: "none",
+              borderRadius: 12,
+              fontFamily: "var(--vb-font-sans)",
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+            onMouseDown={(e) =>
+              (e.currentTarget.style.background = "var(--vb-ink-active)")
+            }
+            onMouseUp={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             New meeting
-          </Button>
+          </button>
         </header>
 
         <div className="mb-8">
@@ -802,8 +1157,8 @@ export default function MeetingsPage() {
             onCustomFrom={setCustomFrom}
             customTo={customTo}
             onCustomTo={setCustomTo}
-            totalCount={meetings.length}
-            filteredCount={filteredMeetings.length}
+            totalCount={groupedForRender.totalRendered}
+            filteredCount={groupedForRender.totalRendered}
           />
         </div>
 
@@ -817,31 +1172,104 @@ export default function MeetingsPage() {
           </div>
         )}
 
-        {/* No filter results */}
-        {hasActiveFilters &&
-          filteredMeetings.length === 0 && (
-            <NoFilterResults onClear={clearFilters} />
-          )}
+        {/* Search mode: flat list backed by the paginated /allmeetings?q=…
+            endpoint — full org search, not just the loaded latest-10. */}
+        {isSearching ? (
+          <>
+            {loading && meetings.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">Searching…</p>
+            ) : filteredMeetings.length === 0 ? (
+              <div className="text-center py-14 bg-white rounded-lg border border-slate-200 border-dashed">
+                <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                  No matches
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Nothing in the organization matches "{searchTrimmed}".
+                </p>
+              </div>
+            ) : (
+              <>
+                <MeetingList
+                  meetings={filteredMeetings}
+                  onDelete={handleDelete}
+                  deletingId={deletingId}
+                />
+                <LoadMoreBar
+                  loaded={meetings.length}
+                  total={total}
+                  hasMore={hasMore}
+                  loading={loadingMore}
+                  onClick={loadMore}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {/* No filter results — client status/date filters emptied out
+                every section in the latest-10 window. */}
+            {hasActiveFilters && groupedForRender.totalRendered === 0 && (
+              <NoFilterResults onClear={clearFilters} />
+            )}
 
-        {/* Category sections */}
-        {groupedByCategory.sections.map(({ category, meetings: catMeetings }) => (
-          <CategorySection
-            key={category.id}
-            category={category}
-            meetings={catMeetings}
-            onDelete={handleDelete}
-            deletingId={deletingId}
-          />
-        ))}
+            {groupedForRender.sections.map(({ category, meetings: catMeetings }) => (
+              <CategorySection
+                key={category.id}
+                category={category}
+                meetings={catMeetings}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
+            ))}
 
-        {groupedByCategory.uncategorized.length > 0 && (
-          <UncategorizedSection
-            meetings={groupedByCategory.uncategorized}
-            onDelete={handleDelete}
-            deletingId={deletingId}
-          />
+            {groupedForRender.uncategorized.length > 0 && (
+              <UncategorizedSection
+                meetings={groupedForRender.uncategorized}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
+            )}
+
+            {groupedLoading && groupedForRender.totalRendered === 0 && !hasActiveFilters && (
+              <p className="text-sm text-slate-400 text-center py-8">Loading meetings…</p>
+            )}
+          </>
         )}
       </div>
     </Layout>
+  );
+}
+
+function LoadMoreBar({
+  loaded,
+  total,
+  hasMore,
+  loading,
+  onClick,
+}: {
+  loaded: number;
+  total: number;
+  hasMore: boolean;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  if (loaded === 0) return null;
+  return (
+    <div className="mt-6 flex items-center justify-center gap-4">
+      <span className="text-xs text-slate-500">
+        {total > 0
+          ? `Showing ${loaded} of ${total}`
+          : `Showing ${loaded}`}
+      </span>
+      {hasMore && (
+        <button
+          onClick={onClick}
+          disabled={loading}
+          className="text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Load more"}
+        </button>
+      )}
+    </div>
   );
 }

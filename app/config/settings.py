@@ -25,9 +25,28 @@ class Settings:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+    # ---- Langfuse (agents_v2 tracing/observability) -----------------------
+    # If all three are set the agents_v2 pipeline sends traces to Langfuse
+    # Cloud. If ANY is missing the SDK becomes a no-op — meetings still
+    # process, we just get no traces.
+    LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+    LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+    # Accept LANGFUSE_BASE_URL too — it's the name Langfuse's own docs use
+    # in some snippets, so people naturally paste it into .env.
+    LANGFUSE_HOST = (
+        os.getenv("LANGFUSE_HOST")
+        or os.getenv("LANGFUSE_BASE_URL")
+        or "https://cloud.langfuse.com"
+    )
+
     # ---- Recall.ai --------------------------------------------------------
     RECALL_API_KEY = os.getenv("RECALL_API_KEY")
     BASE_URL = os.getenv("BASE_URL")
+    # Svix-signed webhook secret ("whsec_…"). When set, /webhook/recall/{id}
+    # verifies the Svix signature (HMAC over id.timestamp.body) and rejects
+    # forged/replayed requests. When unset (local dev without live Recall
+    # traffic), the endpoint logs a warning and accepts anyway.
+    RECALL_WEBHOOK_SECRET = os.getenv("RECALL_WEBHOOK_SECRET")
 
     # ---- Phase 13A — Transcription provider abstraction -------------------
     # Recall.ai routes audio through a third-party transcription provider.
@@ -246,6 +265,15 @@ class Settings:
     RAG_RERANK_W_CHUNK_IMP = float(os.getenv("RAG_RERANK_W_CHUNK_IMP", "0.30"))
     RAG_RERANK_W_ENTITY_IMP = float(os.getenv("RAG_RERANK_W_ENTITY_IMP", "0.20"))
     RAG_RERANK_W_ACCESS = float(os.getenv("RAG_RERANK_W_ACCESS_RERANK", "0.10"))
+
+    # ---------------------------------------------------------------------
+    # Continuum Core meeting agent (client boards + stage kanban).
+    # ---------------------------------------------------------------------
+    # Board reconciliation across a large JSON state is too hard for mini
+    # models; default to full gpt-4o. Volume is low (personal use).
+    CONTINUUM_MODEL = os.getenv("CONTINUUM_MODEL", "gpt-4o")
+    # Meetings whose category has this name auto-flow through the agent.
+    CONTINUUM_CATEGORY_NAME = os.getenv("CONTINUUM_CATEGORY_NAME", "Continuum Core")
 
     # ---------------------------------------------------------------------
     # Phase 12C — Closing briefing composer.

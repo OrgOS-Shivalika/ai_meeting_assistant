@@ -17,6 +17,13 @@ from celery.schedules import crontab
 
 from app.config.settings import settings
 
+# Force early init of the agents_v2 tracing shim so its ENABLED/DISABLED
+# log line appears at worker startup — makes it obvious whether the
+# Langfuse env vars actually reached this Python process. Without this,
+# the module only initializes when the first agents_v2 task fires, and
+# the diagnostic is easy to miss in log noise.
+from app.agents_v2.shared import tracing as _agents_v2_tracing  # noqa: F401
+
 
 celery = Celery(
     "meeting_ai",
@@ -33,6 +40,7 @@ celery = Celery(
         "app.celery_tasks.consolidation_tasks",
         "app.celery_tasks.agent_tasks",
         "app.celery_tasks.calendar_tasks",
+        "app.celery_tasks.continuum_tasks",
     ],
 )
 

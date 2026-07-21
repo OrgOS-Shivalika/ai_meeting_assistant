@@ -253,6 +253,43 @@ class MeetingPipeline:
                 )
                 bot_id = meeting.bot_id
             else:
+                # Cross-meeting dedup — protects against the "two rows
+                # racing to dispatch a bot for the same Meet URL" case.
+                # Happens when /inject-bot and the calendar-sync beat
+                # tick fire concurrently against the same URL, or when
+                # a user pastes a URL that already has an active bot
+                # from another entry point.
+                #
+                # If ANOTHER active meeting for the same URL already has
+                # a bot, don't send a second one — mark this meeting as
+                # failed so it doesn't sit as "processing" forever.
+                from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                cutoff = _dt.now(_tz.utc) - _td(minutes=15)
+                other = (
+                    db.query(Meeting)
+                    .filter(
+                        Meeting.id != meeting.id,
+                        Meeting.meeting_url == meeting_url,
+                        Meeting.bot_id.isnot(None),
+                        Meeting.status.in_(("pending", "processing")),
+                        Meeting.created_at >= cutoff,
+                    )
+                    .order_by(Meeting.created_at.desc())
+                    .first()
+                )
+                if other:
+                    logger.warning(
+                        "⛔ Meeting %s aborted — another meeting %s already "
+                        "dispatched bot %s for %s; not sending a duplicate.",
+                        meeting.id, other.id, other.bot_id, meeting_url,
+                    )
+                    meeting.status = "failed"
+                    meeting.error_message = (
+                        f"Duplicate — bot already dispatched by meeting {other.id}."
+                    )
+                    db.commit()
+                    return
+
                 logger.info(f"🤖 Creating bot for URL: {meeting_url}")
                 bot = self.recall.create_bot(meeting_url, meeting.id)
                 bot_id = bot["id"]
@@ -318,33 +355,42 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
-            # Phase 9.6 — Agent Graph Orchestration.
-            # Use the orchestrator to run capability-based analysis.
-            # The orchestrator handles BehaviorProfile resolution internally
-            # or we can pass it in if we already have it. 
-            logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
-            from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
-            from app.services.behavior.resolver import resolve_behavior_profile
-            
-            # 1. Resolve the profile once for the entire runtime execution
-            prof = resolve_behavior_profile(
-                db,
-                organization_id=meeting.organization_id,
-                category_id=meeting.category_id,
-                team_id=meeting.team_id
-            )
+            # Agents v2 feature flag — if there's an agents_v2 row for
+            # this meeting's scope, route through the new orchestrator.
+            # Otherwise fall through to the legacy Phase 9.6 path.
+            # Presence of the DB row IS the feature flag — no env var.
+            from app.agents_v2 import orchestrator as v2_orchestrator
+            if v2_orchestrator.has_agent_for_scope(db, meeting):
+                logger.info("🆕 Routing meeting %s through agents_v2 pipeline", meeting.id)
+                result_obj = v2_orchestrator.run_meeting_analysis(db, formatted, meeting)
+            else:
+                # Phase 9.6 — Agent Graph Orchestration.
+                # Use the orchestrator to run capability-based analysis.
+                # The orchestrator handles BehaviorProfile resolution internally
+                # or we can pass it in if we already have it.
+                logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
+                from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
+                from app.services.behavior.resolver import resolve_behavior_profile
 
-            # 2. Execute the Agent Graph
-            # meeting_id MUST be passed — the harness threads it through
-            # ToolContext to every tool. Without it, create_task can't
-            # resolve which meeting to attach the new task to and fails
-            # every call.
-            result_obj = AgentGraphOrchestrator.run_meeting_analysis(
-                db,
-                formatted,
-                prof,
-                meeting_id=meeting.id,
-            )
+                # 1. Resolve the profile once for the entire runtime execution
+                prof = resolve_behavior_profile(
+                    db,
+                    organization_id=meeting.organization_id,
+                    category_id=meeting.category_id,
+                    team_id=meeting.team_id
+                )
+
+                # 2. Execute the Agent Graph
+                # meeting_id MUST be passed — the harness threads it through
+                # ToolContext to every tool. Without it, create_task can't
+                # resolve which meeting to attach the new task to and fails
+                # every call.
+                result_obj = AgentGraphOrchestrator.run_meeting_analysis(
+                    db,
+                    formatted,
+                    prof,
+                    meeting_id=meeting.id,
+                )
 
             # result_obj is a typed ExtractionSummary instance
             result_json = result_obj.model_dump()
@@ -449,6 +495,20 @@ class MeetingPipeline:
                 logger.error(
                     "Failed to dispatch embedding for meeting %s: %s",
                     meeting.id, embed_err,
+                )
+
+            # Continuum Core: if this meeting belongs to a Continuum
+            # client (team linked to a cc_clients row), feed the
+            # transcript into the client's board. Best-effort — the
+            # dispatcher swallows its own errors and skips non-Continuum
+            # meetings cheaply.
+            try:
+                from app.celery_tasks.continuum_tasks import dispatch_continuum_process
+                dispatch_continuum_process(meeting.id)
+            except Exception as cc_err:
+                logger.error(
+                    "Failed to dispatch continuum processing for meeting %s: %s",
+                    meeting.id, cc_err,
                 )
 
             return result_json
