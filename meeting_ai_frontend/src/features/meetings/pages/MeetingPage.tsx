@@ -1061,11 +1061,15 @@ export default function MeetingsPage() {
           maxWidth: 1180,
           margin: "0 auto",
           padding: "44px 44px 72px",
-          background: "var(--vb-canvas)",
+          // Override the cream canvas token → white for this whole page,
+          // so every child using var(--vb-canvas) (cards, filter bar, …)
+          // inherits white without editing each one.
+          ["--vb-canvas" as string]: "#ffffff",
+          background: "#ffffff",
           minHeight: "100vh",
           fontFamily: "var(--vb-font-sans)",
           color: "var(--vb-body)",
-        }}
+        } as React.CSSProperties}
       >
         <header
           className="flex items-end justify-between flex-wrap"

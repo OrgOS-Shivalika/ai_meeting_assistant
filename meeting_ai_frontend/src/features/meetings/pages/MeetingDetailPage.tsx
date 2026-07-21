@@ -470,10 +470,13 @@ export default function MeetingDetailPage() {
       <div
         className="h-full flex flex-col"
         style={{
-          background: "var(--vb-canvas)",
+          // Override the cream canvas token → white for this whole page,
+          // so every child using var(--vb-canvas) inherits white.
+          ["--vb-canvas" as string]: "#ffffff",
+          background: "#ffffff",
           fontFamily: "var(--vb-font-sans)",
           color: "var(--vb-body)",
-        }}
+        } as React.CSSProperties}
       >
         {/* Breadcrumb strip */}
         <div
