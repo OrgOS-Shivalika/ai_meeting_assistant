@@ -21,6 +21,9 @@ export interface LiveFinal {
   speaker: string;
   text: string;
   timestamp: number;
+  // Present = a participant join/leave notice, not a spoken line.
+  // Consumers render these as an inline system notice.
+  kind?: "join" | "leave";
 }
 
 export interface LiveCognitiveEvent {
@@ -152,6 +155,20 @@ export function useLiveTranscript(
             const event = msg as LiveCognitiveEvent;
             setLiveEvents((prev) => [...prev, event]);
             eventCbRef.current?.(event);
+          } else if (msg.type === "participant_event") {
+            const action = msg.action === "leave" ? "leave" : "join";
+            const name = msg.name || "Someone";
+            setFinals((prev) => [
+              ...prev,
+              {
+                // Attributed to the assistant, not the participant, so the
+                // bubble reads "OrgOS / <name> joined the meeting".
+                speaker: "OrgOS",
+                text: `${name} ${action === "join" ? "joined" : "left"} the meeting`,
+                timestamp: Date.now(),
+                kind: action,
+              },
+            ]);
           }
         } catch {
           /* malformed payload — ignore */

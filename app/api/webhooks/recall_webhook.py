@@ -322,10 +322,34 @@ async def process_participant_event(meeting_id: int, event: str, payload: dict) 
     webhook handler thin to avoid duplicating the rule in two places.
     """
     data_block = payload.get("data") or {}
-    participant = data_block.get("participant") or {}
-    if not isinstance(participant, dict):
-        return
+    # Recall nests the participant under data.data.participant on realtime
+    # participant_events (same shape extract_transcript_fields digs through).
+    # Fall back to data.participant for simpler payloads.
+    inner = data_block.get("data")
+    participant: dict = {}
+    if isinstance(inner, dict) and isinstance(inner.get("participant"), dict):
+        participant = inner["participant"]
+    elif isinstance(data_block.get("participant"), dict):
+        participant = data_block["participant"]
     meeting_lifecycle_monitor.on_participant_event(str(meeting_id), event, participant)
+
+    # Surface the join/leave inline in the live-transcript UI. Best-effort:
+    # a broadcast failure must never affect lifecycle handling above.
+    # ponytail: no bot-self / duplicate-event filtering — add if it reads noisy.
+    try:
+        name = (
+            participant.get("name")
+            or (f"Participant {participant.get('id')}" if participant.get("id") else "Someone")
+        )
+        await manager.broadcast(meeting_id, {
+            "type": "participant_event",
+            "action": "leave" if event.endswith("leave") else "join",
+            "name": name,
+        })
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "[participant_event] broadcast failed for meeting %s: %s", meeting_id, exc
+        )
 
 
 def _verify_recall_signature(headers, body: bytes) -> None:

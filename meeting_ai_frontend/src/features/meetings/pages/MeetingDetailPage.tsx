@@ -57,6 +57,8 @@ type TranscriptGroup = {
   timestamp?: number | string;
   messages: string[];
   isPartial?: boolean;
+  // Present = a participant join/leave notice rendered inline, not a bubble.
+  kind?: "join" | "leave";
 };
 
 const getInitials = (name: string) => {
@@ -324,7 +326,21 @@ export default function MeetingDetailPage() {
     const gs: TranscriptGroup[] = [];
     for (const line of finals) {
       const last = gs[gs.length - 1];
-      if (last && last.speaker === line.speaker && !last.isPartial) {
+      if (line.kind) {
+        // participant join/leave — always a standalone inline notice,
+        // never merged into an adjacent same-name speaker group.
+        gs.push({
+          speaker: line.speaker,
+          timestamp: line.timestamp,
+          messages: [line.text],
+          kind: line.kind,
+        });
+      } else if (
+        last &&
+        last.speaker === line.speaker &&
+        !last.isPartial &&
+        !last.kind
+      ) {
         last.messages.push(line.text);
       } else {
         gs.push({
@@ -767,7 +783,42 @@ export default function MeetingDetailPage() {
                   </p>
                 </div>
               ) : (
-                groups.map((group, idx) => (
+                groups.map((group, idx) =>
+                  group.kind ? (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "flex flex-row-reverse gap-3 p-2.5 rounded-md",
+                        group.kind === "join"
+                          ? "bg-emerald-50/50"
+                          : "bg-slate-50/70",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "w-7 h-7 rounded-md flex items-center justify-center font-semibold text-[10px] text-white shrink-0",
+                          colorFor(group.speaker),
+                        )}
+                      >
+                        {getInitials(group.speaker)}
+                      </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <div className="flex items-baseline justify-end gap-2 mb-1">
+                          {group.timestamp && (
+                            <span className="text-[10px] text-slate-400 tabular-nums">
+                              {formatTime(group.timestamp)}
+                            </span>
+                          )}
+                          <span className="text-[13px] font-semibold text-slate-900">
+                            {group.speaker}
+                          </span>
+                        </div>
+                        <p className="text-[13px] leading-relaxed text-slate-500 italic">
+                          {group.messages[0]}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
                   <div
                     key={idx}
                     className={cn(
