@@ -5,8 +5,9 @@ import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
-from app.db.models import Meeting, User
+from app.db.models import User
 from app.dependencies.auth import resolve_user_from_token
+from app.services import ws_service
 from app.services.transcript_persistence import schedule_transcript_save
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ async def _authenticate_ws(
     if user is None:
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED, reason="Invalid token")
         return None
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    meeting = ws_service.get_meeting_by_id(db, meeting_id)
     if not meeting or meeting.organization_id != user.organization_id:
         await websocket.close(code=_WS_CLOSE_FORBIDDEN, reason="Unauthorized")
         return None

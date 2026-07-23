@@ -37,21 +37,24 @@ Cross-org isolation:
 from __future__ import annotations
 
 from typing import Any, Literal, Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import Category, Team, User, WorkspaceTemplateLink
+from app.db.database import get_db
+from app.db.models import User
 from app.dependencies.auth import get_current_user, require_org_admin
 from app.services.behavior.overrides import (
     BEHAVIOR_DIMENSIONS, OverrideError,
-    count_overrides_for_scope, delete_all_overrides_for_scope,
+    delete_all_overrides_for_scope,
     delete_override, get_overrides_for_scope, set_override,
 )
 from app.services.behavior.resolver import resolve_behavior_profile
+from app.services.behavior.scopes import (
+    assert_scope_owned_by_org as _assert_scope_owned_by_org,
+    get_scope_tree,
+)
 from app.utils.logger import setup_logger
 from app.schemas.intent_schema import IntentProfile
 
@@ -124,62 +127,12 @@ class OverrideRowResponse(BaseModel):
     value: Any
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _assert_scope_owned_by_org(
-    db: Session, *, organization_id: UUID, scope_id: Optional[int],
-    scope_type: Optional[str] = None,
-) -> None:
-    if scope_id is None: return
-    if scope_type == "team":
-        found = db.query(Team.id).join(Category, Team.category_id == Category.id).filter(
-            Team.id == scope_id, Category.organization_id == organization_id
-        ).first()
-    elif scope_type == "category":
-        found = db.query(Category.id).filter(
-            Category.id == scope_id, Category.organization_id == organization_id
-        ).first()
-    else:
-        found = db.query(Category.id).filter(
-            Category.id == scope_id, Category.organization_id == organization_id
-        ).first() or db.query(Team.id).join(Category, Team.category_id == Category.id).filter(
-            Team.id == scope_id, Category.organization_id == organization_id
-        ).first()
-    if found is None: raise HTTPException(status_code=404, detail="Scope not found")
-
-# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 @router.get("/scopes", response_model=ScopesResponse)
 def get_scopes(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    workspace_overrides = count_overrides_for_scope(db, organization_id=user.organization_id, scope_type="workspace")
-    links = db.query(WorkspaceTemplateLink).filter(WorkspaceTemplateLink.organization_id == user.organization_id).all()
-    link_by_kind_id = {(ln.entity_type, ln.entity_id_int): ln for ln in links if ln.entity_id_int is not None}
-    
-    cats = db.query(Category).filter(Category.organization_id == user.organization_id).order_by(Category.name.asc()).all()
-    cat_items = []
-    for c in cats:
-        link = link_by_kind_id.get(("category", c.id))
-        cat_items.append(ScopeListItem(
-            id=c.id, kind="category", name=c.name, parent_id=None,
-            template_slug=link.source_template_slug if link else None,
-            template_version=link.source_template_version if link else None,
-            override_count=count_overrides_for_scope(db, organization_id=user.organization_id, scope_type="category", scope_id=c.id)
-        ))
-
-    teams = db.query(Team).join(Category, Team.category_id == Category.id).filter(Category.organization_id == user.organization_id).order_by(Team.name.asc()).all()
-    team_items = []
-    for t in teams:
-        link = link_by_kind_id.get(("team", t.id))
-        team_items.append(ScopeListItem(
-            id=t.id, kind="team", name=t.name, parent_id=t.category_id,
-            template_slug=link.source_template_slug if link else None,
-            template_version=link.source_template_version if link else None,
-            override_count=count_overrides_for_scope(db, organization_id=user.organization_id, scope_type="team", scope_id=t.id)
-        ))
-    return ScopesResponse(workspace_overrides_count=workspace_overrides, categories=cat_items, teams=team_items)
+    return ScopesResponse(**get_scope_tree(db, organization_id=user.organization_id))
 
 @router.get("/resolve", response_model=ResolvedBehaviorResponse)
 def get_resolved_behavior(

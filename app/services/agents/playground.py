@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from typing import Iterator, Optional
 from uuid import UUID
 
+from fastapi import HTTPException
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.config.settings import settings
@@ -176,6 +178,41 @@ def _persist_test_run(
         except Exception:
             db.rollback()
             return None
+
+
+# ---------------------------------------------------------------------------
+# History reads (Phase 7E)
+# ---------------------------------------------------------------------------
+
+
+def list_history(
+    db: Session, *, organization_id: UUID, limit: int,
+) -> list[PromptTestRun]:
+    """Recent playground runs for the org, newest first."""
+    return (
+        db.query(PromptTestRun)
+        .filter(PromptTestRun.organization_id == organization_id)
+        .order_by(desc(PromptTestRun.created_at))
+        .limit(limit)
+        .all()
+    )
+
+
+def get_run(
+    db: Session, *, organization_id: UUID, run_id: UUID,
+) -> PromptTestRun:
+    """Single-run detail, org-scoped. Cross-org access 404s."""
+    row = (
+        db.query(PromptTestRun)
+        .filter(
+            PromptTestRun.id == run_id,
+            PromptTestRun.organization_id == organization_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playground run not found")
+    return row
 
 
 # ---------------------------------------------------------------------------

@@ -16,16 +16,16 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import PromptTestRun, User
+from app.db.database import get_db
+from app.db.models import User
 from app.dependencies.auth import require_org_admin
 from app.schemas.agent_api_schema import ModularPromptIn
+from app.services.agents import playground as playground_service
 from app.services.agents.playground import run_playground
 from app.services.rag.ask_pipeline import event_to_sse_bytes
 from app.utils.logger import setup_logger
@@ -197,14 +197,9 @@ def list_playground_history(
     user: User = Depends(require_org_admin),
 ):
     """Recent playground runs for the user's org, newest first."""
-    rows = (
-        db.query(PromptTestRun)
-        .filter(PromptTestRun.organization_id == user.organization_id)
-        .order_by(desc(PromptTestRun.created_at))
-        .limit(limit)
-        .all()
+    return playground_service.list_history(
+        db, organization_id=user.organization_id, limit=limit,
     )
-    return rows
 
 
 @router.get("/history/{run_id}", response_model=PromptTestRunDetail)
@@ -216,17 +211,6 @@ def get_playground_run(
     """Single-run detail. Returns the full assembled prompt +
     retrieval bundle so the dashboard can render the comparison
     view."""
-    row = (
-        db.query(PromptTestRun)
-        .filter(
-            PromptTestRun.id == run_id,
-            PromptTestRun.organization_id == user.organization_id,
-        )
-        .first()
+    return playground_service.get_run(
+        db, organization_id=user.organization_id, run_id=run_id,
     )
-    if row is None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail="Playground run not found",
-        )
-    return row
