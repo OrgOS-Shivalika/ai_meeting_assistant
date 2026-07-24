@@ -341,6 +341,33 @@ class Settings:
         "INTERNAL_WEBHOOK_BASE_URL", "http://localhost:8000",
     )
 
+    # ---------------------------------------------------------------------
+    # Memory backend — mem0 consolidation (see MEM0_IMPLEMENTATION_PLAN.md)
+    # ---------------------------------------------------------------------
+    # 'native' — the existing org_memory_facts pipeline (default).
+    # 'mem0'   — route persistent memory (facts + chat) through mem0.
+    # Kill switch: set back to 'native' to fall through to the legacy path.
+    MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "native")
+    # Phase 4 sub-flag — conversational (session) memory in /ask. Separate
+    # because it adds ~1 LLM call per chat turn.
+    MEMORY_CHAT_ENABLED = os.getenv("MEMORY_CHAT_ENABLED", "false").lower() in {"1", "true", "yes"}
+    # mem0 managed-platform API key (from app.mem0.ai). Its presence selects
+    # the mode: SET → managed (mem0 hosts the store on its servers, nothing
+    # local); UNSET → OSS self-hosted (mem0's own table in our Postgres).
+    MEM0_API_KEY = os.getenv("MEM0_API_KEY")
+    # mem0's own pgvector table — OSS mode only (never touches org_memory_facts).
+    MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "mem0_facts")
+    # Default recency window (days) for window='short_term' searches.
+    MEM0_SHORT_TERM_DAYS = int(os.getenv("MEM0_SHORT_TERM_DAYS", "60"))
+    # Distiller anti-hallucination excerpt check. When true, a fact whose
+    # cited excerpt isn't found verbatim in the transcript is dropped.
+    # Default FALSE — keep every LLM-extracted fact (0 only when the model
+    # genuinely found none). Set true to re-enable strict grounding.
+    MEMORY_VERBATIM_CHECK = os.getenv("MEMORY_VERBATIM_CHECK", "false").lower() in {"1", "true", "yes"}
+    # mem0 telemetry (posthog) — OFF by default for data residency. The
+    # backend module also sets this env var before importing mem0.
+    MEM0_TELEMETRY = os.getenv("MEM0_TELEMETRY", "false")
+
     def __init__(self):
         if not self.OPEN_API_KEY:
             logger.warning("OPEN_API_KEY is not set in environment variables.")

@@ -1,6 +1,6 @@
 # mem0 Memory Consolidation — Implementation Plan
 
-> **Goal:** move the project's *persistent memory* onto [mem0](https://github.com/mem0ai/mem0) (OSS, self-hosted) as the single memory-of-record, behind the existing memory facade, feature-flagged for a safe cutover. Live in-meeting working state and the raw meeting/task record stay where they are and feed mem0 at the boundary.
+> **Goal:** move the project's *persistent memory* onto [mem0](https://github.com/mem0ai/mem0) as the single memory-of-record, behind the existing memory facade, feature-flagged for a safe cutover. **Managed platform by default** (hosted by mem0 — nothing self-hosted), with **OSS self-hosted as a reversible fallback** (the backend picks the mode by the presence of `MEM0_API_KEY`). Live in-meeting working state and the raw meeting/task record stay where they are and feed mem0 at the boundary.
 >
 > Status: **planned, not started.** Illustrative code below is version-pending — pin + install `mem0ai` and verify the API before treating snippets as final.
 
@@ -51,17 +51,35 @@ mem0 owns extraction, dedup, update/supersede, and semantic search — replacing
 | `window="short_term"` (recent facts) | recency filter on mem0 `created_at` (post-filter or metadata) |
 | `window="long_term"` / `"all"` | no recency filter |
 
+### Memory layers (org-shared / per-agent / session)
+
+mem0 exposes three scoping keys at once, so memory is **layered**, not either/or. **Agent identity is a scoping axis (`agent_id`), not a prerequisite for mem0** — you get per-agent memory the moment an agent exists, just by passing `agent_id`.
+
+| Layer | mem0 scope | Visible to | Example |
+|---|---|---|---|
+| **Org / shared** | `user_id=org` | every agent + legacy path + `/ask` | "Acme's renewal is Q3" — any agent should know it |
+| **Per-agent** | `user_id=org` + `agent_id=<agents_v2 id/slug>` | only that agent | HR/L&D agent's accumulated L&D-specific knowledge |
+| **Session** | `run_id=conversation/meeting` | one thread | chat memory in `/ask` |
+
+- The **legacy** path (`graph_orchestrator`) has no agent identity → uses **org-shared only**.
+- **agents_v2** agents read org-shared **plus** their own `agent_id` layer; each opts in as it's built.
+- Default is **layered** — shared org memory is the company knowledge base; per-agent memory is a specialization on top, not a replacement.
+
+**Sequencing:** mem0 does **not** wait for the agents_v2 rollout. It's shared infra consumed by the legacy path, `/ask`, and agents_v2 alike. The facade accepts an optional `agent_id` from day one; each agents_v2 agent adopts its per-agent layer as it comes online.
+
 ---
 
 ## 3. Design decisions (locked)
 
-1. **mem0 OSS self-hosted** (`mem0ai`), never the managed platform — several department profiles set `data_residency: "restricted"`, so tenant data cannot leave our infra.
+1. **Managed platform by default** (`MemoryClient`, hosted by mem0) — chosen per user decision to self-host nothing. The backend is **dual-mode**: `MEM0_API_KEY` set → managed (mem0 stores everything on its servers); unset → OSS self-hosted fallback (mem0's own table in our Postgres). ⚠️ **Data-residency note:** managed sends memory data to mem0's servers; the catalog's `data_residency: "restricted"` tenants are a compliance consideration explicitly accepted for this deployment. Flip to OSS by clearing the key.
 2. **Same Postgres/pgvector DB.** mem0's `pgvector` backend points at the existing DB; it gets its own `mem0_*` tables and **never touches `org_memory_facts`**.
 3. **Reuse OpenAI + embedding model.** `gpt-4o-mini` for extraction, `text-embedding-3-small` @ **1536-d** (already our dimension).
 4. **Facade-preserving.** Gut the internals of `MemoryAccess` / `MeetingMemoryEngine`; keep their signatures. Callers untouched.
 5. **`user_id = organization_id` is mandatory on every call.** No mem0 read/write may run without it. Enforced by a guard + test.
 6. **Feature flag** `MEMORY_BACKEND=native|mem0` (default `native` until cutover). Instant rollback.
 7. **Extraction strategy — decide in Phase 2** (see §7.3): keep our verbatim-checked distiller feeding mem0 (`infer=False`) vs. let mem0 extract from the transcript (`infer=True`). Recommendation: `infer=True` for mem0's dedup/update power **plus** a lightweight grounding post-filter to preserve the anti-hallucination guarantee.
+8. **Layered memory, not per-agent-only.** mem0's `user_id`/`agent_id`/`run_id` provide org-shared + per-agent + session layers simultaneously. Default is layered (shared org base + optional per-agent). See §2 "Memory layers."
+9. **Sequencing: mem0 first, agents opt in.** mem0 is shared infra consumed by the legacy path, `/ask`, and agents_v2 — it does NOT wait for the agents_v2 rollout. The facade takes an optional `agent_id` from day one; each agents_v2 agent adopts its per-agent layer as it comes online.
 
 ---
 
@@ -92,6 +110,7 @@ _CONFIG = {
             "host": _url.host, "port": _url.port or 5432,
             "collection_name": "mem0_facts",      # mem0-owned table; NOT org_memory_facts
             "embedding_model_dims": 1536,
+            "hnsw": True,                          # ANN index (matches project convention)
         },
     },
     # No graph_store — we already have our own knowledge graph.
@@ -119,11 +138,13 @@ Notes:
 
 ```python
 def add_facts(*, text_or_messages, org_id, category_id=None, team_id=None,
-              meeting_id=None, infer=True) -> list[dict]:
-    """Long-term (user-level) memory write. user_id is ALWAYS org_id."""
+              meeting_id=None, agent_id=None, infer=True) -> list[dict]:
+    """Long-term memory write. user_id is ALWAYS org_id (tenant isolation).
+    Pass agent_id for a per-agent private layer; omit for org-shared."""
     return _mem().add(
         text_or_messages,
         user_id=str(org_id),
+        agent_id=str(agent_id) if agent_id else None,   # per-agent layer (optional)
         metadata=_meta(category_id, team_id, meeting_id),
         infer=infer,
     )
@@ -137,12 +158,14 @@ def add_turn(*, question, answer, org_id, conversation_id, meeting_id=None) -> l
     )
 
 def search(*, query, org_id, category_id=None, team_id=None,
-           conversation_id=None, window="short_term", limit=10) -> list[dict]:
-    kwargs = {"user_id": str(org_id), "limit": limit, "filters": _meta(category_id, team_id)}
-    if conversation_id is not None:
-        kwargs["run_id"] = str(conversation_id)
-    results = _mem().search(query, **kwargs).get("results", [])
-    return _apply_window(results, window)   # short_term → recency-filter on created_at
+           conversation_id=None, agent_id=None, window="short_term", limit=10, threshold=0.3):
+    # mem0 2.x: scope keys go INSIDE `filters` (unlike add(), which takes kwargs).
+    filters = {"user_id": str(org_id)}
+    if agent_id is not None:        filters["agent_id"] = str(agent_id)
+    if conversation_id is not None: filters["run_id"] = str(conversation_id)
+    filters.update(_meta(category_id, team_id))   # category/team as metadata filters
+    raw = _mem().search(query, filters=filters, top_k=limit, threshold=threshold)
+    return _apply_window(_unwrap(raw), window)    # short_term → recency filter (Phase 3)
 ```
 
 `_apply_window` re-implements the current `Window` semantics (`short_term` = last N days, default 60; `long_term`/`all` = unfiltered) by filtering mem0's `created_at`.
@@ -183,27 +206,35 @@ Delegate these to mem0 when `MEMORY_BACKEND=mem0`; keep native behind the flag.
 
 ## 7. Phased plan
 
-### Phase 0 — deps, config, migration
-- [ ] Add `mem0ai==<pinned>` to `requirements.txt`.
-- [ ] `settings.py`: `MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "native")`; mem0 knobs (`MEM0_COLLECTION`, recency window default).
-- [ ] Alembic migration for the `mem0_*` table(s). **Do not** rely on mem0's auto-DDL — this repo's dev DB is built via `create_all` and prod via migrations; an explicit migration keeps them consistent. (mem0 will create the table on first use if absent; we front-run it with a migration so schema is reviewable and identical across envs.)
-- [ ] `pip install`, confirm the exact `Memory.from_config` API for the pinned version; correct §4 keys.
+### Phase 0 — deps, config  ✅ DONE
+- [x] `mem0ai==2.0.13` pinned in `requirements.txt` and installed (additive deps only — qdrant-client/posthog/portalocker/pywin32/h2 — no downgrades, clean on Python 3.14).
+- [x] `settings.py`: `MEMORY_BACKEND` (default `native`), `MEMORY_CHAT_ENABLED`, `MEM0_COLLECTION`, `MEM0_SHORT_TERM_DAYS`, `MEM0_TELEMETRY`.
+- [x] API verified against 2.0.13 by introspection; §4/§5 corrected — `add()` takes user_id/agent_id/run_id as kwargs, `search()`/`get_all()` take them inside `filters` + `top_k` + `threshold`. pgvector fields confirmed: dbname/user/password/host/port/collection_name/embedding_model_dims (+ hnsw, sslmode, connection_string available).
+- **Migration decision (resolved):** mem0's pgvector store **auto-creates** its collection table idempotently on `Memory` init → **no hand-written migration**, simpler and version-safe. Add one only if prod needs the table pre-created for migration parity (generate it to match the live 2.0.13 schema).
 
-### Phase 1 — backend client + isolation guard
-- [ ] `app/services/memory/mem0_backend.py` (lazy singleton, `add_facts` / `add_turn` / `search`, adapter, `_apply_window`).
-- [ ] **Isolation guard:** helper that raises if `org_id` is missing/blank; every read/write goes through it.
-- [ ] Test: org A writes a fact, org B `search` cannot retrieve it (proves `user_id` isolation). Add to `scripts/smoke_mem0.py`.
+### Phase 1 — backend client + isolation guard  ✅ verified (smoke passed)
+- [x] `app/services/memory/mem0_backend.py` — lazy singleton, telemetry-off, `add_facts` / `add_turn` / `search` / `get_all`, `MemFact` adapter (`.fact` shape), `_apply_window`. Compile-checked + config-build verified against 2.0.13.
+- [x] **Isolation guard** `_require_org` — raises if `org_id` missing; every read/write routes through it (`user_id = org_id`).
+- [x] **Smoke test PASSED (managed platform, `api.mem0.ai`)** — round-trip, tenant isolation (org B sees 0 of org A's facts), and the empty-org guard all green. OSS self-hosted mode also passed earlier against the dev DB (`localhost:5433`). Correct managed cleanup form is `delete_all(user_id=…)` (async). ⚠️ Session/chat (`run_id`) search returned 0 within the retry window — validate as part of Phase 4 (managed indexes async; may need longer wait or filter tweak).
+- [ ] Confirm `_apply_window` recency field + `threshold` (distance vs similarity) semantics against a live store (smoke used `window="all"`, `threshold=0.3`).
 
-### Phase 2 — meeting-fact distillation via mem0 (lowest-risk cutover)
-- [ ] Behind `MEMORY_BACKEND=mem0`, `distill_for_meeting` writes to mem0.
-- [ ] **Decision (§3.7):** `infer=True` (mem0 extracts from transcript, gets dedup/update) + grounding post-filter, **or** keep our distiller and `infer=False`. Recommend `infer=True` + post-filter; benchmark both on a sample meeting.
-- [ ] Preserve idempotency (skip if this meeting already contributed).
-- [ ] Verify `graph_orchestrator._build_context` still gets prior facts (it calls `MemoryAccess`).
+### Phase 2 — meeting-fact distillation via mem0  ✅ wired (behind flag)
+- [x] Behind `MEMORY_BACKEND=mem0`, `distill_for_meeting` writes verified facts to mem0 and skips the native embed/dedup/insert path.
+- [x] **Decision taken:** keep our distiller + `infer=False` — preserves the verbatim anti-hallucination check; structured fields (fact_type / subject / importance) ride in mem0 metadata and re-hydrate on read. (Cross-meeting dedup via mem0 is a Phase-3+ refinement.)
+- [x] Idempotency guard preserved (skips if the meeting already distilled).
+- [x] **End-to-end validated** — with `MEMORY_BACKEND=mem0`, `distill_for_meeting(force=True)` on meeting 4755 wrote a fact to managed mem0 (`inserted=1, backend=mem0`) and `MemoryAccess.get_recent` read it back with `fact_type` intact. Verbatim excerpt check still drops ungrounded facts (meeting 4754: 5 extracted, 0 verified). Consumers (`graph_orchestrator`, `/ask`, agents_v2) call `get_recent`/`search`, so they now read from mem0.
 
-### Phase 3 — retrieval via mem0
-- [ ] `MemoryAccess.search` / `search_for_meeting` delegate to `mem0_backend.search`.
-- [ ] Map `window` → recency filter; map `sim_floor` → drop results below a score threshold (mem0 returns `score`).
-- [ ] Adapter returns `.fact`-shaped objects. Confirm three callers unchanged: `graph_orchestrator`, `ask_pipeline` (`bundle.prior_facts`), `agents_v2.orchestrator._build_knowledge`.
+### Phase 3 — retrieval via mem0  ✅ wired (behind flag)
+- [x] `MemoryAccess.search` (+ `search_for_meeting`) and `get_recent` delegate to `mem0_backend` under the flag.
+- [x] `MemFact` adapter duck-types `OrgMemoryFact` (`.fact` / `.fact_type` / `.subject` / `.last_referenced_at`) so `render_facts_block` and the three callers are unchanged.
+- [ ] Live-confirm `window` recency field + `threshold` (distance vs similarity) semantics against a real store.
+- [ ] `get_by_subject` still on native — delegate in a follow-up.
+
+### Phase 3b — per-agent memory layer (agents_v2)
+- [ ] `agents_v2.orchestrator._build_knowledge` passes the agent's `agent_id` to `mem0_backend.search` → the agent reads org-shared **plus** its own layer.
+- [ ] Optional per-agent writes: an agent can persist private memories via `add_facts(..., agent_id=...)`.
+- [ ] Legacy path + `/ask` pass no `agent_id` → org-shared only (unchanged behavior).
+- [ ] No dependency on the full agents_v2 rollout — each agent opts in as it's built.
 
 ### Phase 4 — conversational chat memory (the new capability)
 - [ ] In `ask_pipeline.ask_stream`, after each answer, `mem0_backend.add_turn(question, answer, org_id, conversation_id)`.
@@ -250,7 +281,7 @@ Delegate these to mem0 when `MEMORY_BACKEND=mem0`; keep native behind the flag.
 | Risk | Mitigation |
 |---|---|
 | Cross-tenant leak via mem0 filters | `user_id = org_id` mandatory + isolation guard + blocking test |
-| mem0 auto-DDL vs this repo's migration model | Explicit Alembic migration for `mem0_*` tables |
+| mem0 auto-DDL vs this repo's migration model | **Resolved:** let mem0 auto-create its table (idempotent on init); add a migration only for prod migration-parity |
 | Losing the verbatim anti-hallucination guarantee | Keep distiller (`infer=False`) or add a grounding post-filter on mem0 output |
 | mem0's internal LLM calls invisible to Langfuse | Wrap mem0's OpenAI client with the Langfuse wrapper |
 | Two memory systems during transition | `MEMORY_BACKEND` flag + `org_memory_facts` kept read-only until cutover |

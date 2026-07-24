@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.config.settings import settings
 from app.db.models import Meeting, OrgMemoryFact
 from app.services.embedder import Embedder
 
@@ -67,6 +68,18 @@ class MemoryAccess:
         Returns ORM objects — caller may read any column without re-query.
         NEVER raises on bump failure (logged + swallowed).
         """
+        if settings.MEMORY_BACKEND == "mem0":
+            from app.services.memory import mem0_backend
+            facts = mem0_backend.search(
+                query=query, org_id=organization_id,
+                category_id=category_id, team_id=team_id,
+                window=window, limit=limit,
+            )
+            if fact_types:
+                allowed = set(fact_types)
+                facts = [f for f in facts if f.fact_type in allowed]
+            return facts   # bump is a no-op for mem0 (manages access internally)
+
         q = query.strip()
         stmt = select(OrgMemoryFact).where(
             OrgMemoryFact.organization_id == organization_id,
@@ -176,6 +189,16 @@ class MemoryAccess:
         """Recency-sorted; used by distiller for the 'top-20 most recent
         for this scope' input window, and by the master-analyzer context
         builder. Never bumps — these are *context* reads, not consumption."""
+        if settings.MEMORY_BACKEND == "mem0":
+            from app.services.memory import mem0_backend
+            facts = mem0_backend.get_all(
+                org_id=organization_id, category_id=category_id,
+                team_id=team_id, limit=limit,
+            )
+            if fact_type:
+                facts = [f for f in facts if f.fact_type == fact_type]
+            return facts[:limit]
+
         stmt = select(OrgMemoryFact).where(
             OrgMemoryFact.organization_id == organization_id,
             OrgMemoryFact.archive_status == "active",

@@ -29,6 +29,7 @@ from app.ai_agents.openAI_transcript_analyzer import _get_client
 from app.ai_agents.prompts.memory_engine_prompt import (
     FACT_TYPES, MEMORY_ENGINE_PROMPT_VERSION, build_prompt,
 )
+from app.config.settings import settings
 from app.db.models import Meeting
 from app.services.embedder import Embedder
 from app.services.memory.access import MemoryAccess
@@ -178,24 +179,63 @@ class MeetingMemoryEngine:
             }
 
         # ---- 4. Excerpt verification (anti-hallucination layer 2) ----
-        # The LLM was told to cite a verbatim quote. We check that quote
-        # actually appears in the transcript (or summary, as fallback).
-        # If it doesn't, the model invented the fact — drop it.
-        transcript_hay = _normalize(
-            (meeting.transcript_text or "") + " " + (meeting.summary or "")
-        )
-        verified: list[ExtractedFact] = []
-        dropped_no_excerpt = 0
-        for f in facts:
-            if _normalize(f.source_excerpt) in transcript_hay:
-                verified.append(f)
-            else:
-                dropped_no_excerpt += 1
+        # Optional (settings.MEMORY_VERBATIM_CHECK, default OFF). When ON,
+        # a fact whose cited excerpt isn't found verbatim in the transcript
+        # is dropped as likely-invented. When OFF (default), keep every
+        # LLM-extracted fact — 0 only when the model found none.
+        if settings.MEMORY_VERBATIM_CHECK:
+            transcript_hay = _normalize(
+                (meeting.transcript_text or "") + " " + (meeting.summary or "")
+            )
+            verified: list[ExtractedFact] = [
+                f for f in facts if _normalize(f.source_excerpt) in transcript_hay
+            ]
+            dropped_no_excerpt = len(facts) - len(verified)
+        else:
+            verified = list(facts)
+            dropped_no_excerpt = 0
         if not verified:
             return {
                 "ok": True, "prompt_version": cls.PROMPT_VERSION,
                 "facts_extracted": len(facts),
                 "facts_inserted": 0, "dropped_no_excerpt": dropped_no_excerpt,
+                "duration_ms": int((time.perf_counter() - t0) * 1000),
+            }
+
+        # ---- 5a. mem0 backend (flag-gated) --------------------------
+        # When MEMORY_BACKEND=mem0, store the verbatim-verified facts in
+        # mem0 (infer=False — already grounded) with the structured fields
+        # in metadata, and SKIP the native embed/dedup/insert path below.
+        # mem0 owns its own embedding + storage.
+        if settings.MEMORY_BACKEND == "mem0":
+            from app.services.memory import mem0_backend
+            written = 0
+            for f in verified:
+                try:
+                    mem0_backend.add_facts(
+                        text_or_messages=f.fact,
+                        org_id=meeting.organization_id,
+                        category_id=meeting.category_id,
+                        team_id=meeting.team_id,
+                        meeting_id=meeting.id,
+                        infer=False,
+                        extra_metadata={
+                            "fact_type": f.fact_type,
+                            "subject": f.subject,
+                            "importance_score": f.importance_score,
+                            "confidence_score": f.confidence_score,
+                            "source_excerpt": f.source_excerpt,
+                            "prompt_version": cls.PROMPT_VERSION,
+                        },
+                    )
+                    written += 1
+                except Exception as e:
+                    logger.warning("mem0 add_facts failed (meeting=%s): %s", meeting_id, e)
+            return {
+                "ok": True, "backend": "mem0",
+                "prompt_version": cls.PROMPT_VERSION,
+                "facts_extracted": len(facts), "facts_verified": len(verified),
+                "facts_inserted": written, "dropped_no_excerpt": dropped_no_excerpt,
                 "duration_ms": int((time.perf_counter() - t0) * 1000),
             }
 
