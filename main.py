@@ -3,14 +3,14 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
-from app.api.auth_router import router as auth_router
-from app.api.google_auth_router import router as google_auth_router 
+from app.api.auth_router import router as auth_router, public_router as auth_public_router
+from app.api.google_auth_router import router as google_auth_router
 from app.api.routes import router
 from app.api.category_router import router as category_router, team_router, meeting_types_router
 from app.api.document_router import router as document_router
 from app.api.team_document_router import router as team_document_router
 from app.api.transcription_router import router as transcription_router
-from app.api.ws_router import ws_router
+from app.api.ws_router import ws_router, recall_ws_router
 from app.api.webhooks.recall_webhook import recall_webhook_router
 from app.api.search_router import router as search_router
 from app.api.graph_router import router as graph_router
@@ -49,32 +49,55 @@ app.add_middleware(
 )
 
 
-app.include_router(auth_router)
-app.include_router(router)
-app.include_router(category_router)
-app.include_router(meeting_types_router)
-app.include_router(team_router)
-app.include_router(document_router)
-app.include_router(team_document_router)
-app.include_router(transcription_router)
-app.include_router(google_auth_router)
-app.include_router(search_router)
-app.include_router(graph_router)
-app.include_router(rag_router)
-app.include_router(consolidation_router)
-app.include_router(observability_router)
-app.include_router(harness_observability_router)
-app.include_router(agents_router)
-app.include_router(prompt_configs_router)
-app.include_router(playground_router)
-app.include_router(templates_router)
-app.include_router(behavior_router)
-app.include_router(ws_router)
-app.include_router(recall_webhook_router)
+# ---------------------------------------------------------------------------
+# Route mounting.
+#
+#   PUBLIC_PREFIX (default /public) — unauthenticated: register + login only.
+#   API_PREFIX    (default /api)     — every JWT-authenticated app endpoint;
+#                                      the SPA sends the HttpOnly cookie.
+#
+# Root-mounted (NO prefix) on purpose:
+#   - recall_webhook_router / recall_ws_router — Recall.ai calls these
+#     machine-to-machine at a URL derived from APP_PUBLIC_URL. They're not
+#     browser-auth and must not move under the auth-scoped /api prefix.
+#   - /health, /docs, /openapi.json, / (SPA) — infra, defined elsewhere.
+# ---------------------------------------------------------------------------
+_API = settings.API_PREFIX
+_PUBLIC = settings.PUBLIC_PREFIX
+
+# Public (no auth).
+app.include_router(auth_public_router, prefix=_PUBLIC)
+
+# Authenticated app surface.
+app.include_router(auth_router, prefix=_API)
+app.include_router(router, prefix=_API)
+app.include_router(category_router, prefix=_API)
+app.include_router(meeting_types_router, prefix=_API)
+app.include_router(team_router, prefix=_API)
+app.include_router(document_router, prefix=_API)
+app.include_router(team_document_router, prefix=_API)
+app.include_router(transcription_router, prefix=_API)
+app.include_router(google_auth_router, prefix=_API)
+app.include_router(search_router, prefix=_API)
+app.include_router(graph_router, prefix=_API)
+app.include_router(rag_router, prefix=_API)
+app.include_router(consolidation_router, prefix=_API)
+app.include_router(observability_router, prefix=_API)
+app.include_router(harness_observability_router, prefix=_API)
+app.include_router(agents_router, prefix=_API)
+app.include_router(prompt_configs_router, prefix=_API)
+app.include_router(playground_router, prefix=_API)
+app.include_router(templates_router, prefix=_API)
+app.include_router(behavior_router, prefix=_API)
+app.include_router(ws_router, prefix=_API)
 # Phase 12E — closing briefing endpoint (replaces the Phase 12C debug router).
-app.include_router(closing_briefing_router)
+app.include_router(closing_briefing_router, prefix=_API)
 # Phase 14 K2 — Kanban Boards (boards/columns/task moves).
-app.include_router(kanban_router)
+app.include_router(kanban_router, prefix=_API)
+
+# Machine-to-machine + external — mounted at the root, JWT-less.
+app.include_router(recall_ws_router)
+app.include_router(recall_webhook_router)
 
 @app.on_event("startup")
 async def startup_event():

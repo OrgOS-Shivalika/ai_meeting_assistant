@@ -2,89 +2,40 @@ import { defineConfig, loadEnv } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
-import type { IncomingMessage } from 'http'
 import path from 'path'
 
-// In dev, every API path gets proxied to the FastAPI server. The frontend
-// continues to call relative paths (no host hardcoded) and the browser sees
-// everything as same-origin — so CORS never runs.
-//
-// Production keeps working unchanged: FastAPI serves the SPA from `/` and
-// the API from the same host, so same-origin holds there too.
+// In dev, the API prefixes get proxied to the FastAPI server. The frontend
+// calls relative paths (no host hardcoded) and the browser sees everything as
+// same-origin — so CORS never runs. Production keeps working unchanged:
+// FastAPI serves the SPA from `/` and the API from the same host.
 //
 // VITE_API_URL overrides the proxy target if you point dev at a different
-// backend (e.g. a deployed staging server).
-//
-// Important: some proxy prefixes (notably `/meeting-types` and
-// `/auth/google/callback`) overlap with SPA routes. If a user is on
-// `/meeting-types?type=4` and hits refresh, the browser sends a GET with
-// `Accept: text/html` and NO Authorization header — proxying that to
-// FastAPI returns a 401 JSON page (`{"detail":"Not authenticated"}`)
-// which the browser then renders as the full page content. To avoid
-// that, the proxy `bypass` hook below short-circuits HTML navigations
-// to the SPA's index.html, and only forwards real XHR/fetch traffic
-// (which carries `Accept: application/json` plus the bearer token) to
-// FastAPI.
-const API_PATH_PREFIXES = [
-  '/auth',
-  '/categories',
-  '/teams',
-  '/meeting-types',
-  '/meetings',
-  '/allmeetings',
-  '/inject-bot',
-  '/transcriptions',
-  '/tasks',
-  // Phase 2D + 3D — semantic search + graph read API.
-  '/search',
-  '/entities',
-  '/webhook',
-  '/ws',
-  '/health',
-  '/docs',
-  '/openapi.json',
-  '/redoc',
-  // Phase 4E — document chunks inspection endpoint.
-  '/documents',
-  // Phase 5D — RAG ask + conversations + runs.
-  '/rag',
-  // Phase 6D — merge suggestions + rehydrate.
-  '/consolidation',
-]
-
-const isHtmlNavigation = (req: IncomingMessage): boolean => {
-  if (req.method !== 'GET') return false
-  const accept = (req.headers.accept || '') as string
-  // A browser navigation explicitly asks for HTML; an XHR/fetch asks for
-  // JSON (our apiClient never sets Accept manually but `fetch` defaults
-  // to `*/*` while the browser address-bar GET defaults to
-  // `text/html,application/xhtml+xml,...`).
-  return accept.includes('text/html')
+// backend. VITE_API_PREFIX / VITE_PUBLIC_PREFIX must match the backend's
+// API_PREFIX / PUBLIC_PREFIX (defaults /api and /public). Because every API
+// route now lives under one of these prefixes, SPA routes (e.g.
+// `/meeting-types`, `/auth/google/callback`) never collide with the API and
+// are served the SPA shell by Vite's own fallback — no bypass hack needed.
+const normalizePrefix = (p: string): string => {
+  const t = (p || '').replace(/^\/+|\/+$/g, '')
+  return t ? `/${t}` : ''
 }
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const target = env.VITE_API_URL || 'http://localhost:8000'
+  const apiPrefix = normalizePrefix(env.VITE_API_PREFIX ?? '/api') || '/api'
+  const publicPrefix = normalizePrefix(env.VITE_PUBLIC_PREFIX ?? '/public') || '/public'
 
-  const proxy: Record<string, any> = {}
-  for (const prefix of API_PATH_PREFIXES) {
-    proxy[prefix] = {
-      target,
-      changeOrigin: true,
-      // /ws upgrades to a websocket — vite handles that when ws: true.
-      ws: prefix === '/ws',
-      // Return `/index.html` for top-level HTML navigations so the SPA
-      // hydrates instead of dumping the JSON 401 from FastAPI's
-      // OAuth2PasswordBearer. WebSocket upgrades and JSON XHR pass
-      // through unchanged.
-      bypass: (req: IncomingMessage) => {
-        if (prefix === '/ws') return undefined
-        if (isHtmlNavigation(req)) {
-          return '/index.html'
-        }
-        return undefined
-      },
-    }
+  const proxy: Record<string, any> = {
+    // Authenticated API + the viewer WebSocket (under API_PREFIX/ws).
+    [apiPrefix]: { target, changeOrigin: true, ws: true },
+    // Unauthenticated login/register.
+    [publicPrefix]: { target, changeOrigin: true },
+    // Infra / API docs.
+    '/docs': { target, changeOrigin: true },
+    '/openapi.json': { target, changeOrigin: true },
+    '/redoc': { target, changeOrigin: true },
+    '/health': { target, changeOrigin: true },
   }
 
   return {

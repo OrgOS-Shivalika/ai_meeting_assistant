@@ -29,8 +29,8 @@ import type {
   RetrievedEvent,
   TokenEvent,
 } from "../types";
-
-const BASE_URL = import.meta.env.VITE_API_URL || "";
+import { clearAuthFlag } from "../../../services/authFlag";
+import { apiUrl } from "../../../services/config";
 
 interface AskOptions extends AskRequest {
   conversation_id?: string | null;
@@ -153,13 +153,14 @@ export function useChatStream(): UseChatStreamResult {
     //   1. opts.endpoint  — explicit override (Phase 2 panel hits /rag/ask-live)
     //   2. conversation_id — multi-turn variant
     //   3. /rag/ask        — single-shot default
-    const url = opts.endpoint
-      ? `${BASE_URL.replace(/\/$/, "")}${opts.endpoint}`
-      : opts.conversation_id
-      ? `${BASE_URL.replace(/\/$/, "")}/rag/conversations/${opts.conversation_id}/messages`
-      : `${BASE_URL.replace(/\/$/, "")}/rag/ask`;
+    const url = apiUrl(
+      opts.endpoint
+        ? opts.endpoint
+        : opts.conversation_id
+        ? `/rag/conversations/${opts.conversation_id}/messages`
+        : `/rag/ask`,
+    );
 
-    const token = localStorage.getItem("token");
     let response: Response;
     try {
       response = await fetch(url, {
@@ -167,8 +168,8 @@ export function useChatStream(): UseChatStreamResult {
         headers: {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        credentials: "include",
         body: JSON.stringify(opts),
         signal: controller.signal,
       });
@@ -187,8 +188,8 @@ export function useChatStream(): UseChatStreamResult {
     }
 
     if (response.status === 401) {
-      // Same handling as apiClient: clear token, kick to login.
-      localStorage.removeItem("token");
+      // Same handling as apiClient: clear the session hint, kick to login.
+      clearAuthFlag();
       if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
       }

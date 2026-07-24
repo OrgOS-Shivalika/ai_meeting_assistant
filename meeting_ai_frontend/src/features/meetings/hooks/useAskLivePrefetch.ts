@@ -13,6 +13,7 @@
  * is non-critical context, never block the user's typing on it.
  */
 import { useEffect, useState } from "react";
+import { apiUrl } from "../../../services/config";
 
 export interface PrefetchedFact {
   id: string;
@@ -46,11 +47,9 @@ export function useAskLivePrefetch(meetingId: number | null, enabled: boolean) {
       return;
     }
     const ctrl = new AbortController();
-    const token = localStorage.getItem("token");
-    const base = import.meta.env.VITE_API_URL || "";
     setLoading(true);
-    fetch(`${base}/rag/ask-live/prefetch?meeting_id=${meetingId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    fetch(apiUrl(`/rag/ask-live/prefetch?meeting_id=${meetingId}`), {
+      credentials: "include",
       signal: ctrl.signal,
     })
       .then((r) => (r.ok ? (r.json() as Promise<PrefetchResponse>) : Promise.reject(r.status)))

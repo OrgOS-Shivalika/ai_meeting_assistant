@@ -1,4 +1,6 @@
 import { apiClient } from "../../services/apiClient";
+import { clearAuthFlag } from "../../services/authFlag";
+import { apiUrl } from "../../services/config";
 import type { Category, CategoryDocument, Meeting, Team } from "./types";
 
 export interface MeetingFilter {
@@ -227,10 +229,6 @@ export const deleteTeam = (id: number) =>
 // Category documents (Phase 1D)
 // ---------------------------------------------------------------------------
 
-// Empty default => same-origin requests, proxied to the backend by vite in
-// dev. Override with VITE_API_URL when pointing at a remote backend.
-const documentBaseUrl = import.meta.env.VITE_API_URL || "";
-
 /**
  * Multipart upload — bypasses apiClient's JSON-only path. The backend
  * enqueues processing asynchronously, so the response returns quickly with
@@ -240,19 +238,18 @@ export const uploadCategoryDocument = async (
   categoryId: number,
   file: File,
 ): Promise<CategoryDocument> => {
-  const token = localStorage.getItem("token");
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(
-    `${documentBaseUrl.replace(/\/$/, "")}/categories/${categoryId}/documents`,
+    apiUrl(`/categories/${categoryId}/documents`),
     {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
       body: form,
     },
   );
   if (res.status === 401) {
-    localStorage.removeItem("token");
+    clearAuthFlag();
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }

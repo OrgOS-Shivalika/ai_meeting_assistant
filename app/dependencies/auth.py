@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from app.db.database import get_db
@@ -10,7 +10,23 @@ import uuid
 SECRET_KEY = settings.AUTH_SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+# auto_error=False: the JWT now lives in an HttpOnly cookie, so a missing
+# Authorization header is normal — we fall back to the cookie below rather
+# than letting the scheme raise a 401 first. Kept in the graph so Swagger's
+# "Authorize" box and non-browser API clients can still send a Bearer token.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+
+def _token_from_request(request: Request, bearer_token: str | None) -> str | None:
+    """Resolve the JWT for an HTTP request.
+
+    Cookie first (the browser SPA's HttpOnly `access_token`), then the
+    Authorization Bearer header (Swagger + programmatic API clients). The
+    cookie wins when both are present so a browser session isn't shadowed
+    by a stale header.
+    """
+    cookie_token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    return cookie_token or bearer_token
 
 
 def resolve_user_from_token(db: Session, token: str | None) -> User | None:
@@ -34,12 +50,17 @@ def resolve_user_from_token(db: Session, token: str | None) -> User | None:
         return None
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(
+    request: Request,
+    bearer_token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = _token_from_request(request, bearer_token)
     user = resolve_user_from_token(db, token)
     if user is None:
         raise credentials_exception

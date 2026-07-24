@@ -9,6 +9,7 @@ from app.db.models import User
 from app.dependencies.auth import resolve_user_from_token
 from app.services import ws_service
 from app.services.transcript_persistence import schedule_transcript_save
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,13 @@ async def _authenticate_ws(
         return None
     return user
 
+# Two routers so main.py can mount them at different prefixes:
+#   ws_router        → API_PREFIX  (the authenticated frontend viewer socket)
+#   recall_ws_router → root        (Recall.ai connects here machine-to-machine;
+#                                   its URL is external and JWT-less, so it must
+#                                   NOT sit under the auth-scoped /api prefix)
 ws_router = APIRouter()
+recall_ws_router = APIRouter()
 
 class ConnectionManager:
     def __init__(self):
@@ -130,14 +137,18 @@ async def websocket_endpoint(
 ):
     """Live transcript / cognitive-event stream for one meeting.
 
-    Auth: JWT via `?token=` on the WS URL (browser `WebSocket()` can't
-    send custom headers). Rejects with close code 4401 on any auth
-    failure or cross-org access. Only after auth passes do we accept
-    the connection and register with the ConnectionManager.
+    Auth: the HttpOnly `access_token` cookie, which the browser attaches
+    to the WS handshake automatically on same-origin connections (no more
+    token in the URL / server access logs). The `?token=` query param is
+    kept only as a fallback for non-browser clients that can't send the
+    cookie. Rejects with close code 4401 on any auth failure or cross-org
+    access. Only after auth passes do we accept the connection and register
+    with the ConnectionManager.
     """
+    effective_token = websocket.cookies.get(settings.AUTH_COOKIE_NAME) or token
     db = SessionLocal()
     try:
-        user = await _authenticate_ws(websocket, token, meeting_id, db)
+        user = await _authenticate_ws(websocket, effective_token, meeting_id, db)
     finally:
         db.close()
     if user is None:
@@ -152,7 +163,7 @@ async def websocket_endpoint(
         manager.disconnect(websocket, meeting_id)
 
 # --- NEW Recall.ai Receiver Endpoint ---
-@ws_router.websocket("/ws/recall/{meeting_id}")
+@recall_ws_router.websocket("/ws/recall/{meeting_id}")
 async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
     """
     Recall.ai connects to this endpoint to push live transcript data.

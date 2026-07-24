@@ -20,6 +20,40 @@ class Settings:
     AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "supersecret")
     ALGORITHM = "HS256"
 
+    # ---- Auth cookie (HttpOnly JWT) --------------------------------------
+    # The JWT is delivered to browsers as an HttpOnly cookie instead of a
+    # body token the SPA stashes in localStorage. HttpOnly means JS can't
+    # read it, so an XSS payload can't exfiltrate the session — the browser
+    # attaches it automatically on same-origin requests + the WS handshake.
+    #
+    #   AUTH_COOKIE_SECURE   — set True in any HTTPS deployment so the cookie
+    #                          is never sent over plain http. Keep False for
+    #                          local http://localhost dev (a Secure cookie is
+    #                          dropped on http and the user can't log in).
+    #   AUTH_COOKIE_SAMESITE — 'lax' is right for the same-origin default
+    #                          (prod serves the SPA from FastAPI; dev proxies
+    #                          through Vite). Use 'none' (with Secure=True)
+    #                          only for a genuinely cross-site frontend.
+    #   AUTH_COOKIE_MAX_AGE  — mirrors the 7-day JWT TTL in auth_service.
+    AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "access_token")
+    AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+    AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+    AUTH_COOKIE_MAX_AGE = int(os.getenv("AUTH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
+
+    # ---- API route prefixes ----------------------------------------------
+    # Two mount points split the surface by auth expectation:
+    #   API_PREFIX     — JWT-authenticated app endpoints (the SPA sends the
+    #                    HttpOnly cookie). Everything the logged-in app calls.
+    #   PUBLIC_PREFIX  — unauthenticated endpoints: register + login only.
+    # Machine-to-machine endpoints (Recall webhook / WS receiver) and infra
+    # (/health, /docs, /openapi.json) deliberately stay at the root — they're
+    # neither browser-auth nor login. Both prefixes are overridable so a
+    # deployment behind a gateway can rename them (must be kept in sync with
+    # the frontend's VITE_API_PREFIX / VITE_PUBLIC_PREFIX). Leading slash,
+    # no trailing slash.
+    API_PREFIX = "/" + os.getenv("API_PREFIX", "/api").strip("/")
+    PUBLIC_PREFIX = "/" + os.getenv("PUBLIC_PREFIX", "/public").strip("/")
+
     # ---- AI providers -----------------------------------------------------
     OPEN_API_KEY = os.getenv("OPEN_API_KEY")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
