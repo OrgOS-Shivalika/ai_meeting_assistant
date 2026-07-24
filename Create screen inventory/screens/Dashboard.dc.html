@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/dashboard" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1140px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="margin-bottom:28px;">
+        <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Good morning, Dana</p>
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Dashboard</h1>
+        <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">Here's what your agents have been up to.</p>
+      </header>
+
+      <!-- Feature stat cards, cycling colors -->
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px;">
+        <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+          <div style="border-radius:24px; padding:24px; background:{{ s.bg }}; color:{{ s.fg }};">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+              <span style="width:38px; height:38px; border-radius:11px; background:{{ s.chip }}; display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="{{ s.icon }}" style="width:18px; height:18px;"></i></span>
+              <span style="font-size:12px; font-weight:600; color:{{ s.deltaColor }};">{{ s.delta }}</span>
+            </div>
+            <div style="font-family:var(--font-mono); font-size:32px; font-weight:500; line-height:1;">{{ s.value }}</div>
+            <div style="font-size:13px; margin-top:8px; opacity:0.85;">{{ s.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:20px; align-items:start;">
+        <!-- Recent meetings -->
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; padding:24px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0;">Recent meetings</h3>
+            <a href="Meetings.dc.html" style="font-size:13px; font-weight:500; color:var(--vb-muted);">View all</a>
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            <sc-for list="{{ recent }}" as="r" hint-placeholder-count="5">
+              <a href="Meeting Detail.dc.html" style="display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--vb-hairline-soft);">
+                <span style="width:36px; height:36px; border-radius:11px; flex-shrink:0; background:{{ r.chipBg }}; display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="{{ r.icon }}" style="width:16px; height:16px; color:{{ r.color }};"></i></span>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:14px; font-weight:500; color:var(--vb-ink);">{{ r.title }}</div>
+                  <div style="font-size:12px; color:var(--vb-muted); margin-top:2px;">{{ r.meta }}</div>
+                </div>
+                <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:4px 9px; border-radius:999px; color:{{ r.statusColor }}; background:{{ r.statusBg }};"><span style="width:5px; height:5px; border-radius:50%; background:{{ r.statusColor }};"></span>{{ r.status }}</span>
+              </a>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- Agent activity + your tasks -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div style="background:var(--vb-surface-dark); border-radius:20px; padding:24px; color:var(--vb-on-ink);">
+            <div style="display:flex; align-items:center; gap:9px; margin-bottom:16px;"><i data-lucide="bot" style="width:16px; height:16px; color:var(--vb-lavender);"></i><span style="font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-on-ink-soft);">Agents working</span></div>
+            <p style="font-size:15px; line-height:1.55; color:var(--vb-on-ink); margin:0 0 18px;">3 journeys live · 12 tasks routed · 5 summaries generated today.</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Summarizer · idle</div>
+              <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-info);"></span>Task router · running</div>
+              <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Graph extractor · idle</div>
+            </div>
+          </div>
+          <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; padding:24px;">
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0 0 14px;">Your open tasks</h3>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; gap:10px;"><span style="width:16px; height:16px; border-radius:5px; border:2px solid var(--vb-hairline); flex-shrink:0; margin-top:1px;"></span><div><p style="font-size:13px; color:var(--vb-body); margin:0;">Update board deck</p><span style="font-size:11px; color:var(--vb-warning);">Due today</span></div></div>
+              <div style="display:flex; gap:10px;"><span style="width:16px; height:16px; border-radius:5px; border:2px solid var(--vb-hairline); flex-shrink:0; margin-top:1px;"></span><div><p style="font-size:13px; color:var(--vb-body); margin:0;">Publish hiring plan</p><span style="font-size:11px; color:var(--vb-muted);">Due Jul 12</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:860}}">
+class Component extends DCLogic {
+  renderVals() {
+    const stats = [
+      { icon: "calendar", value: "42", label: "Meetings this month", delta: "+12%", bg: "var(--vb-pink)", fg: "#fff", chip: "rgba(255,255,255,0.2)", deltaColor: "rgba(255,255,255,0.9)" },
+      { icon: "check-square", value: "128", label: "Tasks extracted", delta: "+8%", bg: "var(--vb-peach)", fg: "var(--vb-ink)", chip: "rgba(0,0,0,0.08)", deltaColor: "var(--vb-body)" },
+      { icon: "clock", value: "31h", label: "Time saved", delta: "+21%", bg: "var(--vb-lavender)", fg: "var(--vb-ink)", chip: "rgba(0,0,0,0.08)", deltaColor: "var(--vb-body)" },
+      { icon: "users", value: "18", label: "Active people", delta: "+3", bg: "var(--vb-surface-dark)", fg: "#fff", chip: "rgba(255,255,255,0.12)", deltaColor: "rgba(255,255,255,0.7)" },
+    ];
+    const ST = {
+      completed: { s: "Completed", c: "var(--vb-success)" },
+      processing: { s: "Processing", c: "var(--vb-info)" },
+      pending: { s: "Pending", c: "var(--vb-warning)" },
+    };
+    const mixc = (v) => `color-mix(in srgb, ${v} 12%, white)`;
+    const rraw = [
+      { title: "Platform sync — Q3 roadmap", meta: "Engineering · Jul 8", icon: "code", color: "var(--vb-info)", status: "completed" },
+      { title: "Discovery — Globex renewal", meta: "Sales · Jul 7", icon: "briefcase", color: "var(--vb-pink)", status: "completed" },
+      { title: "Search reranking review", meta: "Engineering · Jul 9", icon: "code", color: "var(--vb-info)", status: "processing" },
+      { title: "Demo — Initech pilot", meta: "Sales · Jul 6", icon: "briefcase", color: "var(--vb-pink)", status: "pending" },
+      { title: "Weekly staff meeting", meta: "Leadership · Jul 8", icon: "rocket", color: "var(--vb-ochre)", status: "completed" },
+    ];
+    const recent = rraw.map(r => ({ ...r, chipBg: mixc(r.color),
+      status: ST[r.status].s, statusColor: ST[r.status].c, statusBg: mixc(ST[r.status].c) }));
+    return { stats, recent };
+  }
+}
+</script>
+</body>
+</html>

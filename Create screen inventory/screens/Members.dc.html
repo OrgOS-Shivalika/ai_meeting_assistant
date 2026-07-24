@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/members" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1000px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:28px;">
+        <div>
+          <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Workspace</p>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Members</h1>
+          <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">6 people in Acme Product Org.</p>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 18px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;"><i data-lucide="user-plus" style="width:16px; height:16px;"></i>Invite</button>
+      </header>
+
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; overflow:hidden;">
+        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 100px; gap:16px; padding:14px 22px; border-bottom:1px solid var(--vb-hairline); background:var(--vb-surface-soft);">
+          <span style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted-soft);">Member</span>
+          <span style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted-soft);">Role</span>
+          <span style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted-soft);">Status</span>
+          <span style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-muted-soft); text-align:right;"></span>
+        </div>
+        <sc-for list="{{ members }}" as="m" hint-placeholder-count="6">
+          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 100px; gap:16px; padding:14px 22px; border-bottom:1px solid var(--vb-hairline-soft); align-items:center;">
+            <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+              <span style="width:36px; height:36px; border-radius:10px; flex-shrink:0; background:{{ m.color }}; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#fff;">{{ m.initials }}</span>
+              <div style="min-width:0;"><div style="font-size:14px; font-weight:500; color:var(--vb-ink);">{{ m.name }}</div><div style="font-size:12px; color:var(--vb-muted);">{{ m.email }}</div></div>
+            </div>
+            <span style="font-size:13px; color:var(--vb-body);">{{ m.role }}</span>
+            <span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:{{ m.stColor }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ m.stColor }};"></span>{{ m.status }}</span>
+            <span style="text-align:right; color:var(--vb-muted-soft);"><i data-lucide="more-horizontal" style="width:18px; height:18px;"></i></span>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:700}}">
+class Component extends DCLogic {
+  renderVals() {
+    const C = ["var(--vb-pink)","var(--vb-info)","var(--vb-ochre)","var(--vb-coral)","var(--vb-lavender)","var(--vb-mint)"];
+    const raw = [
+      { name: "Dana Cho", email: "dana@acme.com", role: "Owner", status: "Active" },
+      { name: "Ada Lovelace", email: "ada@acme.com", role: "Admin", status: "Active" },
+      { name: "Ravi Shah", email: "ravi@acme.com", role: "Member", status: "Active" },
+      { name: "Mei Chen", email: "mei@acme.com", role: "Member", status: "Active" },
+      { name: "Nina Patel", email: "nina@acme.com", role: "Member", status: "Active" },
+      { name: "Sam Diaz", email: "sam@acme.com", role: "Member", status: "Invited" },
+    ];
+    return { members: raw.map((m,i) => ({ ...m,
+      initials: m.name.split(" ").map(w=>w[0]).join(""), color: C[i%C.length],
+      stColor: m.status === "Active" ? "var(--vb-success)" : "var(--vb-warning)" })) };
+  }
+}
+</script>
+</body>
+</html>

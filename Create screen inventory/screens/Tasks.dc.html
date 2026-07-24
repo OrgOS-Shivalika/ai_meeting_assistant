@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/action-items" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:960px; margin:0 auto; padding:44px 44px 72px;">
+
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:24px;">
+        <div>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:34px; letter-spacing:-1.2px; color:var(--vb-ink); margin:0;">Action items</h1>
+          <p style="font-size:14px; color:var(--vb-muted); margin:8px 0 0; max-width:520px;">Tasks extracted from every meeting in your organization. Assign owners and track completion across the team.</p>
+        </div>
+        <div style="position:relative;">
+          <i data-lucide="search" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--vb-muted-soft);"></i>
+          <input type="text" placeholder="Search tasks, owners, meetings" style="width:280px; box-sizing:border-box; padding:10px 12px 10px 38px; font-family:var(--font-sans); font-size:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; color:var(--vb-ink); outline:none;" />
+        </div>
+      </div>
+
+      <!-- Filter tabs -->
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:18px;">
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; background:color-mix(in srgb, var(--vb-warning) 14%, white); color:var(--vb-warning); border:1px solid color-mix(in srgb, var(--vb-warning) 30%, white);"><i data-lucide="alert-triangle" style="width:13px; height:13px;"></i>Needs owner<span style="font-size:11px; background:color-mix(in srgb, var(--vb-warning) 22%, white); padding:1px 7px; border-radius:999px;">3</span></span>
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; background:var(--vb-canvas); color:var(--vb-body); border:1px solid var(--vb-hairline);">Open<span style="font-size:11px; background:var(--vb-surface-card); padding:1px 7px; border-radius:999px;">7</span></span>
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; background:var(--vb-canvas); color:var(--vb-body); border:1px solid var(--vb-hairline);">Completed<span style="font-size:11px; background:var(--vb-surface-card); padding:1px 7px; border-radius:999px;">5</span></span>
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; font-size:12px; font-weight:600; background:var(--vb-canvas); color:var(--vb-body); border:1px solid var(--vb-hairline);">All<span style="font-size:11px; background:var(--vb-surface-card); padding:1px 7px; border-radius:999px;">12</span></span>
+      </div>
+
+      <!-- List -->
+      <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; overflow:hidden;">
+        <sc-for list="{{ tasks }}" as="t" hint-placeholder-count="6">
+          <div style="display:flex; align-items:flex-start; gap:14px; padding:16px 20px; border-bottom:1px solid var(--vb-hairline-soft); background:{{ t.rowBg }};">
+            <span style="flex-shrink:0; margin-top:2px; width:18px; height:18px; border-radius:6px; border:2px solid {{ t.boxBorder }}; background:{{ t.boxBg }}; display:flex; align-items:center; justify-content:center;"><sc-if value="{{ t.done }}" hint-placeholder-val="{{ false }}"><i data-lucide="check" style="width:12px; height:12px; color:#fff;"></i></sc-if></span>
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+                <h3 style="font-size:14px; font-weight:600; line-height:1.4; margin:0; color:{{ t.titleColor }}; text-decoration:{{ t.titleDeco }};">{{ t.task }}</h3>
+                <span style="flex-shrink:0; font-size:9px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; padding:3px 8px; border-radius:6px; color:{{ t.prColor }}; background:{{ t.prBg }};">{{ t.priority }}</span>
+              </div>
+              <div style="margin-top:8px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--vb-muted);">
+                <span style="display:inline-flex; align-items:center; gap:6px; font-weight:600; color:{{ t.ownerColor }};"><i data-lucide="user" style="width:12px; height:12px;"></i>{{ t.owner }}</span>
+                <span style="display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:11px; color:{{ t.dueColor }};"><i data-lucide="calendar" style="width:12px; height:12px;"></i>{{ t.due }}</span>
+                <a href="Meeting Detail.dc.html" style="display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:500; color:var(--vb-info);"><i data-lucide="arrow-up-right" style="width:12px; height:12px;"></i>{{ t.meeting }}</a>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const PR = {
+      high:   { color: "var(--vb-error)",   bg: "color-mix(in srgb, var(--vb-error) 10%, white)" },
+      medium: { color: "var(--vb-warning)", bg: "color-mix(in srgb, var(--vb-warning) 12%, white)" },
+      low:    { color: "var(--vb-success)", bg: "color-mix(in srgb, var(--vb-success) 12%, white)" },
+    };
+    const raw = [
+      { task: "Draft the migration timeline and circulate for sign-off", owner: null, priority: "high", due: null, done: false, meeting: "Platform sync — Q3 roadmap" },
+      { task: "Add p99 latency alerting on the connection pool", owner: "Ravi Shah", priority: "high", due: "Jul 12", done: false, meeting: "Incident retro — API latency" },
+      { task: "Send Globex the SOC 2 report and DPA", owner: null, priority: "medium", due: "Jul 11", done: false, meeting: "Discovery — Globex renewal" },
+      { task: "Prepare cross-encoder eval deck for review", owner: "Mei Chen", priority: "medium", due: "Jul 14", done: false, meeting: "Search reranking review" },
+      { task: "Follow up with Initech on pilot scope", owner: null, priority: "medium", due: null, done: false, meeting: "Demo — Initech pilot" },
+      { task: "Update board deck with net-retention figures", owner: "Nina Patel", priority: "high", due: "Jul 10", done: true, meeting: "Board prep working session" },
+      { task: "Publish the hiring plan to the team wiki", owner: "Dana Cho", priority: "low", due: "Jul 9", done: true, meeting: "Weekly staff meeting" },
+    ];
+    const tasks = raw.map((t) => {
+      const pr = PR[t.priority];
+      const unassigned = !t.owner;
+      return {
+        task: t.task, priority: t.priority,
+        prColor: pr.color, prBg: pr.bg,
+        done: t.done,
+        rowBg: unassigned ? "color-mix(in srgb, var(--vb-warning) 5%, white)" : "transparent",
+        boxBorder: t.done ? "var(--vb-success)" : "var(--vb-hairline)",
+        boxBg: t.done ? "var(--vb-success)" : "transparent",
+        titleColor: t.done ? "var(--vb-muted-soft)" : "var(--vb-ink)",
+        titleDeco: t.done ? "line-through" : "none",
+        owner: t.owner || "Unassigned owner",
+        ownerColor: unassigned ? "var(--vb-warning)" : "var(--vb-body)",
+        due: t.due ? ("Due " + t.due) : "No date",
+        dueColor: t.due ? "var(--vb-muted)" : "var(--vb-warning)",
+        meeting: t.meeting,
+      };
+    });
+    return { tasks };
+  }
+}
+</script>
+</body>
+</html>

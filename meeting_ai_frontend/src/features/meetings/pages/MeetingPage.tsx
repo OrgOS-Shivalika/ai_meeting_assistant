@@ -52,10 +52,10 @@ type DateFilter = "all" | "today" | "week" | "month" | "custom";
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; dot: string }[] = [
   { value: "all",        label: "All",        dot: "" },
-  { value: "completed",  label: "Completed",  dot: "bg-emerald-500" },
-  { value: "processing", label: "Processing", dot: "bg-indigo-500" },
-  { value: "pending",    label: "Pending",    dot: "bg-amber-500" },
-  { value: "failed",     label: "Failed",     dot: "bg-red-500" },
+  { value: "completed",  label: "Completed",  dot: "var(--vb-success)" },
+  { value: "processing", label: "Processing", dot: "var(--vb-info)" },
+  { value: "pending",    label: "Pending",    dot: "var(--vb-warning)" },
+  { value: "failed",     label: "Failed",     dot: "var(--vb-error)" },
 ];
 
 const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
@@ -113,22 +113,46 @@ function FilterBar({
   };
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Search input */}
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+    <div className="flex flex-col gap-2.5" style={{ fontFamily: "var(--vb-font-sans)" }}>
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Search input — vibrant style */}
+        <div className="relative flex-1 min-w-50 max-w-xs">
+          <Search
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ width: 15, height: 15, color: "var(--vb-muted-soft)" }}
+          />
           <input
             type="text"
             placeholder="Search meetings…"
             value={searchQuery}
             onChange={(e) => onSearch(e.target.value)}
-            className="w-full pl-8 pr-7 py-2 text-sm bg-white border border-slate-200 rounded-lg placeholder:text-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "10px 32px 10px 38px",
+              fontFamily: "var(--vb-font-sans)",
+              fontSize: 14,
+              background: "var(--vb-canvas)",
+              border: "1px solid var(--vb-hairline)",
+              borderRadius: 12,
+              color: "var(--vb-ink)",
+              outline: "none",
+              transition: "border-color 160ms ease, box-shadow 160ms ease",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--vb-ink)";
+              e.currentTarget.style.boxShadow = "0 0 0 3px var(--focus-ring)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--vb-hairline)";
+              e.currentTarget.style.boxShadow = "none";
+            }}
           />
           {searchQuery && (
             <button
               onClick={() => onSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors"
+              style={{ color: "var(--vb-muted-soft)" }}
               aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -136,44 +160,32 @@ function FilterBar({
           )}
         </div>
 
-        {/* Status filter */}
-        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+        {/* Status filter — cream pill container */}
+        <PillGroup>
           {STATUS_OPTIONS.map(({ value, label, dot }) => (
-            <button
+            <PillOption
               key={value}
+              active={statusFilter === value}
+              dotColor={dot}
               onClick={() => onStatusFilter(value)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
-                statusFilter === value
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
             >
-              {dot && (
-                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
-              )}
               {label}
-            </button>
+            </PillOption>
           ))}
-        </div>
+        </PillGroup>
 
-        {/* Date filter */}
-        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+        {/* Date filter — same pill treatment */}
+        <PillGroup>
           {DATE_OPTIONS.map(({ value, label }) => (
-            <button
+            <PillOption
               key={value}
+              active={dateFilter === value}
               onClick={() => onDateFilter(value)}
-              className={cn(
-                "px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap",
-                dateFilter === value
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
             >
               {label}
-            </button>
+            </PillOption>
           ))}
-        </div>
+        </PillGroup>
 
         {/* Custom date range inputs */}
         {dateFilter === "custom" && (
@@ -183,16 +195,43 @@ function FilterBar({
               value={customFrom}
               onChange={(e) => onCustomFrom(e.target.value)}
               title="From date"
-              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+              style={{
+                padding: "6px 10px",
+                fontSize: 11,
+                fontFamily: "var(--vb-font-sans)",
+                fontWeight: 500,
+                background: "var(--vb-canvas)",
+                border: "1px solid var(--vb-hairline)",
+                borderRadius: 10,
+                color: "var(--vb-ink)",
+                outline: "none",
+                cursor: "pointer",
+              }}
             />
-            <span className="text-[11px] text-slate-400 select-none">→</span>
+            <span
+              className="select-none"
+              style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}
+            >
+              →
+            </span>
             <input
               type="date"
               value={customTo}
               min={customFrom || undefined}
               onChange={(e) => onCustomTo(e.target.value)}
               title="To date"
-              className="px-2 py-1.5 text-[11px] font-medium bg-white border border-slate-200 rounded-md text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all cursor-pointer"
+              style={{
+                padding: "6px 10px",
+                fontSize: 11,
+                fontFamily: "var(--vb-font-sans)",
+                fontWeight: 500,
+                background: "var(--vb-canvas)",
+                border: "1px solid var(--vb-hairline)",
+                borderRadius: 10,
+                color: "var(--vb-ink)",
+                outline: "none",
+                cursor: "pointer",
+              }}
             />
           </div>
         )}
@@ -201,7 +240,14 @@ function FilterBar({
         {hasActive && (
           <button
             onClick={clearAll}
-            className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors rounded-md"
+            className="flex items-center gap-1 transition-colors"
+            style={{
+              padding: "6px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--vb-muted-soft)",
+              borderRadius: 10,
+            }}
           >
             <X className="w-3 h-3" />
             Clear
@@ -211,22 +257,89 @@ function FilterBar({
 
       {/* Results summary */}
       {hasActive && (
-        <p className="text-[11px] text-slate-400">
+        <p style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}>
           {filteredCount === 0 ? (
-            <span className="text-slate-500">No meetings match your filters.</span>
+            <span style={{ color: "var(--vb-muted)" }}>
+              No meetings match your filters.
+            </span>
           ) : filteredCount === totalCount ? (
             `${totalCount} ${totalCount === 1 ? "meeting" : "meetings"}`
           ) : (
             <>
-              <span className="font-semibold text-slate-700">{filteredCount}</span>
+              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+                {filteredCount}
+              </span>
               {" of "}
-              <span className="font-semibold text-slate-700">{totalCount}</span>
+              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+                {totalCount}
+              </span>
               {" meetings"}
             </>
           )}
         </p>
       )}
     </div>
+  );
+}
+
+// ─── Pill toggle primitives (used by FilterBar) ──────────────────────────────
+
+function PillGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        gap: 2,
+        padding: 3,
+        background: "var(--vb-surface-card)",
+        borderRadius: 9999,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PillOption({
+  active,
+  dotColor,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dotColor?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center whitespace-nowrap transition-all"
+      style={{
+        gap: 6,
+        padding: "7px 14px",
+        borderRadius: 9999,
+        fontSize: 12,
+        fontFamily: "var(--vb-font-sans)",
+        fontWeight: active ? 600 : 500,
+        background: active ? "var(--vb-canvas)" : "transparent",
+        color: active ? "var(--vb-ink)" : "var(--vb-muted)",
+        boxShadow: active ? "0 1px 2px rgba(10,10,10,0.05)" : "none",
+        border: "none",
+      }}
+    >
+      {dotColor && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: dotColor,
+          }}
+        />
+      )}
+      {children}
+    </button>
   );
 }
 
@@ -248,7 +361,26 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
     <div className="relative group/scroll">
       <button
         onClick={() => scrollBy(-360)}
-        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center opacity-0 group-hover/scroll:opacity-100 transition-all"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: "var(--vb-canvas)",
+          border: "1px solid var(--vb-hairline)",
+          boxShadow: "var(--shadow-soft)",
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--vb-ink)";
+          e.currentTarget.style.color = "var(--vb-on-ink)";
+          e.currentTarget.style.borderColor = "var(--vb-ink)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--vb-canvas)";
+          e.currentTarget.style.color = "var(--vb-muted)";
+          e.currentTarget.style.borderColor = "var(--vb-hairline)";
+        }}
         aria-label="Scroll left"
         type="button"
       >
@@ -256,7 +388,26 @@ function MeetingScroller({ meetings, onDelete, deletingId }: MeetingScrollerProp
       </button>
       <button
         onClick={() => scrollBy(360)}
-        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 opacity-0 group-hover/scroll:opacity-100 transition-all"
+        className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center opacity-0 group-hover/scroll:opacity-100 transition-all"
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: "var(--vb-canvas)",
+          border: "1px solid var(--vb-hairline)",
+          boxShadow: "var(--shadow-soft)",
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--vb-ink)";
+          e.currentTarget.style.color = "var(--vb-on-ink)";
+          e.currentTarget.style.borderColor = "var(--vb-ink)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--vb-canvas)";
+          e.currentTarget.style.color = "var(--vb-muted)";
+          e.currentTarget.style.borderColor = "var(--vb-hairline)";
+        }}
         aria-label="Scroll right"
         type="button"
       >
@@ -290,36 +441,22 @@ interface CategorySectionProps {
 }
 
 function CategorySection({ category, meetings, onDelete, deletingId }: CategorySectionProps) {
-  const color = category.color || "#4F46E5";
+  const color = category.color || "var(--vb-lavender)";
   const Icon = (category.icon && CATEGORY_ICONS[category.icon]) || Tag;
   return (
-    <section className="mb-10">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
-            style={{ backgroundColor: color + "14" }}
-          >
-            <Icon className="w-4 h-4" style={{ color }} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 tracking-tight truncate">
-              {category.name}
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-              {category.description ? ` · ${category.description}` : ""}
-            </p>
-          </div>
-        </div>
-        <Link
-          to={`/?category_id=${category.id}`}
-          className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors shrink-0 whitespace-nowrap inline-flex items-center gap-0.5"
-        >
-          View all
-          <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
+    <section style={{ marginBottom: 40 }}>
+      <SectionHeader
+        chipBg={`color-mix(in srgb, ${color} 12%, white)`}
+        icon={<Icon className="w-4 h-4" style={{ color }} />}
+        title={category.name}
+        meta={
+          <>
+            {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+            {category.description ? ` · ${category.description}` : ""}
+          </>
+        }
+        viewAllHref={`/?category_id=${category.id}`}
+      />
       <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
   );
@@ -335,32 +472,103 @@ interface UncategorizedSectionProps {
 
 function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedSectionProps) {
   return (
-    <section className="mt-10 pt-8 border-t border-slate-200">
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-md bg-slate-50 flex items-center justify-center shrink-0">
-            <Inbox className="w-4 h-4 text-slate-500" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 tracking-tight truncate">
-              Uncategorized
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-              <span className="text-slate-400"> · not yet classified</span>
-            </p>
-          </div>
-        </div>
-        <Link
-          to="/?uncategorized=1"
-          className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors shrink-0 whitespace-nowrap inline-flex items-center gap-0.5"
-        >
-          View all
-          <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
+    <section
+      style={{
+        marginTop: 40,
+        paddingTop: 32,
+        borderTop: "1px solid var(--vb-hairline)",
+      }}
+    >
+      <SectionHeader
+        chipBg="var(--vb-surface-card)"
+        icon={<Inbox className="w-4 h-4" style={{ color: "var(--vb-muted)" }} />}
+        title="Uncategorized"
+        meta={
+          <>
+            {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
+            <span style={{ color: "var(--vb-muted-soft)" }}> · not yet classified</span>
+          </>
+        }
+        viewAllHref="/?uncategorized=1"
+      />
       <MeetingScroller meetings={meetings} onDelete={onDelete} deletingId={deletingId} />
     </section>
+  );
+}
+
+// ─── SectionHeader (shared by CategorySection + UncategorizedSection) ────────
+
+function SectionHeader({
+  chipBg,
+  icon,
+  title,
+  meta,
+  viewAllHref,
+}: {
+  chipBg: string;
+  icon: React.ReactNode;
+  title: string;
+  meta: React.ReactNode;
+  viewAllHref: string;
+}) {
+  return (
+    <div
+      className="flex items-end justify-between gap-3"
+      style={{ marginBottom: 18 }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className="inline-flex items-center justify-center shrink-0"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: chipBg,
+          }}
+        >
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h2
+            className="truncate"
+            style={{
+              fontFamily: "var(--vb-font-display)",
+              fontWeight: 500,
+              fontSize: 18,
+              letterSpacing: "-0.3px",
+              color: "var(--vb-ink)",
+              margin: 0,
+            }}
+          >
+            {title}
+          </h2>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--vb-muted)",
+              margin: "3px 0 0",
+            }}
+          >
+            {meta}
+          </p>
+        </div>
+      </div>
+      <Link
+        to={viewAllHref}
+        className="inline-flex items-center transition-colors whitespace-nowrap shrink-0"
+        style={{
+          gap: 2,
+          fontSize: 13,
+          fontWeight: 500,
+          color: "var(--vb-muted)",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--vb-ink)")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--vb-muted)")}
+      >
+        View all
+        <ChevronRight className="w-3.5 h-3.5" />
+      </Link>
+    </div>
   );
 }
 
@@ -848,14 +1056,57 @@ export default function MeetingsPage() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-8 py-10">
-        <header className="flex items-end justify-between gap-4 flex-wrap mb-6">
+      <div
+        style={{
+          maxWidth: 1180,
+          margin: "0 auto",
+          padding: "44px 44px 72px",
+          // Override the cream canvas token → white for this whole page,
+          // so every child using var(--vb-canvas) (cards, filter bar, …)
+          // inherits white without editing each one.
+          ["--vb-canvas" as string]: "#ffffff",
+          background: "#ffffff",
+          minHeight: "100vh",
+          fontFamily: "var(--vb-font-sans)",
+          color: "var(--vb-body)",
+        } as React.CSSProperties}
+      >
+        <header
+          className="flex items-end justify-between flex-wrap"
+          style={{ gap: 24, marginBottom: 28 }}
+        >
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
+            <p
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                color: "var(--vb-pink)",
+                margin: "0 0 10px",
+              }}
+            >
               Overview
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
-            <p className="text-sm text-slate-500 mt-2">
+            <h1
+              style={{
+                fontFamily: "var(--vb-font-display)",
+                fontWeight: 500,
+                fontSize: 40,
+                letterSpacing: "-1.4px",
+                color: "var(--vb-ink)",
+                margin: 0,
+              }}
+            >
+              Meetings
+            </h1>
+            <p
+              style={{
+                fontSize: 15,
+                color: "var(--vb-muted)",
+                margin: "10px 0 0",
+              }}
+            >
               {isSearching
                 ? `Search: "${searchTrimmed}" · ${total} match${total === 1 ? "" : "es"} across the organization`
                 : `Showing latest ${groupedLatest?.per_category ?? 10} per category` +
@@ -867,14 +1118,31 @@ export default function MeetingsPage() {
               .
             </p>
           </div>
-          <Button
-            size="sm"
+          <button
             onClick={() => setShowScheduleForm(!showScheduleForm)}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-sm shadow-indigo-600/20"
+            className="inline-flex items-center transition-colors"
+            style={{
+              gap: 8,
+              height: 44,
+              padding: "0 18px",
+              background: "var(--vb-ink)",
+              color: "var(--vb-on-ink)",
+              border: "none",
+              borderRadius: 12,
+              fontFamily: "var(--vb-font-sans)",
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+            onMouseDown={(e) =>
+              (e.currentTarget.style.background = "var(--vb-ink-active)")
+            }
+            onMouseUp={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
             New meeting
-          </Button>
+          </button>
         </header>
 
         <div className="mb-8">

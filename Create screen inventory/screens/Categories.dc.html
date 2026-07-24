@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/meeting-types" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1100px; margin:0 auto; padding:44px 44px 72px;">
+
+      <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:32px;">
+        <div>
+          <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Workspace</p>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Categories</h1>
+          <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">Organize meetings into types, each with its own teams and routing.</p>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 18px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;"><i data-lucide="plus" style="width:16px; height:16px;"></i>New category</button>
+      </header>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px;">
+        <sc-for list="{{ cats }}" as="c" hint-placeholder-count="6">
+          <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:20px; padding:24px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:16px;">
+              <span style="width:44px; height:44px; border-radius:13px; display:inline-flex; align-items:center; justify-content:center; background:{{ c.chipBg }};"><i data-lucide="{{ c.icon }}" style="width:20px; height:20px; color:{{ c.color }};"></i></span>
+              <span style="color:var(--vb-muted-soft);"><i data-lucide="more-horizontal" style="width:18px; height:18px;"></i></span>
+            </div>
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:19px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 6px;">{{ c.name }}</h3>
+            <p style="font-size:13px; line-height:1.5; color:var(--vb-muted); margin:0 0 18px; min-height:38px;">{{ c.desc }}</p>
+            <div style="display:flex; align-items:center; gap:14px; padding-top:16px; border-top:1px solid var(--vb-hairline-soft); font-size:12px; color:var(--vb-muted);">
+              <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="calendar" style="width:13px; height:13px; color:var(--vb-muted-soft);"></i>{{ c.meetings }} meetings</span>
+              <span style="display:inline-flex; align-items:center; gap:6px;"><i data-lucide="users" style="width:13px; height:13px; color:var(--vb-muted-soft);"></i>{{ c.teams }} teams</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mix = (v) => `color-mix(in srgb, ${v} 12%, white)`;
+    const raw = [
+      { name: "Engineering", icon: "code", color: "var(--vb-info)", desc: "Standups, retros, incident reviews and technical design sessions.", meetings: 18, teams: 3 },
+      { name: "Sales", icon: "briefcase", color: "var(--vb-pink)", desc: "Discovery calls, demos, renewals and pipeline reviews.", meetings: 24, teams: 2 },
+      { name: "Leadership", icon: "rocket", color: "var(--vb-ochre)", desc: "Staff meetings, board prep and strategic planning.", meetings: 9, teams: 1 },
+      { name: "Product", icon: "lightbulb", color: "var(--vb-lavender)", desc: "Roadmap reviews, user research readouts and launch planning.", meetings: 14, teams: 2 },
+      { name: "Customer success", icon: "users", color: "var(--vb-coral)", desc: "Onboarding, QBRs and support escalations.", meetings: 11, teams: 2 },
+      { name: "Hiring", icon: "tag", color: "var(--vb-mint)", desc: "Interviews, debriefs and headcount planning.", meetings: 7, teams: 1 },
+    ];
+    return { cats: raw.map(c => ({ ...c, chipBg: mix(c.color) })) };
+  }
+}
+</script>
+</body>
+</html>

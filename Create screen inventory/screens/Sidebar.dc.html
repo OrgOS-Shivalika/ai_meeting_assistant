@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;}</style>
+</helmet>
+<aside style="height:100vh; width:248px; flex-shrink:0; background:var(--vb-canvas); border-right:1px solid var(--vb-hairline); display:flex; flex-direction:column; font-family:var(--font-sans);">
+
+  <!-- Wordmark -->
+  <div style="padding:22px 20px 16px;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <span style="position:relative; width:32px; height:32px; border-radius:9px; background:var(--vb-pink); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <span style="width:13px; height:13px; border-radius:4px; background:var(--vb-peach);"></span>
+        <span style="position:absolute; bottom:-2px; right:-2px; width:9px; height:9px; border-radius:50%; background:var(--vb-success); border:2px solid var(--vb-canvas);"></span>
+      </span>
+      <div style="min-width:0;">
+        <div style="display:flex; align-items:baseline; gap:7px;">
+          <span style="font-family:var(--font-display); font-weight:600; font-size:16px; letter-spacing:-0.5px; color:var(--vb-ink); line-height:1;">OrgOS</span>
+          <span style="font-size:9px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-pink);">Pro</span>
+        </div>
+        <div style="font-size:11px; color:var(--vb-muted); margin-top:4px;">Acme Product Org</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div style="padding:0 16px 14px;">
+    <button style="width:100%; height:42px; display:flex; align-items:center; justify-content:center; gap:8px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;">
+      <i data-lucide="plus" style="width:16px; height:16px;"></i>New meeting
+    </button>
+  </div>
+
+  <!-- Nav -->
+  <nav style="flex:1; overflow-y:auto; padding:4px 12px 16px; scrollbar-width:none;">
+    <sc-for list="{{ sections }}" as="section" hint-placeholder-count="3">
+      <div style="margin-top:14px;">
+        <div style="padding:0 10px 8px; font-size:11px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:var(--vb-muted-soft);">{{ section.label }}</div>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <sc-for list="{{ section.items }}" as="item" hint-placeholder-count="4">
+            <a href="{{ item.href }}" style="{{ item.style }}">
+              <span style="{{ item.barStyle }}"></span>
+              <i data-lucide="{{ item.icon }}" style="{{ item.iconStyle }}"></i>
+              <span>{{ item.label }}</span>
+            </a>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </nav>
+
+  <!-- Footer -->
+  <div style="border-top:1px solid var(--vb-hairline); padding:8px; display:flex; flex-direction:column; gap:2px;">
+    <a href="Settings.dc.html" style="{{ settingsStyle }}">
+      <span style="{{ settingsBar }}"></span>
+      <i data-lucide="settings" style="{{ settingsIcon }}"></i>
+      <span>Settings</span>
+    </a>
+    <a href="Login.dc.html" style="position:relative; display:flex; align-items:center; gap:11px; padding:0 12px; height:38px; border-radius:10px; font-size:13.5px; font-weight:500; color:var(--vb-muted); text-decoration:none;">
+      <i data-lucide="log-out" style="width:17px; height:17px; color:var(--vb-muted-soft);"></i>
+      <span>Sign out</span>
+    </a>
+  </div>
+</aside>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:248,&quot;height&quot;:760},&quot;active&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;/&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active ?? "";
+    const NAV = [
+      { label: "Overview", items: [
+        { path: "/dashboard", label: "Dashboard", icon: "layout-dashboard", href: "Dashboard.dc.html" },
+        { path: "/", label: "Meetings", icon: "calendar", href: "Meetings.dc.html" },
+        { path: "/action-items", label: "Tasks", icon: "check-square", href: "Tasks.dc.html" },
+        { path: "/boards", label: "Boards", icon: "layout-grid", href: "Boards.dc.html" },
+      ]},
+      { label: "Intelligence", items: [
+        { path: "/ask", label: "Ask AI", icon: "sparkles", href: "Ask AI.dc.html" },
+        { path: "/knowledge-hub", label: "Knowledge", icon: "book-open", href: "Knowledge.dc.html" },
+        { path: "/knowledge-graph", label: "Graph", icon: "network", href: "Graph.dc.html" },
+        { path: "/agent-control", label: "Agents", icon: "bot", href: "Agents.dc.html" },
+      ]},
+      { label: "Workspace", items: [
+        { path: "/meeting-types", label: "Categories", icon: "layers", href: "Categories.dc.html" },
+        { path: "/templates", label: "Templates", icon: "package", href: "Templates.dc.html" },
+        { path: "/integrations", label: "Integrations", icon: "zap", href: "Integrations.dc.html" },
+        { path: "/members", label: "Members", icon: "users", href: "Members.dc.html" },
+        { path: "/reports", label: "Reports", icon: "file-text", href: "Reports.dc.html" },
+      ]},
+    ];
+
+    const idle = "position:relative; display:flex; align-items:center; gap:11px; padding:0 12px; height:38px; border-radius:10px; font-size:13.5px; font-weight:500; color:var(--vb-muted); text-decoration:none;";
+    const on   = "position:relative; display:flex; align-items:center; gap:11px; padding:0 12px; height:38px; border-radius:10px; font-size:13.5px; font-weight:600; color:var(--vb-ink); text-decoration:none; background:var(--vb-surface-card);";
+    const barOn = "position:absolute; left:0; top:9px; bottom:9px; width:3px; border-radius:0 3px 3px 0; background:var(--vb-pink);";
+    const barOff = "display:none;";
+    const icOn = "width:17px; height:17px; color:var(--vb-ink);";
+    const icOff = "width:17px; height:17px; color:var(--vb-muted-soft);";
+
+    const sections = NAV.map((s) => ({
+      label: s.label,
+      items: s.items.map((it) => {
+        const a = it.path === active;
+        return { ...it, style: a ? on : idle, barStyle: a ? barOn : barOff, iconStyle: a ? icOn : icOff };
+      }),
+    }));
+
+    const sa = active === "/settings";
+    return {
+      sections,
+      settingsStyle: sa ? on : idle,
+      settingsBar: sa ? barOn : barOff,
+      settingsIcon: sa ? icOn : icOff,
+    };
+  }
+}
+</script>
+</body>
+</html>

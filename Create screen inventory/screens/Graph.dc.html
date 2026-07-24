@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/knowledge-graph" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+
+    <div style="flex-shrink:0; padding:24px 36px; border-bottom:1px solid var(--vb-hairline); display:flex; align-items:center; justify-content:space-between;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="width:38px; height:38px; border-radius:11px; background:color-mix(in srgb, var(--vb-lavender) 22%, white); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="network" style="width:18px; height:18px; color:var(--vb-lavender);"></i></span>
+        <div><h1 style="font-family:var(--font-display); font-weight:500; font-size:20px; letter-spacing:-0.4px; color:var(--vb-ink); margin:0;">Knowledge graph</h1><p style="font-size:12px; color:var(--vb-muted); margin:2px 0 0;">Entities and relationships extracted across meetings.</p></div>
+      </div>
+      <!-- legend -->
+      <div style="display:flex; gap:16px;">
+        <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);"><span style="width:9px; height:9px; border-radius:50%; background:var(--vb-pink);"></span>Person</span>
+        <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);"><span style="width:9px; height:9px; border-radius:50%; background:var(--vb-info);"></span>Meeting</span>
+        <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);"><span style="width:9px; height:9px; border-radius:50%; background:var(--vb-ochre);"></span>Decision</span>
+        <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);"><span style="width:9px; height:9px; border-radius:50%; background:var(--vb-lavender);"></span>Topic</span>
+      </div>
+    </div>
+
+    <div style="flex:1; position:relative; overflow:hidden; background:radial-gradient(circle at 1px 1px, var(--vb-hairline) 1px, transparent 0); background-size:26px 26px;">
+      <!-- edges -->
+      <svg viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet" style="position:absolute; inset:0; width:100%; height:100%;">
+        <sc-for list="{{ edges }}" as="e" hint-placeholder-count="6">
+          <line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" stroke="var(--vb-hairline)" stroke-width="1.5"></line>
+        </sc-for>
+      </svg>
+      <!-- nodes -->
+      <div style="position:absolute; inset:0; container-type:size;">
+        <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+          <div style="{{ n.wrap }}">
+            <span style="display:inline-flex; align-items:center; gap:8px; padding:9px 14px; border-radius:999px; background:var(--vb-canvas); border:1.5px solid {{ n.color }}; box-shadow:0 2px 10px rgba(0,0,0,0.05); font-size:13px; font-weight:600; color:var(--vb-ink); white-space:nowrap;">
+              <span style="width:9px; height:9px; border-radius:50%; background:{{ n.color }};"></span>{{ n.label }}
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}">
+class Component extends DCLogic {
+  renderVals() {
+    const C = { person: "var(--vb-pink)", meeting: "var(--vb-info)", decision: "var(--vb-ochre)", topic: "var(--vb-lavender)" };
+    // positions in a 900x560 space (percent-based placement)
+    const N = [
+      { id: "mig", label: "Q3 Migration", type: "topic", x: 45, y: 46 },
+      { id: "sync", label: "Platform sync", type: "meeting", x: 20, y: 24 },
+      { id: "retro", label: "Incident retro", type: "meeting", x: 22, y: 72 },
+      { id: "ada", label: "Ada Lovelace", type: "person", x: 66, y: 18 },
+      { id: "ravi", label: "Ravi Shah", type: "person", x: 72, y: 50 },
+      { id: "mei", label: "Mei Chen", type: "person", x: 64, y: 80 },
+      { id: "dec1", label: "Two-phase rollout", type: "decision", x: 42, y: 15 },
+      { id: "dec2", label: "Fix pool leak first", type: "decision", x: 44, y: 80 },
+    ];
+    const E = [
+      ["sync","mig"],["retro","mig"],["mig","ada"],["mig","ravi"],["mig","mei"],
+      ["sync","dec1"],["retro","dec2"],["mig","dec1"],["mig","dec2"],["sync","ada"],["retro","ravi"],
+    ];
+    const pos = {}; N.forEach(n => pos[n.id] = { x: n.x/100*900, y: n.y/100*560 });
+    const edges = E.map(([a,b]) => ({ x1: pos[a].x, y1: pos[a].y, x2: pos[b].x, y2: pos[b].y }));
+    const nodes = N.map(n => ({
+      label: n.label, color: C[n.type],
+      wrap: `position:absolute; left:${n.x}%; top:${n.y}%; transform:translate(-50%,-50%);`,
+    }));
+    return { nodes, edges };
+  }
+}
+</script>
+</body>
+</html>

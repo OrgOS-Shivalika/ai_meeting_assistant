@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;} input::placeholder{color:var(--vb-muted-soft);}</style>
+</helmet>
+<div style="min-height:100vh; width:100%; display:grid; grid-template-columns:1.1fr 1fr; font-family:var(--font-sans); background:var(--vb-canvas);">
+
+  <!-- Marketing panel -->
+  <aside style="position:relative; display:flex; flex-direction:column; justify-content:space-between; padding:48px; color:var(--vb-on-ink); overflow:hidden; background:var(--vb-surface-dark);">
+    <div style="position:absolute; top:-120px; right:-120px; width:380px; height:380px; border-radius:50%; background:color-mix(in srgb, var(--vb-pink) 35%, transparent); filter:blur(80px); pointer-events:none;"></div>
+    <div style="position:absolute; bottom:-100px; left:-60px; width:300px; height:300px; border-radius:50%; background:color-mix(in srgb, var(--vb-lavender) 30%, transparent); filter:blur(80px); pointer-events:none;"></div>
+
+    <div style="position:relative; display:flex; align-items:center; gap:11px;">
+      <span style="width:32px; height:32px; border-radius:9px; background:var(--vb-pink); display:inline-flex; align-items:center; justify-content:center;">
+        <span style="width:13px; height:13px; border-radius:4px; background:var(--vb-peach);"></span>
+      </span>
+      <span style="font-family:var(--font-display); font-weight:600; font-size:16px; letter-spacing:-0.5px;">OrgOS</span>
+    </div>
+
+    <div style="position:relative;">
+      <h2 style="font-family:var(--font-display); font-weight:500; font-size:40px; line-height:1.1; letter-spacing:-1.4px; max-width:440px; margin:0 0 20px;">Every meeting, quietly organized.</h2>
+      <p style="font-size:15px; line-height:1.6; color:var(--vb-on-ink-soft); max-width:380px; margin:0 0 26px;">Transcripts, decisions and action items — captured, summarized and routed to the people who need them.</p>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; align-items:center; gap:12px; font-size:14px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-pink);"></span>Live transcription during the call</div>
+        <div style="display:flex; align-items:center; gap:12px; font-size:14px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-peach);"></span>Auto-extracted decisions &amp; tasks</div>
+        <div style="display:flex; align-items:center; gap:12px; font-size:14px; color:var(--vb-on-ink-soft);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-lavender);"></span>Ask questions across every meeting</div>
+      </div>
+    </div>
+
+    <p style="position:relative; font-size:12px; color:var(--vb-on-ink-soft); opacity:0.7; margin:0;">© 2026 OrgOS Meeting Assistant</p>
+  </aside>
+
+  <!-- Form panel -->
+  <main style="position:relative; display:flex; align-items:center; justify-content:center; padding:40px;">
+    <div style="width:100%; max-width:360px;">
+      <div style="margin-bottom:36px;">
+        <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Sign in</p>
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:34px; letter-spacing:-1.2px; color:var(--vb-ink); margin:0;">Welcome back</h1>
+        <p style="font-size:14px; color:var(--vb-muted); margin:10px 0 0;">Enter your details to access your workspace.</p>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:18px;">
+        <div style="display:flex; flex-direction:column; gap:7px;">
+          <label style="font-size:12px; font-weight:500; color:var(--vb-body-strong);">Email</label>
+          <input type="email" placeholder="you@company.com" style="height:44px; box-sizing:border-box; padding:0 14px; font-family:var(--font-sans); font-size:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; color:var(--vb-ink); outline:none;" />
+        </div>
+        <div style="display:flex; flex-direction:column; gap:7px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <label style="font-size:12px; font-weight:500; color:var(--vb-body-strong);">Password</label>
+            <a href="#" style="font-size:12px; color:var(--vb-muted);">Forgot?</a>
+          </div>
+          <div style="position:relative;">
+            <input type="password" placeholder="••••••••" style="width:100%; height:44px; box-sizing:border-box; padding:0 42px 0 14px; font-family:var(--font-sans); font-size:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; color:var(--vb-ink); outline:none;" />
+            <i data-lucide="eye" style="position:absolute; right:14px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:var(--vb-muted-soft);"></i>
+          </div>
+        </div>
+        <label style="display:flex; align-items:center; gap:9px; font-size:12px; color:var(--vb-muted); cursor:pointer;">
+          <span style="width:15px; height:15px; border-radius:4px; border:1px solid var(--vb-hairline); display:inline-block;"></span>Keep me signed in
+        </label>
+        <a href="Meetings.dc.html" style="height:44px; display:flex; align-items:center; justify-content:center; gap:8px; background:var(--vb-ink); color:var(--vb-on-ink); border-radius:12px; font-size:14px; font-weight:500;">Sign in<i data-lucide="arrow-right" style="width:16px; height:16px;"></i></a>
+        <p style="text-align:center; font-size:12px; color:var(--vb-muted); margin:6px 0 0;">Don't have an account? <a href="Register.dc.html" style="color:var(--vb-ink); font-weight:600;">Create one</a></p>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}"></script>
+</body>
+</html>

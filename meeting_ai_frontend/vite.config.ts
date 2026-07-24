@@ -4,17 +4,6 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
-// In dev, the API prefixes get proxied to the FastAPI server. The frontend
-// calls relative paths (no host hardcoded) and the browser sees everything as
-// same-origin — so CORS never runs. Production keeps working unchanged:
-// FastAPI serves the SPA from `/` and the API from the same host.
-//
-// VITE_API_URL overrides the proxy target if you point dev at a different
-// backend. VITE_API_PREFIX / VITE_PUBLIC_PREFIX must match the backend's
-// API_PREFIX / PUBLIC_PREFIX (defaults /api and /public). Because every API
-// route now lives under one of these prefixes, SPA routes (e.g.
-// `/meeting-types`, `/auth/google/callback`) never collide with the API and
-// are served the SPA shell by Vite's own fallback — no bypass hack needed.
 const normalizePrefix = (p: string): string => {
   const t = (p || '').replace(/^\/+|\/+$/g, '')
   return t ? `/${t}` : ''

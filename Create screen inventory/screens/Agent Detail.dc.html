@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/agent-control" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1000px; margin:0 auto; padding:36px 44px 72px;">
+
+      <a href="Agent Profiles.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:18px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>All profiles</a>
+
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:28px;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span style="width:56px; height:56px; border-radius:16px; background:color-mix(in srgb, var(--vb-info) 12%, white); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="file-text" style="width:26px; height:26px; color:var(--vb-info);"></i></span>
+          <div>
+            <div style="display:flex; align-items:center; gap:10px;"><h1 style="font-family:var(--font-display); font-weight:500; font-size:28px; letter-spacing:-0.8px; color:var(--vb-ink); margin:0;">Summarizer</h1><span style="font-family:var(--font-mono); font-size:12px; color:var(--vb-muted); background:var(--vb-surface-card); padding:3px 9px; border-radius:7px;">v12</span><span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--vb-success);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Active</span></div>
+            <p style="font-size:14px; color:var(--vb-muted); margin:6px 0 0;">Turns raw transcripts into summaries, decisions and risks.</p>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button style="display:inline-flex; align-items:center; gap:7px; height:40px; padding:0 15px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:600; color:var(--vb-body); cursor:pointer;"><i data-lucide="play" style="width:15px; height:15px;"></i>Playground</button>
+          <button style="display:inline-flex; align-items:center; gap:7px; height:40px; padding:0 15px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:13px; font-weight:500; cursor:pointer;"><i data-lucide="save" style="width:15px; height:15px;"></i>Save version</button>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 300px; gap:24px; align-items:start;">
+        <!-- Prompt editor -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;"><h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0;">System prompt</h3><span style="font-size:12px; color:var(--vb-muted);">Editing v12 (draft)</span></div>
+            <div style="background:var(--vb-surface-dark); border-radius:16px; padding:22px; font-family:var(--font-mono); font-size:13px; line-height:1.7; color:var(--vb-on-ink-soft); white-space:pre-wrap;">You are a meeting summarizer. Given a diarized transcript,
+produce:
+  1. A 3-4 sentence summary in plain language.
+  2. Key decisions as a bulleted list.
+  3. Action items with an owner and due date where stated.
+  4. Risks or open questions.
+
+Be concise. Prefer verbs. Never invent owners or dates
+that were not mentioned. Cite the speaker for each decision.</div>
+          </div>
+
+          <div>
+            <h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0 0 12px;">Model settings</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; padding:16px;"><div style="font-size:12px; color:var(--vb-muted);">Model</div><div style="font-family:var(--font-mono); font-size:14px; color:var(--vb-ink); margin-top:5px;">gpt-4o-mini</div></div>
+              <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; padding:16px;"><div style="font-size:12px; color:var(--vb-muted);">Temperature</div><div style="font-family:var(--font-mono); font-size:14px; color:var(--vb-ink); margin-top:5px;">0.2</div></div>
+              <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; padding:16px;"><div style="font-size:12px; color:var(--vb-muted);">Max tokens</div><div style="font-family:var(--font-mono); font-size:14px; color:var(--vb-ink); margin-top:5px;">1,024</div></div>
+              <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; padding:16px;"><div style="font-size:12px; color:var(--vb-muted);">Timeout</div><div style="font-family:var(--font-mono); font-size:14px; color:var(--vb-ink); margin-top:5px;">30s</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Version history -->
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0 0 16px;">Version history</h3>
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <sc-for list="{{ versions }}" as="v" hint-placeholder-count="4">
+              <div style="display:flex; gap:12px; padding:10px 0;">
+                <div style="display:flex; flex-direction:column; align-items:center;"><span style="width:10px; height:10px; border-radius:50%; background:{{ v.dot }}; border:2px solid var(--vb-canvas); outline:1px solid {{ v.dot }};"></span><span style="width:1px; flex:1; background:var(--vb-hairline); margin-top:2px;"></span></div>
+                <div style="padding-bottom:6px;"><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:var(--font-mono); font-size:13px; font-weight:600; color:var(--vb-ink);">{{ v.ver }}</span><span style="font-size:11px; color:var(--vb-muted-soft);">{{ v.date }}</span></div><p style="font-size:12px; color:var(--vb-muted); margin:3px 0 0;">{{ v.note }}</p></div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      versions: [
+        { ver: "v12", date: "Jul 8", note: "Added speaker citation for decisions", dot: "var(--vb-pink)" },
+        { ver: "v11", date: "Jun 30", note: "Tightened risk section wording", dot: "var(--vb-muted-soft)" },
+        { ver: "v10", date: "Jun 22", note: "Owner/date guardrail", dot: "var(--vb-muted-soft)" },
+        { ver: "v9", date: "Jun 14", note: "Switched to gpt-4o-mini", dot: "var(--vb-muted-soft)" },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

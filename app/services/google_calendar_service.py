@@ -1,6 +1,9 @@
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleAuthRequest
 from app.config.settings import settings
+from app.db.database import SessionLocal
+from app.db.models import User
 from datetime import datetime, timedelta, timezone
 import uuid
 import requests
@@ -9,14 +12,131 @@ from app.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-def _build_credentials(user):
-    return Credentials(
+def _build_credentials(user) -> Credentials:
+    """Legacy: kept as an alias for _get_valid_credentials since some old
+    callers might still be around. New code should call
+    `_get_valid_credentials(user)` directly."""
+    return _get_valid_credentials(user)
+
+
+def _get_valid_credentials(user) -> Credentials:
+    """Build a `google.oauth2.credentials.Credentials` from the user row,
+    refreshing the access token if it's expired (or missing an expiry)
+    and persisting the refreshed token + new expiry back to the DB.
+
+    Without this, stored access tokens age out after ~60 min and every
+    subsequent API call silently fails — forcing users to reconnect
+    Google Calendar by hand. The `access_type=offline` we ask for on
+    the OAuth flow already gives us the refresh_token needed here.
+
+    Idempotent: if the token isn't expired, no network call is made
+    and the DB row is left alone.
+    """
+    creds = Credentials(
         token=user.google_access_token,
         refresh_token=user.google_refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
     )
+    # Seed the expiry from the DB so `.expired` returns the truth.
+    # `Credentials.expiry` must be NAIVE UTC (per the google-auth docs);
+    # our DB column is timezone-aware, so strip it.
+    stored_expiry = getattr(user, "google_token_expires_at", None)
+    if stored_expiry is not None:
+        if stored_expiry.tzinfo is not None:
+            stored_expiry = stored_expiry.astimezone(timezone.utc).replace(tzinfo=None)
+        creds.expiry = stored_expiry
+
+    # Refresh when we're past (or within 60s of) expiry AND we still
+    # have a refresh_token.
+    if creds.refresh_token and (creds.expired or creds.expiry is None):
+        try:
+            creds.refresh(GoogleAuthRequest())
+        except Exception as exc:
+            # `invalid_grant` at refresh time means the refresh_token
+            # itself is dead — user revoked access, the OAuth app is in
+            # Testing mode and hit the 7-day expiry, the account
+            # changed passwords, etc. Nothing we can do server-side;
+            # the user MUST reconnect. Wipe the dead tokens so:
+            #   1) the /auth/google/status endpoint honestly reports
+            #      "not connected" instead of lying,
+            #   2) subsequent sync ticks don't hit the same wall every
+            #      2 minutes generating log noise.
+            msg = str(exc)
+            if "invalid_grant" in msg.lower() or "expired or revoked" in msg.lower():
+                logger.warning(
+                    "Clearing dead Google tokens for %s — refresh returned "
+                    "invalid_grant. User must reconnect via /integrations.",
+                    getattr(user, "email", "?"),
+                )
+                db = SessionLocal()
+                try:
+                    db.query(User).filter(User.id == user.id).update(
+                        {
+                            "google_access_token": None,
+                            "google_refresh_token": None,
+                            "google_token_expires_at": None,
+                        },
+                        synchronize_session=False,
+                    )
+                    db.commit()
+                    user.google_access_token = None
+                    user.google_refresh_token = None
+                    user.google_token_expires_at = None
+                except Exception as clear_exc:
+                    db.rollback()
+                    logger.error(
+                        "Failed to clear dead Google tokens for %s: %s",
+                        getattr(user, "email", "?"), clear_exc,
+                    )
+                finally:
+                    db.close()
+            else:
+                logger.warning(
+                    "Google token refresh failed for user %s: %s",
+                    getattr(user, "email", "?"), exc,
+                )
+            raise
+
+        # Persist the new access token + expiry. Do it on a fresh
+        # session so we don't stomp on whatever session the caller may
+        # be holding. `updated_at` is auto-managed by the User model.
+        db = SessionLocal()
+        try:
+            db.query(User).filter(User.id == user.id).update(
+                {
+                    "google_access_token": creds.token,
+                    "google_token_expires_at": (
+                        creds.expiry.replace(tzinfo=timezone.utc)
+                        if creds.expiry
+                        else None
+                    ),
+                },
+                synchronize_session=False,
+            )
+            db.commit()
+            # Reflect back onto the passed-in object so any code that
+            # reads user.google_access_token later in the same request
+            # sees the fresh value.
+            user.google_access_token = creds.token
+            if creds.expiry:
+                user.google_token_expires_at = creds.expiry.replace(tzinfo=timezone.utc)
+            logger.info(
+                "Refreshed Google token for %s (expiry=%s)",
+                getattr(user, "email", "?"),
+                creds.expiry,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "Failed to persist refreshed Google token for %s: %s",
+                getattr(user, "email", "?"), exc,
+            )
+        finally:
+            db.close()
+
+    return creds
 
 
 def _to_rfc3339(dt: datetime) -> str:
@@ -38,9 +158,15 @@ def _create_open_meet_space(user) -> dict | None:
     """
     if not getattr(user, "google_access_token", None):
         return None
+    # Refresh + persist before hitting the raw Meet REST API — this path
+    # bypasses googleapiclient's auto-refresh entirely.
+    try:
+        creds = _get_valid_credentials(user)
+    except Exception:
+        return None
     url = "https://meet.googleapis.com/v2/spaces"
     headers = {
-        "Authorization": f"Bearer {user.google_access_token}",
+        "Authorization": f"Bearer {creds.token}",
         "Content-Type": "application/json",
     }
     payload = {"config": {"accessType": "OPEN"}}
@@ -210,11 +336,12 @@ def get_calendar_events(user):
 def get_google_user_info(user):
     if not user.google_access_token:
         return None
-        
+
     try:
+        creds = _get_valid_credentials(user)
         url = "https://www.googleapis.com/oauth2/v3/userinfo"
-        headers = {"Authorization": f"Bearer {user.google_access_token}"}
-        response = requests.get(url, headers=headers)
+        headers = {"Authorization": f"Bearer {creds.token}"}
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json()
     except Exception as e:

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} @keyframes spin{to{transform:rotate(360deg);}}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/integrations" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto; display:flex; align-items:center; justify-content:center; padding:44px;">
+    <div style="width:100%; max-width:440px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:24px; padding:48px 40px; text-align:center;">
+      <div style="width:64px; height:64px; margin:0 auto 24px; border-radius:18px; background:color-mix(in srgb, var(--vb-info) 12%, white); display:flex; align-items:center; justify-content:center;">
+        <div style="width:30px; height:30px; border-radius:50%; border:3px solid color-mix(in srgb, var(--vb-info) 25%, white); border-top-color:var(--vb-info); animation:spin 0.8s linear infinite;"></div>
+      </div>
+      <h1 style="font-family:var(--font-display); font-weight:500; font-size:24px; letter-spacing:-0.4px; color:var(--vb-ink); margin:0 0 10px;">Connecting your Google account…</h1>
+      <p style="font-size:14px; line-height:1.6; color:var(--vb-muted); margin:0 0 20px;">Exchanging the authorization code and linking your calendar. This only takes a moment.</p>
+      <div style="display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:500; color:var(--vb-muted-soft); font-family:var(--font-mono); background:var(--vb-surface-card); padding:8px 14px; border-radius:999px;">
+        <i data-lucide="lock" style="width:13px; height:13px;"></i>auth/google/exchange-code
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:760}}"></script>
+</body>
+</html>

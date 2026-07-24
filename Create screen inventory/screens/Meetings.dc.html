@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:1180px; margin:0 auto; padding:44px 44px 72px;">
+
+      <!-- Header -->
+      <header style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:28px;">
+        <div>
+          <p style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--vb-pink); margin:0 0 10px;">Overview</p>
+          <h1 style="font-family:var(--font-display); font-weight:500; font-size:40px; letter-spacing:-1.4px; color:var(--vb-ink); margin:0;">Meetings</h1>
+          <p style="font-size:15px; color:var(--vb-muted); margin:10px 0 0;">7 sessions across 3 categories.</p>
+        </div>
+        <button style="display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 18px; background:var(--vb-ink); color:var(--vb-on-ink); border:none; border-radius:12px; font-family:var(--font-sans); font-size:14px; font-weight:500; cursor:pointer;">
+          <i data-lucide="plus" style="width:16px; height:16px;"></i>New meeting
+        </button>
+      </header>
+
+      <!-- Filter bar -->
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:36px;">
+        <div style="position:relative; flex:1; min-width:200px; max-width:300px;">
+          <i data-lucide="search" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--vb-muted-soft);"></i>
+          <input type="text" placeholder="Search meetings…" style="width:100%; box-sizing:border-box; padding:10px 12px 10px 38px; font-family:var(--font-sans); font-size:14px; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:12px; color:var(--vb-ink); outline:none;" />
+        </div>
+        <div style="display:flex; align-items:center; gap:2px; background:var(--vb-surface-card); border-radius:999px; padding:3px;">
+          <span style="padding:7px 14px; border-radius:999px; font-size:12px; font-weight:600; background:var(--vb-canvas); color:var(--vb-ink);">All</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:999px; font-size:12px; font-weight:500; color:var(--vb-muted);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-success);"></span>Completed</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:999px; font-size:12px; font-weight:500; color:var(--vb-muted);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-info);"></span>Processing</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:999px; font-size:12px; font-weight:500; color:var(--vb-muted);"><span style="width:6px; height:6px; border-radius:50%; background:var(--vb-warning);"></span>Pending</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:2px; background:var(--vb-surface-card); border-radius:999px; padding:3px;">
+          <span style="padding:7px 14px; border-radius:999px; font-size:12px; font-weight:600; background:var(--vb-canvas); color:var(--vb-ink);">All time</span>
+          <span style="padding:7px 14px; border-radius:999px; font-size:12px; font-weight:500; color:var(--vb-muted);">This week</span>
+          <span style="padding:7px 14px; border-radius:999px; font-size:12px; font-weight:500; color:var(--vb-muted);">This month</span>
+        </div>
+      </div>
+
+      <!-- Category sections -->
+      <sc-for list="{{ sections }}" as="section" hint-placeholder-count="3">
+        <section style="margin-bottom:40px;">
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+              <span style="width:36px; height:36px; border-radius:10px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; background:{{ section.chipBg }};">
+                <i data-lucide="{{ section.icon }}" style="width:17px; height:17px; color:{{ section.color }};"></i>
+              </span>
+              <div style="min-width:0;">
+                <h2 style="font-family:var(--font-display); font-weight:500; font-size:18px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0;">{{ section.name }}</h2>
+                <p style="font-size:12px; color:var(--vb-muted); margin:3px 0 0;">{{ section.meta }}</p>
+              </div>
+            </div>
+            <a href="#" style="font-size:13px; font-weight:500; color:var(--vb-muted); display:inline-flex; align-items:center; gap:2px; white-space:nowrap;">View all<i data-lucide="chevron-right" style="width:14px; height:14px;"></i></a>
+          </div>
+
+          <div style="display:flex; gap:14px; overflow-x:auto; padding:2px; scrollbar-width:none;">
+            <sc-for list="{{ section.meetings }}" as="m" hint-placeholder-count="3">
+              <a href="Meeting Detail.dc.html" style="flex-shrink:0; width:340px; height:270px; box-sizing:border-box; display:flex; flex-direction:column; background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;">
+                <span style="align-self:flex-start; font-size:11px; font-weight:600; letter-spacing:0.3px; padding:4px 9px; border-radius:999px; margin-bottom:12px; color:{{ m.color }}; background:{{ m.chipBg }};">{{ section.name }}</span>
+                <h3 style="font-family:var(--font-display); font-weight:500; font-size:17px; letter-spacing:-0.3px; color:var(--vb-ink); margin:0 0 6px; line-height:1.25;">{{ m.title }}</h3>
+                <p style="font-size:13px; color:var(--vb-muted); line-height:1.5; margin:0 0 14px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ m.summary }}</p>
+                <div style="display:flex; flex-direction:column; gap:7px; flex:1;">
+                  <div style="display:flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);">
+                    <i data-lucide="calendar" style="width:13px; height:13px; color:var(--vb-muted-soft);"></i><span>{{ m.date }}</span><span style="color:var(--vb-hairline);">·</span><span>{{ m.time }}</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:7px; font-size:12px; color:var(--vb-muted);">
+                    <i data-lucide="{{ m.srcIcon }}" style="width:13px; height:13px; color:var(--vb-muted-soft);"></i><span>{{ m.srcLabel }}</span>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; padding-top:14px; border-top:1px solid var(--vb-hairline-soft);">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:4px 9px; border-radius:999px; color:{{ m.statusColor }}; background:{{ m.statusBg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ m.statusColor }};"></span>{{ m.statusLabel }}</span>
+                    <div style="display:flex;">
+                      <sc-for list="{{ m.avatars }}" as="a" hint-placeholder-count="3">
+                        <span style="width:22px; height:22px; border-radius:50%; margin-left:-6px; border:2px solid var(--vb-canvas); display:inline-flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; color:#fff; background:{{ a.color }};">{{ a.initials }}</span>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <span style="display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:500; color:var(--vb-muted);">Open<i data-lucide="arrow-up-right" style="width:13px; height:13px;"></i></span>
+                </div>
+              </a>
+            </sc-for>
+          </div>
+        </section>
+      </sc-for>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mix = (v, pct) => `color-mix(in srgb, ${v} ${pct}%, white)`;
+    const STATUS = {
+      completed:  { label: "Completed",  color: "var(--vb-success)", bg: "color-mix(in srgb, var(--vb-success) 12%, white)" },
+      processing: { label: "Processing", color: "var(--vb-info)",    bg: "color-mix(in srgb, var(--vb-info) 12%, white)" },
+      pending:    { label: "Pending",    color: "var(--vb-warning)", bg: "color-mix(in srgb, var(--vb-warning) 14%, white)" },
+    };
+    const AV = ["var(--vb-pink)","var(--vb-info)","var(--vb-ochre)","var(--vb-coral)","var(--vb-lavender)"];
+    const av = (names) => names.map((n, i) => ({
+      initials: n.split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase(),
+      color: AV[i % AV.length],
+    }));
+
+    const rawSections = [
+      { name: "Engineering", icon: "code", color: "var(--vb-info)",
+        meetings: [
+          { title: "Platform sync — Q3 roadmap", summary: "Aligned on the migration timeline and split ownership of the ingestion rewrite.", date: "Jul 8", time: "10:00 AM", src: "meet", status: "completed", people: ["Ada Lovelace","Ravi Shah","Mei Chen"] },
+          { title: "Incident retro — API latency", summary: "Root-caused the p99 spike to a connection-pool leak; added alerting.", date: "Jul 5", time: "3:30 PM", src: "zoom", status: "completed", people: ["Ravi Shah","Tom Ford"] },
+          { title: "Live: Search reranking review", summary: "Walking through the new cross-encoder eval and rollout plan.", date: "Jul 9", time: "9:15 AM", src: "meet", status: "processing", people: ["Mei Chen","Ada Lovelace","Sam Diaz","Lena Ito"] },
+        ] },
+      { name: "Sales", icon: "briefcase", color: "var(--vb-pink)",
+        meetings: [
+          { title: "Discovery — Globex renewal", summary: "Mapped their expansion needs; procurement wants a security review.", date: "Jul 7", time: "1:00 PM", src: "teams", status: "completed", people: ["Nina Patel","Carl Vos"] },
+          { title: "Demo — Initech pilot", summary: "Showed the agent harness; strong interest in the approval-gated flows.", date: "Jul 6", time: "11:30 AM", src: "zoom", status: "pending", people: ["Carl Vos","Priya Rao","Jon Kim"] },
+        ] },
+      { name: "Leadership", icon: "rocket", color: "var(--vb-ochre)",
+        meetings: [
+          { title: "Weekly staff meeting", summary: "Hiring update, board-deck review, and the pricing experiment results.", date: "Jul 8", time: "4:00 PM", src: "meet", status: "completed", people: ["Dana Cho","Ravi Shah","Nina Patel","Ada Lovelace"] },
+          { title: "Board prep working session", summary: "Tightened the narrative around net retention and agent adoption.", date: "Jul 4", time: "2:00 PM", src: "webex", status: "processing", people: ["Dana Cho","Nina Patel"] },
+        ] },
+    ];
+
+    const sections = rawSections.map((s) => ({
+      name: s.name, icon: s.icon, color: s.color,
+      chipBg: mix(s.color, 12),
+      meta: `${s.meetings.length} meeting${s.meetings.length === 1 ? "" : "s"}`,
+      meetings: s.meetings.map((m) => {
+        const st = STATUS[m.status];
+        const SRC = { meet: ["video","Google Meet"], zoom: ["video","Zoom"], teams: ["users","Microsoft Teams"], webex: ["video","Webex"] }[m.src];
+        return { title: m.title, summary: m.summary, date: m.date, time: m.time,
+          color: s.color, chipBg: mix(s.color, 12),
+          srcIcon: SRC[0], srcLabel: SRC[1],
+          statusLabel: st.label, statusColor: st.color, statusBg: st.bg,
+          avatars: av(m.people).slice(0,4) };
+      }),
+    }));
+    return { sections };
+  }
+}
+</script>
+</body>
+</html>

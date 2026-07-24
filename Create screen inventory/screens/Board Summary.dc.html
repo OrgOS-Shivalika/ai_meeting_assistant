@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/fonts.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/colors.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/typography.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/spacing.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/tokens/radius.css">
+  <link rel="stylesheet" href="../_ds/vibrant-design-system-7e2fbe7d-3978-4dfe-a49d-35f89fe9d5a2/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (function(){function i(){if(window.lucide){try{lucide.createIcons();}catch(e){}}}
+    var t;new MutationObserver(function(){clearTimeout(t);t=setTimeout(i,60);}).observe(document.documentElement,{childList:true,subtree:true});
+    document.addEventListener('DOMContentLoaded',i);setTimeout(i,120);setTimeout(i,500);})();
+  </script>
+  <style>body{margin:0;} a{text-decoration:none;color:inherit;}</style>
+</helmet>
+<div style="display:flex; height:100vh; background:var(--vb-canvas); font-family:var(--font-sans); color:var(--vb-body);">
+  <dc-import name="Sidebar" active="/boards" hint-size="248px,100%"></dc-import>
+  <div style="flex:1; overflow-y:auto;">
+    <div style="max-width:920px; margin:0 auto; padding:28px 44px 72px;">
+
+      <a href="Boards.dc.html" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--vb-muted); margin-bottom:12px;"><i data-lucide="chevron-left" style="width:15px; height:15px;"></i>All boards</a>
+      <div style="display:flex; align-items:center; gap:14px; margin-bottom:20px;">
+        <span style="width:40px; height:40px; border-radius:12px; background:color-mix(in srgb, var(--vb-info) 12%, white); display:inline-flex; align-items:center; justify-content:center;"><i data-lucide="layout-grid" style="width:19px; height:19px; color:var(--vb-info);"></i></span>
+        <h1 style="font-family:var(--font-display); font-weight:500; font-size:26px; letter-spacing:-0.8px; color:var(--vb-ink); margin:0;">Q3 Platform</h1>
+      </div>
+      <div style="display:flex; gap:24px; margin-bottom:28px; border-bottom:1px solid var(--vb-hairline);">
+        <a href="Board.dc.html" style="padding:10px 2px; font-size:14px; font-weight:500; color:var(--vb-muted);">Board</a>
+        <span style="padding:10px 2px; font-size:14px; font-weight:600; color:var(--vb-ink); border-bottom:2px solid var(--vb-ink);">Summary</span>
+      </div>
+
+      <!-- Stats -->
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:28px;">
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-ink); line-height:1;">24</div><div style="font-size:12px; color:var(--vb-muted); margin-top:8px;">Total cards</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-success); line-height:1;">11</div><div style="font-size:12px; color:var(--vb-muted); margin-top:8px;">Done</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-info); line-height:1;">8</div><div style="font-size:12px; color:var(--vb-muted); margin-top:8px;">In progress</div></div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:20px;"><div style="font-family:var(--font-mono); font-size:28px; font-weight:500; color:var(--vb-warning); line-height:1;">2</div><div style="font-size:12px; color:var(--vb-muted); margin-top:8px;">At risk</div></div>
+      </div>
+
+      <!-- AI summary -->
+      <div style="background:var(--vb-surface-dark); border-radius:24px; padding:32px; color:var(--vb-on-ink); margin-bottom:24px;">
+        <div style="display:flex; align-items:center; gap:9px; margin-bottom:16px;"><i data-lucide="sparkles" style="width:17px; height:17px; color:var(--vb-lavender);"></i><span style="font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--vb-on-ink-soft);">AI board summary</span></div>
+        <p style="font-size:16px; line-height:1.7; color:var(--vb-on-ink); margin:0 0 16px;">The board is <strong>46% complete</strong> and tracking on schedule for the Q3 cutover. Phase-one ingestion work is the critical path and currently in progress with Ada. Two cards are at risk: the p99 latency fix is blocking phase two, and the flag-rollout spike is still unassigned.</p>
+        <p style="font-size:14px; line-height:1.65; color:var(--vb-on-ink-soft); margin:0;">Recommended focus this week: unblock the latency fix and assign an owner to the rollout spike before it slips the cutover date.</p>
+      </div>
+
+      <!-- Highlights -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:22px;">
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0 0 14px; display:flex; align-items:center; gap:8px;"><i data-lucide="alert-triangle" style="width:16px; height:16px; color:var(--vb-warning);"></i>At risk</h3>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div><p style="font-size:13px; font-weight:500; color:var(--vb-ink); margin:0 0 3px;">Fix p99 latency leak</p><p style="font-size:12px; color:var(--vb-muted); margin:0;">Blocking phase-two cutover · Ravi Shah</p></div>
+            <div><p style="font-size:13px; font-weight:500; color:var(--vb-ink); margin:0 0 3px;">Spike: flag rollout framework</p><p style="font-size:12px; color:var(--vb-warning); margin:0;">Unassigned · due Jul 18</p></div>
+          </div>
+        </div>
+        <div style="background:var(--vb-canvas); border:1px solid var(--vb-hairline); border-radius:16px; padding:22px;">
+          <h3 style="font-family:var(--font-display); font-weight:500; font-size:16px; color:var(--vb-ink); margin:0 0 14px; display:flex; align-items:center; gap:8px;"><i data-lucide="trending-up" style="width:16px; height:16px; color:var(--vb-success);"></i>Recently shipped</h3>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div><p style="font-size:13px; font-weight:500; color:var(--vb-ink); margin:0 0 3px;">Migration RFC sign-off</p><p style="font-size:12px; color:var(--vb-muted); margin:0;">Completed Jul 8 · Dana Cho</p></div>
+            <div><p style="font-size:13px; font-weight:500; color:var(--vb-ink); margin:0 0 3px;">Incident retro write-up</p><p style="font-size:12px; color:var(--vb-muted); margin:0;">Completed Jul 6 · Ravi Shah</p></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:820}}"></script>
+</body>
+</html>
