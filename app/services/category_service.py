@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Category, Team
+from app.services import permissions
 from app.schemas.category_schema import (
     CategoryCreate,
     CategoryUpdate,
@@ -25,16 +26,26 @@ from app.schemas.category_schema import (
 # ---------------------------------------------------------------------------
 
 
-def get_owned_category(db: Session, user, category_id: int) -> Category:
+def get_owned_category(db: Session, user, category_id: int, *, manage: bool = False) -> Category:
+    """Fetch a category the caller may read (or manage).
+
+    Name kept for its many call sites, but "owned" is now the wrong word:
+    access comes from a `category_admins` grant or from having attended a
+    meeting in the category, not from `categories.user_id` (which only
+    records who created it).
+    """
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="Meeting type not found")
     if category.organization_id != user.organization_id:
         raise HTTPException(status_code=403, detail="Not authorized")
+    permissions.require_category_access(db, user, category_id, manage=manage)
     return category
 
 
-def get_owned_team(db: Session, user, team_id: int) -> Team:
+def get_owned_team(db: Session, user, team_id: int, *, manage: bool = False) -> Team:
+    """Fetch a team, gated on access to its parent category — a team has
+    no access rules of its own."""
     team = (
         db.query(Team)
         .join(Category, Team.category_id == Category.id)
@@ -43,6 +54,7 @@ def get_owned_team(db: Session, user, team_id: int) -> Team:
     )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
+    permissions.require_category_access(db, user, team.category_id, manage=manage)
     return team
 
 
@@ -52,16 +64,28 @@ def get_owned_team(db: Session, user, team_id: int) -> Team:
 
 
 def list_categories(db: Session, user):
-    return (
+    """Categories the caller may see.
+
+    Was org-scoped only, which meant granting an admin two categories
+    changed nothing about what the categories list showed them — they
+    still saw all of them.
+    """
+    query = (
         db.query(Category)
         .options(joinedload(Category.teams))
         .filter(Category.organization_id == user.organization_id)
-        .order_by(Category.created_at.asc())
-        .all()
     )
+    clause = permissions.category_view_clause(db, user)
+    if clause is not None:
+        query = query.filter(clause)
+    return query.order_by(Category.created_at.asc()).all()
 
 
 def create_category(db: Session, user, payload: CategoryCreate) -> Category:
+    # Adding a category changes the organization's structure, and the new
+    # row carries no `category_admins` grant, so an admin creating one
+    # would not even be able to manage it afterwards. Org admins only.
+    permissions.require_org_admin_role(user)
     category = Category(
         organization_id=user.organization_id,
         user_id=user.id,
@@ -81,7 +105,7 @@ def create_category(db: Session, user, payload: CategoryCreate) -> Category:
 
 
 def update_category(db: Session, user, category_id: int, payload: CategoryUpdate) -> Category:
-    category = get_owned_category(db, user, category_id)
+    category = get_owned_category(db, user, category_id, manage=True)
     if payload.name is not None:
         category.name = payload.name.strip()
     if payload.description is not None:
@@ -100,7 +124,10 @@ def update_category(db: Session, user, category_id: int, payload: CategoryUpdate
 
 
 def delete_category(db: Session, user, category_id: int) -> dict:
-    category = get_owned_category(db, user, category_id)
+    # Cascades to teams, documents and the category_admins grants. Too
+    # destructive to hand to a category admin.
+    permissions.require_org_admin_role(user)
+    category = get_owned_category(db, user, category_id, manage=True)
     db.delete(category)
     db.commit()
     return {"status": "ok", "deleted_id": category_id}
@@ -122,7 +149,7 @@ def list_teams(db: Session, user, category_id: int):
 
 
 def create_team(db: Session, user, category_id: int, payload: TeamCreate) -> Team:
-    get_owned_category(db, user, category_id)
+    get_owned_category(db, user, category_id, manage=True)
     team = Team(
         category_id=category_id,
         name=payload.name.strip(),
@@ -139,7 +166,7 @@ def create_team(db: Session, user, category_id: int, payload: TeamCreate) -> Tea
 
 
 def update_team(db: Session, user, team_id: int, payload: TeamUpdate) -> Team:
-    team = get_owned_team(db, user, team_id)
+    team = get_owned_team(db, user, team_id, manage=True)
     if payload.name is not None:
         team.name = payload.name.strip()
     if payload.description is not None:
@@ -154,7 +181,7 @@ def update_team(db: Session, user, team_id: int, payload: TeamUpdate) -> Team:
 
 
 def delete_team(db: Session, user, team_id: int) -> dict:
-    team = get_owned_team(db, user, team_id)
+    team = get_owned_team(db, user, team_id, manage=True)
     db.delete(team)
     db.commit()
     return {"status": "ok", "deleted_id": team_id}

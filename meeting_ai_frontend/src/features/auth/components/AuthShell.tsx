@@ -244,9 +244,18 @@ export const VbTextInput = forwardRef<HTMLInputElement, React.InputHTMLAttribute
   },
 );
 
-export function VbLabel({ children }: { children: React.ReactNode }) {
+export function VbLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  /** Associates the label with its input, so clicking it focuses the
+   * field and screen readers announce the two together. */
+  htmlFor?: string;
+}) {
   return (
     <label
+      htmlFor={htmlFor}
       style={{
         fontSize: 12,
         fontWeight: 500,

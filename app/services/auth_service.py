@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config.settings import settings
 from app.db.models import User, Organization
 from app.schemas.auth_schema import UserCreate, UserLogin
+from app.utils.admin_enums import AccessRole, PromptRole
 
 SECRET_KEY = settings.AUTH_SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -52,7 +53,14 @@ def register_user(db: Session, data: UserCreate) -> dict:
         email=data.email,
         password=hash_password(data.password),
         organization_id=org.id,
-        role="org_admin",
+        role=PromptRole.ORG_ADMIN,
+        # Meeting access control. Signup always mints a fresh workspace,
+        # so this person is its only user and necessarily its org admin.
+        # Joining an EXISTING org doesn't happen here — that's the
+        # provisioning flow in `admin_service.create_admin`, which sets
+        # 'admin' instead.
+        access_role=AccessRole.ORG_ADMIN,
+        password_set_at=datetime.now(timezone.utc),
     )
     db.add(user)
     db.commit()

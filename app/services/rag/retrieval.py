@@ -57,6 +57,7 @@ from app.schemas.rag_schema import (
     RetrievedRelationship, ScopeType, SourcesFilter,
 )
 from app.services.embedder import Embedder
+from app.services import permissions
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ _WIDEN_ORDER: dict[ScopeType, list[ScopeType]] = {
 def _vector_meeting_query(
     db: Session, *, organization_id: UUID, qvec: list[float],
     scope_type: ScopeType, scope_id: Optional[int], top_k: int,
+    viewer=None,
 ):
     distance = MeetingChunk.embedding.cosine_distance(qvec).label("distance")
     stmt = (
@@ -109,12 +111,20 @@ def _vector_meeting_query(
         stmt = stmt.where(MeetingChunk.team_id == scope_id)
     elif scope_type == "category" and scope_id is not None:
         stmt = stmt.where(MeetingChunk.category_id == scope_id)
+    # RBAC. Applied inside the SQL, before ORDER BY/LIMIT, so the top-K
+    # is the top-K *of what this viewer may read* — filtering afterwards
+    # would both leak and silently shrink the result set.
+    if viewer is not None:
+        clause = permissions.meeting_chunk_clause(db, viewer, MeetingChunk)
+        if clause is not None:
+            stmt = stmt.where(clause)
     return db.execute(stmt).all()
 
 
 def _vector_document_query(
     db: Session, *, organization_id: UUID, qvec: list[float],
     scope_type: ScopeType, scope_id: Optional[int], top_k: int,
+    viewer=None,
 ):
     distance = DocumentChunk.embedding.cosine_distance(qvec).label("distance")
     stmt = (
@@ -143,6 +153,10 @@ def _vector_document_query(
         stmt = stmt.where(DocumentChunk.team_id == scope_id)
     elif scope_type == "category" and scope_id is not None:
         stmt = stmt.where(DocumentChunk.category_id == scope_id)
+    if viewer is not None:
+        clause = permissions.document_chunk_clause(db, viewer, DocumentChunk)
+        if clause is not None:
+            stmt = stmt.where(clause)
     return db.execute(stmt).all()
 
 
@@ -203,7 +217,7 @@ def _row_to_document_chunk(row) -> RetrievedChunk:
 def _vector_top_k_at_scope(
     db: Session, *, organization_id: UUID, qvec: list[float],
     scope_type: ScopeType, scope_id: Optional[int],
-    sources: SourcesFilter, top_k: int,
+    sources: SourcesFilter, top_k: int, viewer=None,
 ) -> list[RetrievedChunk]:
     """Run the vector top-K for one specific scope. Calls each source
     table in parallel under the hood (the queries are independent;
@@ -214,12 +228,14 @@ def _vector_top_k_at_scope(
         meeting_rows = _vector_meeting_query(
             db, organization_id=organization_id, qvec=qvec,
             scope_type=scope_type, scope_id=scope_id, top_k=top_k,
+            viewer=viewer,
         )
         hits.extend(_row_to_meeting_chunk(r) for r in meeting_rows)
     if sources in ("all", "documents"):
         doc_rows = _vector_document_query(
             db, organization_id=organization_id, qvec=qvec,
             scope_type=scope_type, scope_id=scope_id, top_k=top_k,
+            viewer=viewer,
         )
         hits.extend(_row_to_document_chunk(r) for r in doc_rows)
     return hits
@@ -228,7 +244,7 @@ def _vector_top_k_at_scope(
 def _vector_with_tier_widen(
     db: Session, *, organization_id: UUID, qvec: list[float],
     scope_type: ScopeType, scope_id: Optional[int],
-    sources: SourcesFilter, top_k: int, threshold: int,
+    sources: SourcesFilter, top_k: int, threshold: int, viewer=None,
 ) -> tuple[list[RetrievedChunk], ScopeType, Optional[int]]:
     """Tightest-tier-wins. Try the requested scope first; if fewer than
     `threshold` chunks return, widen one tier and try again. Falls all
@@ -248,7 +264,7 @@ def _vector_with_tier_widen(
         hits = _vector_top_k_at_scope(
             db, organization_id=organization_id, qvec=qvec,
             scope_type=current, scope_id=current_scope_id,
-            sources=sources, top_k=top_k,
+            sources=sources, top_k=top_k, viewer=viewer,
         )
         last_scope_used = (current, current_scope_id)
         if len(hits) >= threshold:
@@ -374,7 +390,7 @@ def _graph_expand(
 def _mention_chunks(
     db: Session, *, organization_id: UUID,
     related_entity_ids: set[UUID], exclude_chunk_ids: set[UUID],
-    top_k: int, sources: SourcesFilter,
+    top_k: int, sources: SourcesFilter, viewer=None,
 ) -> list[RetrievedChunk]:
     """The critical step that distinguishes graph-RAG from vector-search-
     with-a-side-of-graph: pull chunks where any related entity is
@@ -417,6 +433,13 @@ def _mention_chunks(
         )
         if exclude_chunk_ids:
             stmt = stmt.where(MeetingChunk.id.notin_(exclude_chunk_ids))
+        # Graph expansion is the sneakiest path into a chunk: it can
+        # reach content the vector search never scored, purely because
+        # an entity in it is connected to the query. Same filter.
+        if viewer is not None:
+            clause = permissions.meeting_chunk_clause(db, viewer, MeetingChunk)
+            if clause is not None:
+                stmt = stmt.where(clause)
         rows = db.execute(stmt).all()
         for row in rows:
             chunk: MeetingChunk = row.MeetingChunk
@@ -471,6 +494,10 @@ def _mention_chunks(
         )
         if exclude_chunk_ids:
             stmt = stmt.where(DocumentChunk.id.notin_(exclude_chunk_ids))
+        if viewer is not None:
+            clause = permissions.document_chunk_clause(db, viewer, DocumentChunk)
+            if clause is not None:
+                stmt = stmt.where(clause)
         rows = db.execute(stmt).all()
         for row in rows:
             chunk: DocumentChunk = row.DocumentChunk
@@ -843,6 +870,7 @@ def retrieve(
     tier_widen_threshold: Optional[int] = None,
     sources: SourcesFilter = "all",
     rerank_strategy: Optional[str] = None,
+    viewer=None,
 ) -> RetrievalBundle:
     """Hybrid retrieval. See module docstring for the pipeline.
 
@@ -881,7 +909,7 @@ def retrieve(
         scope_type=plan.effective_scope_type,
         scope_id=plan.effective_scope_id,
         sources=sources, top_k=top_k_vector,
-        threshold=tier_widen_threshold,
+        threshold=tier_widen_threshold, viewer=viewer,
     )
 
     # 3. Anchor entities
@@ -908,7 +936,7 @@ def retrieve(
         related_entity_ids=expansion_only_ids,
         exclude_chunk_ids={c.chunk_id for c in primary_chunks},
         top_k=top_k_vector // 2,
-        sources=sources,
+        sources=sources, viewer=viewer,
     )
 
     # 6. Dedupe + rerank

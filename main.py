@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 from app.api.auth_router import router as auth_router, public_router as auth_public_router
+from app.api.admin_router import router as admin_router
 from app.api.google_auth_router import router as google_auth_router
 from app.api.routes import router
 from app.api.category_router import router as category_router, team_router, meeting_types_router
@@ -51,6 +52,7 @@ _API = settings.API_PREFIX
 _PUBLIC = settings.PUBLIC_PREFIX
 app.include_router(auth_public_router, prefix=_PUBLIC)
 app.include_router(auth_router, prefix=_API)
+app.include_router(admin_router, prefix=_API)
 app.include_router(router, prefix=_API)
 app.include_router(category_router, prefix=_API)
 app.include_router(meeting_types_router, prefix=_API)

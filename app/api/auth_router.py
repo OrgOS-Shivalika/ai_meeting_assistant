@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
 from app.dependencies.auth import get_current_user
-from app.services import auth_service
+from app.services import admin_service, auth_service, permissions
+from app.schemas.admin_schema import PasswordChangeRequest
 from app.schemas.auth_schema import UserCreate, UserLogin, Token
 from app.config.settings import settings
 
@@ -65,18 +66,55 @@ def logout(response: Response):
 
 
 @router.get("/me")
-def get_me(user: User = Depends(get_current_user)):
-    """Return the authenticated user plus their organization. The frontend
-    uses this to render identity in the sidebar and gate org-scoped actions."""
+def get_me(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user, their organization and their access
+    role.
+
+    The role fields are what the SPA renders against — which dashboard to
+    show, whether to draw a "New meeting" button. They are a UI hint
+    only: every endpoint re-derives the same answer server-side, because
+    a hidden button is not an access control.
+    """
     org = user.organization
+    role = permissions.access_role(user)
+    managed = permissions.managed_category_ids(db, user)
     return {
         "id": str(user.id),
         "name": user.name,
         "email": user.email,
         "google_profile_picture": user.google_profile_picture,
+        # Meeting access control. Distinct from `role` (Phase 7E), which
+        # governs the agent-prompt surfaces and is exposed separately.
+        "access_role": role,
+        # None means "all categories" (org admin). An empty list means
+        # this user administers none — the two are not the same and the
+        # frontend must not conflate them.
+        "managed_category_ids": managed,
+        "must_change_password": bool(user.must_change_password),
+        "prompt_role": user.role,
         "organization": {
             "id": str(org.id),
             "name": org.name,
             "slug": org.slug,
         } if org else None,
     }
+
+
+@router.post("/change-password")
+def change_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set a new password.
+
+    Also the exit from `must_change_password`, which is how an admin
+    provisioned with a generated password takes ownership of their
+    account.
+    """
+    return admin_service.change_password(
+        db, user, payload.current_password, payload.new_password
+    )

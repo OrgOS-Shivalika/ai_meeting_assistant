@@ -119,8 +119,32 @@ class Participant(Base):
     is_organizer = Column(String, default=False)
     avatar_url = Column(String, nullable=True)
 
+    # RBAC — attendance IS membership, so this column is what the whole
+    # member scope rule keys off. Nullable because plenty of attendees
+    # never map to an account (dial-in, external guests, people who
+    # haven't signed up yet).
+    #
+    # `match_source` records HOW the link was made, because `email`
+    # above is derived by a fuzzy name-token heuristic in
+    # `MeetingPipeline.save_participants` — good enough to render an
+    # avatar, not good enough to grant access. Only the sources listed
+    # in `permissions.TRUSTED_MATCH_SOURCES` confer visibility:
+    #   'calendar_exact' — exact email / displayName hit on the calendar
+    #                      attendee list. Trusted.
+    #   'manual'         — an admin added this person by hand. Trusted.
+    #   'heuristic'      — matched on a partial name token. NOT trusted.
+    #   'legacy'         — backfilled by the RBAC migration from rows
+    #                      that predate provenance tracking. NOT trusted.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    match_source = Column(String(24), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     meeting = relationship("Meeting", back_populates="participants")
+    user = relationship("User", back_populates="participations")
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -131,6 +155,16 @@ class Task(Base):
 
     task = Column(String, nullable=False)
     owner_name = Column(String, nullable=True)
+    # RBAC — `owner_name` is free text written by the LLM analyzer
+    # ("Priya", "TBD", "the design team"), so it can't answer "tasks
+    # assigned to me". This is the resolvable half; `owner_name` stays
+    # as the display label and for tasks whose owner isn't a user.
+    assignee_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     priority = Column(String, default="medium")
     due_date = Column(DateTime(timezone=True), nullable=True)
     is_completed = Column(Integer, default=0) # Using Integer as boolean for SQLite/generic compat if needed, but standard is Column(Boolean)
@@ -442,11 +476,37 @@ class User(Base):
     organization = relationship("Organization", back_populates="users")
 
     # Phase 7E RBAC. Nullable for backward compat: a NULL row is
-    # treated as 'viewer' (the safe-deny default) by
+    # treated as 'VIEWER' (the safe-deny default) by
     # `dependencies/auth.py`. The 7E migration backfills existing
     # users to 'org_admin' so they keep their pre-7E privileges.
-    # Values: 'viewer' | 'prompt_editor' | 'org_admin'.
+    # Values: 'VIEWER' | 'PROMPT_EDITOR' | 'ORG_ADMIN', stored UPPERCASE.
+    # Canonical definition: `app/utils/admin_enums.PromptRole`.
     role = Column(String(24), nullable=True)
+
+    # Meeting access control. Deliberately a SEPARATE column from `role`
+    # above: that one governs agent-prompt surfaces (Phase 7E) and its
+    # 'org_admin' means something narrower than this one's. Overloading
+    # it would tie two unrelated permission systems together.
+    #   'MEMBER'    — implicit default. Sees meetings they attended.
+    #   'ADMIN'     — plus every meeting in the categories they manage
+    #                 (see CategoryAdmin).
+    #   'ORG_ADMIN' — everything in the organization.
+    # Stored UPPERCASE; `users.role` above is lowercase. The two columns
+    # are unrelated, so they don't share a convention. Canonical values
+    # live in `app/utils/admin_enums.AccessRole`.
+    # The RBAC migration backfills every pre-existing row to 'ORG_ADMIN'
+    # so nobody is demoted when enforcement lands.
+    access_role = Column(
+        String(16), nullable=False, default="MEMBER", server_default="MEMBER"
+    )
+
+    # Set when an org admin provisions this account with a generated
+    # password. Login succeeds but the API refuses everything else until
+    # the user sets their own password.
+    must_change_password = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    password_set_at = Column(DateTime(timezone=True), nullable=True)
 
     google_access_token = Column(String)
     google_refresh_token = Column(String)
@@ -459,6 +519,16 @@ class User(Base):
 
     meetings = relationship("Meeting", back_populates="user")
     categories = relationship("Category", back_populates="user", cascade="all, delete-orphan")
+    # Meetings this user attended — the member-scope source of truth.
+    participations = relationship("Participant", back_populates="user")
+    # Category-admin grants. `categories` above is what they CREATED,
+    # which is not the same thing and is not a permission.
+    category_grants = relationship(
+        "CategoryAdmin",
+        foreign_keys="[CategoryAdmin.user_id]",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class CategoryDocument(Base):
@@ -536,6 +606,77 @@ class Category(Base):
     teams = relationship("Team", back_populates="category", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="category")
     documents = relationship("CategoryDocument", back_populates="category", cascade="all, delete-orphan")
+    admins = relationship(
+        "CategoryAdmin",
+        foreign_keys="[CategoryAdmin.category_id]",
+        back_populates="category",
+        cascade="all, delete-orphan",
+    )
+
+
+class CategoryAdmin(Base):
+    """A grant of category-level admin rights to a user.
+
+    Many-to-many on purpose: one admin typically manages several
+    categories, and a category can have more than one admin. This is
+    distinct from ``Category.user_id``, which records who created the
+    category and carries no permission.
+    """
+    __tablename__ = "category_admins"
+    __table_args__ = (
+        Index("ix_category_admins_user_id", "user_id"),
+        # Two partial unique indexes, not one constraint: Postgres treats
+        # NULLs as distinct in a unique index, so a single
+        # UNIQUE(user_id, category_id, team_id) would allow the same
+        # whole-category grant to be inserted twice.
+        Index(
+            "uq_category_admin_whole",
+            "user_id", "category_id",
+            unique=True,
+            postgresql_where=text("team_id IS NULL"),
+        ),
+        Index(
+            "uq_category_admin_team",
+            "user_id", "category_id", "team_id",
+            unique=True,
+            postgresql_where=text("team_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_category_admins_team_id",
+            "team_id",
+            postgresql_where=text("team_id IS NOT NULL"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    category_id = Column(
+        Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False
+    )
+    # NULL means the whole category. Set means this team only — a narrower
+    # grant than the category it sits under. The team-belongs-to-category
+    # rule is enforced in `admin_service`, since a CHECK can't span tables.
+    team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # Audit trail for the security spec. SET NULL rather than CASCADE so
+    # deleting the granter doesn't silently revoke the grant.
+    granted_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    category = relationship(
+        "Category", foreign_keys=[category_id], back_populates="admins"
+    )
+    team = relationship("Team", foreign_keys=[team_id])
+    user = relationship(
+        "User", foreign_keys=[user_id], back_populates="category_grants"
+    )
 
 
 class Team(Base):

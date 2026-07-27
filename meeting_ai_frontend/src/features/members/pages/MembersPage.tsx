@@ -1,86 +1,23 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Search,
   UserPlus,
-  Trash2,
   Shield,
+  ShieldOff,
   Users as UsersIcon,
+  Copy,
   Check,
-  X,
+  AlertCircle,
+  Loader2,
+  KeyRound,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
-
-interface TeamMember {
-  id: number;
-  name: string;
-  email: string;
-  role: "admin" | "member" | "viewer";
-  status: "active" | "invited" | "inactive";
-  joinedDate: string;
-  lastActive: string | null;
-  avatar?: string;
-  meetingsAttended: number;
-  decisionsOwned: number;
-}
-
-// Mock data - replace with actual API calls
-const MOCK_MEMBERS: TeamMember[] = [
-  {
-    id: 1,
-    name: "Sarah Chen",
-    email: "sarah@company.com",
-    role: "admin",
-    status: "active",
-    joinedDate: "2024-01-15",
-    lastActive: "2024-06-02",
-    meetingsAttended: 45,
-    decisionsOwned: 12,
-  },
-  {
-    id: 2,
-    name: "John Smith",
-    email: "john@company.com",
-    role: "member",
-    status: "active",
-    joinedDate: "2024-02-20",
-    lastActive: "2024-06-01",
-    meetingsAttended: 32,
-    decisionsOwned: 8,
-  },
-  {
-    id: 3,
-    name: "Alex Rodriguez",
-    email: "alex@company.com",
-    role: "member",
-    status: "active",
-    joinedDate: "2024-03-10",
-    lastActive: "2024-05-31",
-    meetingsAttended: 28,
-    decisionsOwned: 5,
-  },
-  {
-    id: 4,
-    name: "Emma Wilson",
-    email: "emma@company.com",
-    role: "member",
-    status: "invited",
-    joinedDate: "2024-05-25",
-    lastActive: null,
-    meetingsAttended: 0,
-    decisionsOwned: 0,
-  },
-  {
-    id: 5,
-    name: "Michael Johnson",
-    email: "michael@company.com",
-    role: "viewer",
-    status: "active",
-    joinedDate: "2024-04-01",
-    lastActive: "2024-06-02",
-    meetingsAttended: 15,
-    decisionsOwned: 0,
-  },
-];
+import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
+import { membersApi, type CategoryRef, type OrgMember } from "../api";
+import { ROLE_LABEL, roleBadgeClass } from "../roles";
+import AddMemberModal from "../components/AddMemberModal";
+import GrantPicker, { type GrantSelection } from "../components/GrantPicker";
+import type { AccessRole } from "../../auth/types";
 
 const AVATAR_COLORS = [
   "bg-indigo-500",
@@ -104,10 +41,10 @@ const initialsOf = (name: string) => {
   return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
 };
 
-const formatDate = (iso: string | null): string | null => {
-  if (!iso) return null;
+const formatDate = (iso: string | null): string => {
+  if (!iso) return "—";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -115,139 +52,135 @@ const formatDate = (iso: string | null): string | null => {
   });
 };
 
-const getRoleColor = (role: string) => {
-  switch (role) {
-    case "admin":
-      return "bg-purple-50 text-purple-700 border border-purple-200";
-    case "member":
-      return "bg-indigo-50 text-indigo-700 border border-indigo-200";
-    case "viewer":
-      return "bg-slate-50 text-slate-700 border border-slate-200";
-    default:
-      return "bg-gray-50 text-gray-700 border border-gray-200";
-  }
-};
-
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case "active":
-      return "bg-emerald-50 text-emerald-700 border border-emerald-200";
-    case "invited":
-      return "bg-amber-50 text-amber-700 border border-amber-200";
-    case "inactive":
-      return "bg-slate-50 text-slate-700 border border-slate-200";
-    default:
-      return "bg-gray-50 text-gray-700 border border-gray-200";
-  }
-};
 
 export default function MembersPage() {
-  const [members, setMembers] = useState<TeamMember[]>(MOCK_MEMBERS);
-  const [search, setSearch] = useState("");
-  const [filterRole, setFilterRole] = useState<"all" | "admin" | "member" | "viewer">("all");
-  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "invited" | "inactive">("all");
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
+  const { user: me } = useCurrentUser();
 
-  const counts = useMemo(() => {
-    const active = members.filter((m) => m.status === "active").length;
-    const invited = members.filter((m) => m.status === "invited").length;
-    const admins = members.filter((m) => m.role === "admin").length;
-    return { total: members.length, active, invited, admins };
-  }, [members]);
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [categories, setCategories] = useState<CategoryRef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState("");
+  const [filterRole, setFilterRole] = useState<"all" | AccessRole>("all");
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
+
+  // Shown once, after provisioning. Held in component state and never
+  // persisted — the server hashes it and cannot show it again.
+  const [issuedCredential, setIssuedCredential] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [memberRows, categoryRows] = await Promise.all([
+        membersApi.list(),
+        membersApi.categories(),
+      ]);
+      setMembers(memberRows);
+      setCategories(categoryRows);
+    } catch (e: any) {
+      setError(e?.message || "Could not load members.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const counts = useMemo(
+    () => ({
+      total: members.length,
+      admins: members.filter((m) => m.access_role === "ADMIN").length,
+      orgAdmins: members.filter((m) => m.access_role === "ORG_ADMIN").length,
+      pending: members.filter((m) => m.must_change_password).length,
+    }),
+    [members],
+  );
 
   const filtered = useMemo(() => {
     let rows = members;
-
-    if (filterRole !== "all") {
-      rows = rows.filter((m) => m.role === filterRole);
-    }
-
-    if (filterStatus !== "all") {
-      rows = rows.filter((m) => m.status === filterStatus);
-    }
-
+    if (filterRole !== "all") rows = rows.filter((m) => m.access_role === filterRole);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       rows = rows.filter(
         (m) =>
-          m.name.toLowerCase().includes(q) ||
-          m.email.toLowerCase().includes(q),
+          m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q),
       );
     }
+    // Most-privileged first, then by attendance — the people an org
+    // admin came here to act on are near the top either way.
+    const rank: Record<AccessRole, number> = { ORG_ADMIN: 0, ADMIN: 1, MEMBER: 2 };
+    return [...rows].sort(
+      (a, b) =>
+        rank[a.access_role] - rank[b.access_role] ||
+        b.meeting_count - a.meeting_count,
+    );
+  }, [members, filterRole, search]);
 
-    return rows.sort((a, b) => {
-      if (a.status === "active" && b.status !== "active") return -1;
-      if (a.status !== "active" && b.status === "active") return 1;
-      return new Date(b.joinedDate).getTime() - new Date(a.joinedDate).getTime();
-    });
-  }, [members, filterRole, filterStatus, search]);
-
-  const handleInvite = () => {
-    if (!inviteEmail.trim()) return;
-    // Mock implementation - in real app, call API
-    const newMember: TeamMember = {
-      id: Math.max(...members.map((m) => m.id)) + 1,
-      name: inviteEmail.split("@")[0],
-      email: inviteEmail,
-      role: "member",
-      status: "invited",
-      joinedDate: new Date().toISOString().split("T")[0],
-      lastActive: null,
-      meetingsAttended: 0,
-      decisionsOwned: 0,
-    };
-    setMembers([...members, newMember]);
-    setInviteEmail("");
-    setShowInviteModal(false);
-  };
-
-  const handleRemoveMember = (id: number) => {
-    setMembers(members.filter((m) => m.id !== id));
+  const applyUpdate = async (userId: string, fn: () => Promise<OrgMember>) => {
+    setBusyUserId(userId);
+    setError(null);
+    try {
+      const updated = await fn();
+      setMembers((rows) => rows.map((r) => (r.id === updated.id ? updated : r)));
+    } catch (e: any) {
+      setError(e?.message || "That change could not be applied.");
+    } finally {
+      setBusyUserId(null);
+    }
   };
 
   return (
     <Layout>
       <div className="max-w-7xl mx-auto px-2 py-4">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">Team Members</h1>
+            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
+              Team Members
+            </h1>
             <p className="text-xs text-[#777681] mt-0.5">
-              Manage your organization's team members, roles, and permissions.
-              {counts.invited > 0 && ` ${counts.invited} pending invitations.`}
+              Everyone who has attended a meeting is a member automatically.
+              Grant admin access to let someone manage whole categories.
             </p>
           </div>
           <button
-            onClick={() => setShowInviteModal(true)}
+            onClick={() => setShowCreateModal(true)}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm active:scale-95"
           >
             <UserPlus className="w-4 h-4" />
-            Invite Member
+            Add Member
           </button>
         </div>
 
-        {/* Stats */}
+        {issuedCredential && (
+          <CredentialBanner
+            email={issuedCredential.email}
+            password={issuedCredential.password}
+            onDismiss={() => setIssuedCredential(null)}
+          />
+        )}
+
+        {error && (
+          <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+            <p className="text-xs text-red-700">{error}</p>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">Total Members</p>
-            <p className="text-2xl font-bold text-[#0F1523] mt-1">{counts.total}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">Active</p>
-            <p className="text-2xl font-bold text-emerald-600 mt-1">{counts.active}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">Admins</p>
-            <p className="text-2xl font-bold text-purple-600 mt-1">{counts.admins}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">Pending</p>
-            <p className="text-2xl font-bold text-amber-600 mt-1">{counts.invited}</p>
-          </div>
+          <StatCard label="Total People" value={counts.total} tone="text-[#0F1523]" />
+          <StatCard label="Org Admins" value={counts.orgAdmins} tone="text-purple-600" />
+          <StatCard label="Category Admins" value={counts.admins} tone="text-indigo-600" />
+          <StatCard label="Awaiting Password" value={counts.pending} tone="text-amber-600" />
         </div>
 
-        {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -259,145 +192,347 @@ export default function MembersPage() {
               className="pl-8 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none w-full"
             />
           </div>
-
           <select
             value={filterRole}
             onChange={(e) => setFilterRole(e.target.value as any)}
             className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
           >
             <option value="all">All Roles</option>
-            <option value="admin">Admin</option>
-            <option value="member">Member</option>
-            <option value="viewer">Viewer</option>
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as any)}
-            className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="invited">Invited</option>
-            <option value="inactive">Inactive</option>
+            <option value="ORG_ADMIN">Org Admin</option>
+            <option value="ADMIN">Admin</option>
+            <option value="MEMBER">Member</option>
           </select>
         </div>
 
-        {/* Members List */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-16 bg-white rounded-lg border border-gray-200">
+            <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
             <div className="w-14 h-14 bg-indigo-50 rounded-md flex items-center justify-center mx-auto mb-3">
               <UsersIcon className="w-7 h-7 text-indigo-500" />
             </div>
             <h3 className="text-lg font-bold text-[#0F1523] mb-1">No members found</h3>
             <p className="text-[#777681] max-w-xs mx-auto text-sm">
-              {search ? "Try adjusting your search or filters" : "Invite team members to get started"}
+              {search || filterRole !== "all"
+                ? "Try adjusting your search or filters"
+                : "People appear here once they attend a meeting"}
             </p>
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
             {filtered.map((member) => (
-              <div
+              <MemberRow
                 key={member.id}
-                className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors group"
-              >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                  {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 ${colorFor(member.name)}`}>
-                    {initialsOf(member.name)}
-                  </div>
-
-                  {/* Name & Email */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#0F1523]">{member.name}</p>
-                    <p className="text-xs text-[#777681] truncate">{member.email}</p>
-                  </div>
-
-                  {/* Role Badge */}
-                  <div className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 ${getRoleColor(member.role)}`}>
-                    {member.role === "admin" && <Shield className="w-3 h-3 inline mr-1" />}
-                    {member.role}
-                  </div>
-
-                  {/* Status Badge */}
-                  <div className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 ${getStatusColor(member.status)}`}>
-                    {member.status === "active" && <Check className="w-3 h-3 inline mr-1" />}
-                    {member.status === "invited" && <X className="w-3 h-3 inline mr-1" />}
-                    {member.status}
-                  </div>
-                </div>
-
-                {/* Stats & Actions */}
-                <div className="flex items-center gap-4 ml-4">
-                  {member.status === "active" && (
-                    <div className="hidden lg:flex items-center gap-3 text-xs text-[#777681]">
-                      <div className="text-center">
-                        <p className="font-bold text-[#0F1523]">{member.meetingsAttended}</p>
-                        <p className="text-[10px]">Meetings</p>
-                      </div>
-                      <div className="w-px h-6 bg-gray-200"></div>
-                      <div className="text-center">
-                        <p className="font-bold text-[#0F1523]">{member.decisionsOwned}</p>
-                        <p className="text-[10px]">Decisions</p>
-                      </div>
-                      <div className="w-px h-6 bg-gray-200"></div>
-                      <div>
-                        <p className="font-bold text-[#0F1523]">
-                          {member.lastActive ? formatDate(member.lastActive) : "—"}
-                        </p>
-                        <p className="text-[10px]">Last active</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Delete Button */}
-                  <button
-                    onClick={() => handleRemoveMember(member.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                    title="Remove member"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+                member={member}
+                isSelf={member.id === me?.id}
+                busy={busyUserId === member.id}
+                categories={categories}
+                onGrant={(selection) =>
+                  applyUpdate(member.id, () =>
+                    membersApi.update(member.id, {
+                      access_role: "ADMIN",
+                      category_ids: selection.categoryIds,
+                      team_ids: selection.teamIds,
+                    }),
+                  )
+                }
+                onRevoke={() =>
+                  applyUpdate(member.id, () => membersApi.revokeAdmin(member.id))
+                }
+              />
             ))}
           </div>
         )}
       </div>
 
-      {/* Invite Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg max-w-md w-full mx-4 p-6">
-            <h2 className="text-lg font-bold text-[#0F1523] mb-4">Invite Team Member</h2>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#777681] mb-2">Email Address</label>
-              <input
-                type="email"
-                placeholder="name@company.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
-              />
+      {showCreateModal && (
+        <AddMemberModal
+          categories={categories}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={(result) => {
+            setShowCreateModal(false);
+            // Surface the password on the page too, not just in the modal
+            // that is about to unmount — it is unrecoverable after this.
+            setIssuedCredential({
+              email: result.user.email,
+              password: result.password,
+            });
+            load();
+          }}
+        />
+      )}
+    </Layout>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">
+        {label}
+      </p>
+      <p className={`text-2xl font-bold mt-1 ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+/**
+ * The generated password, shown once.
+ *
+ * Deliberately loud and deliberately dismissible-only-by-the-user: no
+ * mail provider is wired up, so if this banner is missed the password
+ * is unrecoverable and the account has to be re-provisioned.
+ */
+function CredentialBanner({
+  email,
+  password,
+  onDismiss,
+}: {
+  email: string;
+  password: string;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the value is selectable on screen anyway */
+    }
+  };
+
+  return (
+    <div className="p-4 mb-4 rounded-lg bg-amber-50 border border-amber-200">
+      <div className="flex items-start gap-2.5">
+        <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-900">
+            Temporary password for {email}
+          </p>
+          <p className="text-xs text-amber-800 mt-0.5">
+            This is shown once and cannot be retrieved later. Send it to them
+            over a channel you trust — they'll be asked to replace it when they
+            first sign in.
+          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <code className="px-2 py-1 rounded bg-white border border-amber-300 text-sm font-mono text-amber-900 select-all">
+              {password}
+            </code>
+            <button
+              onClick={copy}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 rounded transition-colors"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-xs font-semibold text-amber-800 hover:underline shrink-0"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MemberRow({
+  member,
+  isSelf,
+  busy,
+  categories,
+  onGrant,
+  onRevoke,
+}: {
+  member: OrgMember;
+  isSelf: boolean;
+  busy: boolean;
+  categories: CategoryRef[];
+  onGrant: (selection: GrantSelection) => void;
+  onRevoke: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState<GrantSelection>({
+    categoryIds: member.managed_categories.map((c) => c.id),
+    teamIds: member.managed_teams.map((t) => t.id),
+  });
+
+  const isOrgAdmin = member.access_role === "ORG_ADMIN";
+
+  return (
+    <div className="p-4 hover:bg-gray-50 transition-colors">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div
+            className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 ${colorFor(
+              member.name,
+            )}`}
+          >
+            {initialsOf(member.name)}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#0F1523]">
+              {member.name}
+              {isSelf && (
+                <span className="ml-2 text-xs font-normal text-[#777681]">(you)</span>
+              )}
+            </p>
+            <p className="text-xs text-[#777681] truncate">{member.email}</p>
+          </div>
+
+          <div
+            className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 ${roleBadgeClass(
+              member.access_role,
+            )}`}
+          >
+            {member.access_role !== "MEMBER" && (
+              <Shield className="w-3 h-3 inline mr-1" />
+            )}
+            {ROLE_LABEL[member.access_role]}
+          </div>
+
+          {member.must_change_password && (
+            <div className="px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 bg-amber-50 text-amber-700 border border-amber-200">
+              Awaiting password
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleInvite}
-                disabled={!inviteEmail.trim()}
-                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-semibold transition-colors"
-              >
-                Send Invite
-              </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-4 ml-4 shrink-0">
+          <div className="hidden lg:flex items-center gap-3 text-xs text-[#777681]">
+            <div className="text-center">
+              <p className="font-bold text-[#0F1523]">{member.meeting_count}</p>
+              <p className="text-[10px]">Meetings</p>
             </div>
+            <div className="w-px h-6 bg-gray-200" />
+            <div className="text-center">
+              <p className="font-bold text-[#0F1523]">{formatDate(member.created_at)}</p>
+              <p className="text-[10px]">Joined</p>
+            </div>
+          </div>
+
+          {busy ? (
+            <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+          ) : isOrgAdmin ? (
+            // Org admins reach everything by definition, so there are no
+            // per-category grants to edit. Demoting one is a role change,
+            // not a grant change — out of scope for this row.
+            <span className="text-xs text-[#777681]">Full access</span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditing((v) => !v)}
+                className="px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+              >
+                {member.access_role === "ADMIN" ? "Edit categories" : "Make admin"}
+              </button>
+              {member.access_role === "ADMIN" && !isSelf && (
+                <button
+                  onClick={onRevoke}
+                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Revoke admin access"
+                >
+                  <ShieldOff className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {member.access_role === "ADMIN" && !editing && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-3 ml-14">
+          {member.managed_categories.map((c) => (
+            <span
+              key={`c-${c.id}`}
+              className="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 border border-indigo-100"
+              title="Entire category"
+            >
+              {c.name}
+            </span>
+          ))}
+          {/* Team grants render as "Category › Team" so a narrow grant is
+              never mistaken for control of the whole category. */}
+          {member.managed_teams.map((t) => (
+            <span
+              key={`t-${t.id}`}
+              className="px-2 py-0.5 rounded text-xs bg-slate-50 text-slate-700 border border-slate-200"
+              title={`Team only, inside ${t.category_name ?? "category"}`}
+            >
+              {t.category_name ? `${t.category_name} › ` : ""}
+              {t.name}
+            </span>
+          ))}
+          {member.managed_categories.length === 0 &&
+            member.managed_teams.length === 0 && (
+              <span className="text-xs text-amber-700">
+                No categories or teams assigned — this admin sees nothing.
+              </span>
+            )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-3 ml-14 p-3 bg-slate-50 rounded-lg border border-gray-200">
+          <p className="text-xs font-semibold text-[#777681] uppercase tracking-wide mb-1">
+            What they manage
+          </p>
+          <p className="text-[11px] text-[#777681] mb-2">
+            Tick a category for everything inside it, or expand it to grant
+            individual teams instead.
+          </p>
+          <GrantPicker
+            categories={categories}
+            value={selected}
+            onChange={setSelected}
+          />
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={() => {
+                onGrant(selected);
+                setEditing(false);
+              }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setSelected({
+                  categoryIds: member.managed_categories.map((c) => c.id),
+                  teamIds: member.managed_teams.map((t) => t.id),
+                });
+                setEditing(false);
+              }}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-white transition-colors"
+            >
+              Cancel
+            </button>
+            {selected.categoryIds.length === 0 &&
+              selected.teamIds.length === 0 && (
+                <span className="text-[11px] text-amber-700">
+                  Saving with nothing ticked leaves them able to see nothing.
+                </span>
+              )}
           </div>
         </div>
       )}
-    </Layout>
+    </div>
   );
 }

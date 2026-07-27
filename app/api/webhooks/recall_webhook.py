@@ -4,6 +4,7 @@ from app.db.models import Meeting
 from app.api.ws_router import manager
 from app.config.settings import settings
 from app.dependencies.auth import get_current_user
+from app.services import permissions
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
 from app.utils.logger import setup_logger
@@ -396,19 +397,15 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
 @recall_webhook_router.get("/webhook/debug/{meeting_id}")
 async def debug_bot(meeting_id: int, user=Depends(get_current_user)):
     """Check the Recall.ai bot config for a meeting to verify webhook URLs are set.
-    Tenant-scoped — only the meeting's own org can see this."""
+
+    A diagnostic that exposes bot and webhook wiring, so it needs manage
+    rights on the meeting rather than mere read.
+    """
     from app.services.recall_ai_service import RecallService
     db = SessionLocal()
     try:
-        meeting = (
-            db.query(Meeting)
-            .filter(
-                Meeting.id == meeting_id,
-                Meeting.organization_id == user.organization_id,
-            )
-            .first()
-        )
-        if not meeting or not meeting.bot_id:
+        meeting = permissions.get_manageable_meeting(db, user, meeting_id)
+        if not meeting.bot_id:
             raise HTTPException(status_code=404, detail="Meeting not found or has no bot_id")
 
         recall = RecallService()
@@ -431,17 +428,13 @@ async def debug_bot(meeting_id: int, user=Depends(get_current_user)):
 @recall_webhook_router.post("/webhook/test/{meeting_id}")
 async def test_webhook(meeting_id: int, user=Depends(get_current_user)):
     """Simulate a Recall.ai transcript webhook to verify the full pipeline.
-    Tenant-scoped — only the meeting's own org can trigger this."""
+
+    Injects synthetic transcript data into a real meeting, so it is a
+    write and requires manage rights.
+    """
     db = SessionLocal()
     try:
-        owned = (
-            db.query(Meeting.id)
-            .filter(
-                Meeting.id == meeting_id,
-                Meeting.organization_id == user.organization_id,
-            )
-            .first()
-        )
+        owned = permissions.get_manageable_meeting(db, user, meeting_id)
         if not owned:
             raise HTTPException(status_code=404, detail="Meeting not found")
     finally:

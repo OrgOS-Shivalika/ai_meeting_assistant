@@ -47,6 +47,7 @@ from app.schemas.graph_schema import (
     MentionRef,
     RelationshipDetail,
 )
+from app.services import permissions
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -337,14 +338,10 @@ def get_meeting_graph(
     *,
     meeting_id: int,
 ) -> MeetingGraphResponse:
-    meeting: Optional[Meeting] = db.execute(
-        select(Meeting).where(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == user.organization_id,
-        )
-    ).scalar_one_or_none()
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    # The meeting graph is derived directly from the transcript —
+    # entity names, who said what about whom — so it needs the same
+    # gate as the transcript itself.
+    meeting = permissions.get_viewable_meeting(db, user, meeting_id)
 
     # Entities surfaced through any mention sourced from this meeting.
     entity_rows: list[Entity] = db.execute(

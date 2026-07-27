@@ -13,19 +13,19 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.services import permissions
 from app.db.models import ClosingBriefing, Meeting
 
 
 def load_briefing_for_user(
     db: Session, current_user, meeting_id: int
 ) -> ClosingBriefing:
-    """Tenant-scoped load. 404 on missing row OR cross-org access — the
-    convention used elsewhere is "indistinguishable 404" rather than 403."""
+    """Access-scoped load. 404 on a missing row or cross-org access; 403
+    when the meeting is in the caller's org but outside their scope."""
+    verify_meeting_tenancy(db, current_user, meeting_id)
     row = (
         db.query(ClosingBriefing)
-        .join(Meeting, Meeting.id == ClosingBriefing.meeting_id)
         .filter(ClosingBriefing.meeting_id == meeting_id)
-        .filter(Meeting.organization_id == current_user.organization_id)
         .first()
     )
     if row is None:
@@ -36,18 +36,17 @@ def load_briefing_for_user(
 
 
 def verify_meeting_tenancy(db: Session, current_user, meeting_id: int) -> Meeting:
-    """Tenant gate: confirms the meeting exists AND belongs to the
-    caller's org. Returns the Meeting row so callers can use bot_id,
-    closing_briefing_status, etc."""
-    meeting = (
-        db.query(Meeting)
-        .filter(Meeting.id == meeting_id)
-        .filter(Meeting.organization_id == current_user.organization_id)
-        .first()
-    )
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found.")
-    return meeting
+    """Access gate for every closing-briefing endpoint. Confirms the
+    meeting exists, belongs to the caller's org, AND is within their
+    access scope. Returns the Meeting row so callers can use bot_id,
+    closing_briefing_status, etc.
+
+    Name kept for its six call sites; it now checks more than tenancy.
+    Worth the check being here rather than in the router: the briefing
+    is a spoken summary of the meeting, and the audio endpoint mints a
+    presigned URL to a recording of it.
+    """
+    return permissions.get_viewable_meeting(db, current_user, meeting_id)
 
 
 def get_briefing_row(db: Session, meeting_id: int) -> Optional[ClosingBriefing]:

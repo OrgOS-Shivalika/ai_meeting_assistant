@@ -34,6 +34,7 @@ from app.schemas.search_schema import (
     SearchRequest,
     TeamRef,
 )
+from app.services import permissions
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -183,6 +184,12 @@ def _search_meeting_chunks(
         stmt = stmt.where(MeetingChunk.category_id == payload.scope_id)
     elif payload.scope == "team":
         stmt = stmt.where(MeetingChunk.team_id == payload.scope_id)
+    # RBAC — semantic search returns chunk text verbatim, so it needs
+    # the same meeting scope as the meetings list itself. Inside the
+    # SQL, ahead of ORDER BY/LIMIT, so top_k counts only readable rows.
+    rbac = permissions.meeting_chunk_clause(db, user, MeetingChunk)
+    if rbac is not None:
+        stmt = stmt.where(rbac)
     if payload.min_similarity > 0.0:
         stmt = stmt.where(
             MeetingChunk.embedding.cosine_distance(query_vec) <= max_distance
@@ -237,6 +244,9 @@ def _search_document_chunks(
         stmt = stmt.where(DocumentChunk.category_id == payload.scope_id)
     elif payload.scope == "team":
         stmt = stmt.where(DocumentChunk.team_id == payload.scope_id)
+    rbac = permissions.document_chunk_clause(db, user, DocumentChunk)
+    if rbac is not None:
+        stmt = stmt.where(rbac)
     if payload.min_similarity > 0.0:
         stmt = stmt.where(
             DocumentChunk.embedding.cosine_distance(query_vec) <= max_distance
@@ -343,14 +353,9 @@ def search_chunks(
 def get_meeting_chunks(
     db: Session, user, meeting_id: int,
 ) -> Tuple[Meeting, list[SearchHit]]:
-    meeting = db.execute(
-        select(Meeting).where(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == user.organization_id,
-        )
-    ).scalar_one_or_none()
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    # This endpoint dumps every chunk of a meeting — effectively the
+    # transcript. Gate it on the meeting, not just the tenant.
+    meeting = permissions.get_viewable_meeting(db, user, meeting_id)
 
     stmt = (
         select(

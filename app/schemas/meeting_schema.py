@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 
 
 class MeetingRequest(BaseModel):
@@ -31,6 +32,10 @@ class TaskUpdateRequest(BaseModel):
     """
     task: Optional[str] = None           # the task text itself — for AI-extracted tasks the user wants to correct
     owner_name: Optional[str] = None
+    # Real assignee, as opposed to `owner_name`, which is whatever the
+    # analyzer wrote down. Setting it grants that user access to the
+    # task, so only admins may change it. Pass null to unassign.
+    assignee_user_id: Optional[UUID] = None
     priority: Optional[str] = None
     is_completed: Optional[bool] = None
     due_date: Optional[datetime] = None

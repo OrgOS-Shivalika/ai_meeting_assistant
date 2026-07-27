@@ -1,4 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { usePermissions } from "../../features/auth/hooks/usePermissions";
+import type { AccessRole } from "../../features/auth/types";
 import {
   Plus,
   LayoutDashboard,
@@ -32,7 +34,13 @@ import type { Category } from "../../features/meetings/types";
 const COLLAPSED_KEY = "sidebar:collapsed";
 const SCROLL_KEY = "sidebar:scroll";
 
-type NavItem = { path: string; label: string; icon: LucideIcon };
+type NavItem = {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+  /** Roles allowed to see this entry. Omitted = everyone. */
+  roles?: AccessRole[];
+};
 type NavSection = { label?: string; items: NavItem[] };
 
 const NAV: NavSection[] = [
@@ -60,13 +68,17 @@ const NAV: NavSection[] = [
       { path: "/meeting-types", label: "Categories", icon: Layers },
       { path: "/templates", label: "Templates", icon: Package },
       { path: "/integrations", label: "Integrations", icon: Zap },
-      { path: "/members", label: "Members", icon: Users },
+      { path: "/members", label: "Members", icon: Users, roles: ["ORG_ADMIN"] },
       { path: "/reports", label: "Reports", icon: FileText },
     ],
   },
 ];
 
 export default function Sidebar() {
+  // Hides nav entries the user can't use. Cosmetic only — the routes
+  // themselves are guarded by RequireRole and the APIs behind them
+  // enforce the same rule.
+  const { role } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -199,7 +211,9 @@ export default function Sidebar() {
                 </div>
               )}
               <div className="space-y-0.5">
-                {section.items.map(({ path, label, icon: Icon }) => {
+                {section.items
+                  .filter((item) => !item.roles || (role && item.roles.includes(role)))
+                  .map(({ path, label, icon: Icon }) => {
                   const active = isActive(path);
                   return (
                     <Link
