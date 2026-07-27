@@ -17,58 +17,35 @@ convention as the rest of the codebase.
 `/rag/ask` and `/rag/conversations/{id}/messages` both produce SSE.
 Internally they share `ask_pipeline.ask_stream`; the router formats
 its event dicts into SSE bytes.
+
+DB logic lives in `app.services.rag.query_service`; this module is the
+thin transport layer plus the SSE streaming wiring (whose generators own
+their own DB session lifecycle deliberately).
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import (
-    Category, RagConversation, RagQueryRun, Team, User,
-)
+from app.db.database import get_db
+from app.db.models import User
 from app.dependencies.auth import get_current_user
 from app.schemas.rag_api_schema import (
     AskLivePrefetchResponse, AskLiveRequest, AskRequest,
     ConversationCreateRequest, ConversationDetail, ConversationSummary,
-    PrefetchedFact, RunDetail, RunSummary,
+    RunDetail, RunSummary,
 )
+from app.services.rag import query_service
 from app.services.rag.ask_pipeline import ask_stream, event_to_sse_bytes
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
-
-
-# ---------------------------------------------------------------------------
-# Scope validation — mirrors search_router's pattern
-# ---------------------------------------------------------------------------
-
-def _validate_scope(db: Session, user: User, scope: str, scope_id: Optional[int]) -> None:
-    if scope == "category":
-        cat = db.query(Category.id).filter(
-            Category.id == scope_id,
-            Category.organization_id == user.organization_id,
-        ).first()
-        if cat is None:
-            raise HTTPException(status_code=404, detail="Category not found")
-    elif scope == "team":
-        team = (
-            db.query(Team.id)
-            .join(Category, Team.category_id == Category.id)
-            .filter(
-                Team.id == scope_id,
-                Category.organization_id == user.organization_id,
-            )
-            .first()
-        )
-        if team is None:
-            raise HTTPException(status_code=404, detail="Team not found")
 
 
 # ---------------------------------------------------------------------------
@@ -82,32 +59,6 @@ def _resolve_scope_for_pipeline(payload: AskRequest):
     if payload.scope == "auto":
         return None, None
     return payload.scope, payload.scope_id
-
-
-def _scope_from_meeting(
-    db: Session, *, organization_id, meeting_id,
-) -> tuple[Optional[str], Optional[int]]:
-    """Phase 9.1 — when the caller passes `meeting_id` and no explicit
-    scope, resolve the meeting's (category_id, team_id) and translate
-    to a pipeline scope. team_id wins (more specific); falls back to
-    category_id; falls back to (None, None) if the meeting has neither
-    set. Cross-org meetings return (None, None) silently."""
-    from app.db.models import Meeting
-    m = (
-        db.query(Meeting)
-        .filter(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == organization_id,
-        )
-        .first()
-    )
-    if m is None:
-        return None, None
-    if m.team_id is not None:
-        return "team", m.team_id
-    if m.category_id is not None:
-        return "category", m.category_id
-    return None, None
 
 
 def _build_live_state_block(meeting_id_str: str) -> str:
@@ -179,24 +130,18 @@ def ask(
 
     Event sequence: plan, retrieved, token (repeated), citations, done.
     On failure: error followed by done with status='failed'."""
-    _validate_scope(db, user, payload.scope, payload.scope_id)
+    query_service.validate_scope(db, user, payload.scope, payload.scope_id)
 
     # Verify conversation_id belongs to this user (if provided)
     if payload.conversation_id is not None:
-        conv = db.query(RagConversation).filter(
-            RagConversation.id == payload.conversation_id,
-            RagConversation.organization_id == user.organization_id,
-            RagConversation.user_id == user.id,
-        ).first()
-        if conv is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+        query_service.get_owned_conversation(db, user, payload.conversation_id)
 
     req_scope, req_scope_id = _resolve_scope_for_pipeline(payload)
     # Phase 9.1 — when scope='auto' but a meeting_id is supplied, pin
     # the pipeline to that meeting's category/team. Explicit scope
     # (set above) wins; this only kicks in when scope was 'auto'.
     if req_scope is None and payload.meeting_id is not None:
-        m_scope, m_scope_id = _scope_from_meeting(
+        m_scope, m_scope_id = query_service.scope_from_meeting(
             db, organization_id=user.organization_id,
             meeting_id=payload.meeting_id,
         )
@@ -270,15 +215,9 @@ def ask_live(
     automatically picks up prior facts for this meeting's scope.
     """
     # Cross-org 404 — match the convention in /rag/ask.
-    from app.db.models import Meeting
-    m = db.query(Meeting).filter(
-        Meeting.id == payload.meeting_id,
-        Meeting.organization_id == user.organization_id,
-    ).first()
-    if m is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    m = query_service.get_meeting_or_404(db, user, payload.meeting_id)
 
-    scope_type, scope_id = _scope_from_meeting(
+    scope_type, scope_id = query_service.scope_from_meeting(
         db, organization_id=user.organization_id,
         meeting_id=payload.meeting_id,
     )
@@ -295,41 +234,17 @@ def ask_live(
         except Exception as exc:
             logger.warning("ask-live: live state injection skipped: %s", exc)
 
-    # Memory Phase 3 — long-term layer. The full record of recent
-    # meetings in this scope: their summaries + their tasks. Complements
-    # the short-term distilled facts (which are curated bullets) with
-    # the raw texture of "what actually happened." Wrapped non-fatal.
+    # Memory Phase 3 — long-term layer. Complements the short-term
+    # distilled facts with the raw texture of "what actually happened."
+    # Wrapped non-fatal.
     long_term_block = ""
     try:
-        from app.services.memory.long_term import LongTermMemory
-        from app.services.memory.prompt_blocks import render_long_term_block
-        # No days filter — long-term reaches EVERY meeting in this
-        # scope, not just the recent 60 days. The prompt formatter
-        # itself caps output at 3500 chars, so a large scope just means
-        # "newest N summaries that fit"; older meetings are still
-        # reachable via chunk RAG and typed lookups.
-        summaries = LongTermMemory.recent_summaries(
+        long_term_block = query_service.build_long_term_block(
             db,
             organization_id=user.organization_id,
             category_id=m.category_id,
             team_id=m.team_id,
-            days=None,
-            limit=25,  # formatter truncates on chars, this is a safety valve
         )
-        tasks = LongTermMemory.tasks_in_scope(
-            db,
-            organization_id=user.organization_id,
-            category_id=m.category_id,
-            team_id=m.team_id,
-            days=None,
-            limit=50,
-        )
-        long_term_block = render_long_term_block(summaries, tasks)
-        if long_term_block:
-            logger.info(
-                "💭 ask-live: long-term block ready (%d summaries, %d tasks, %d chars)",
-                len(summaries), len(tasks), len(long_term_block),
-            )
     except Exception as exc:
         logger.warning("ask-live: long-term injection skipped: %s", exc)
 
@@ -374,55 +289,7 @@ def ask_live_prefetch(
     """Pre-warm the in-meeting panel with the 5 most-recently-referenced
     facts for this meeting's (team, category) scope. Used on panel open
     to show context chips before the user types — feels instant."""
-    from app.db.models import Meeting
-    m = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
-        Meeting.organization_id == user.organization_id,
-    ).first()
-    if m is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-
-    from app.services.memory.access import MemoryAccess
-    facts = MemoryAccess.search(
-        db,
-        organization_id=user.organization_id,
-        query="",                       # empty -> recency order
-        category_id=m.category_id,
-        team_id=m.team_id,
-        window="short_term",
-        limit=5,
-        bump=False,                     # prefetch != real consumption
-    )
-
-    # Resolve source meeting titles in ONE batched query for chip labels.
-    source_ids = {f.source_meeting_id for f in facts if f.source_meeting_id}
-    title_map: dict[int, str] = {}
-    if source_ids:
-        rows = db.query(Meeting.id, Meeting.title).filter(
-            Meeting.id.in_(source_ids),
-            Meeting.organization_id == user.organization_id,
-        ).all()
-        title_map = {r.id: r.title for r in rows}
-
-    scope_type = "team" if m.team_id else ("category" if m.category_id else None)
-    scope_id = m.team_id or m.category_id
-
-    return AskLivePrefetchResponse(
-        scope_type=scope_type,
-        scope_id=scope_id,
-        facts=[
-            PrefetchedFact(
-                id=f.id,
-                fact=f.fact,
-                fact_type=f.fact_type,
-                subject=f.subject,
-                source_meeting_id=f.source_meeting_id,
-                source_meeting_title=title_map.get(f.source_meeting_id),
-                last_referenced_at=f.last_referenced_at,
-            )
-            for f in facts
-        ],
-    )
+    return query_service.prefetch_facts(db, user, meeting_id)
 
 
 @router.post("/conversations/{conversation_id}/messages")
@@ -434,13 +301,7 @@ def append_message(
 ):
     """Multi-turn variant. Same event sequence as /rag/ask; the
     conversation_id from the URL takes precedence over any in the body."""
-    conv = db.query(RagConversation).filter(
-        RagConversation.id == conversation_id,
-        RagConversation.organization_id == user.organization_id,
-        RagConversation.user_id == user.id,
-    ).first()
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    query_service.get_owned_conversation(db, user, conversation_id)
 
     # Force the conversation_id from the URL
     payload_dict = payload.model_dump()
@@ -459,18 +320,7 @@ def create_conversation(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    pinned_type = payload.pinned_scope if payload.pinned_scope in ("team", "category", "global") else None
-    if pinned_type in ("team", "category"):
-        _validate_scope(db, user, pinned_type, payload.pinned_scope_id)
-    conv = RagConversation(
-        organization_id=user.organization_id,
-        user_id=user.id,
-        title=payload.title,
-        pinned_scope_type=pinned_type,
-        pinned_scope_id=payload.pinned_scope_id if pinned_type in ("team", "category") else None,
-    )
-    db.add(conv); db.commit(); db.refresh(conv)
-    return conv
+    return query_service.create_conversation(db, user, payload)
 
 
 @router.get("/conversations", response_model=List[ConversationSummary])
@@ -479,17 +329,7 @@ def list_conversations(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rows = (
-        db.query(RagConversation)
-        .filter(
-            RagConversation.organization_id == user.organization_id,
-            RagConversation.user_id == user.id,
-        )
-        .order_by(RagConversation.updated_at.desc())
-        .limit(min(max(limit, 1), 200))
-        .all()
-    )
-    return rows
+    return query_service.list_conversations(db, user, limit)
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
@@ -498,19 +338,7 @@ def get_conversation(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conv = db.query(RagConversation).filter(
-        RagConversation.id == conversation_id,
-        RagConversation.organization_id == user.organization_id,
-        RagConversation.user_id == user.id,
-    ).first()
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    runs = (
-        db.query(RagQueryRun)
-        .filter(RagQueryRun.conversation_id == conv.id)
-        .order_by(RagQueryRun.created_at.asc())
-        .all()
-    )
+    conv, runs = query_service.get_conversation_with_runs(db, user, conversation_id)
     return ConversationDetail(
         id=conv.id, title=conv.title,
         pinned_scope_type=conv.pinned_scope_type,
@@ -526,14 +354,7 @@ def delete_conversation(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    conv = db.query(RagConversation).filter(
-        RagConversation.id == conversation_id,
-        RagConversation.organization_id == user.organization_id,
-        RagConversation.user_id == user.id,
-    ).first()
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    db.delete(conv); db.commit()
+    query_service.delete_conversation(db, user, conversation_id)
 
 
 # ---------------------------------------------------------------------------
@@ -548,13 +369,7 @@ def get_run(
 ):
     """Full audit row for one query. Used by the 5F eval harness and
     by debugging UIs. Org-scoped: cross-org returns 404."""
-    row = db.query(RagQueryRun).filter(
-        RagQueryRun.id == run_id,
-        RagQueryRun.organization_id == user.organization_id,
-    ).first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return row
+    return query_service.get_run_or_404(db, user, run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -572,36 +387,5 @@ def click_citation(
     navigating to the source. Non-blocking from the client's
     perspective — used by 6C as the strongest "this chunk was useful"
     signal.
-
-    Resolves chunk_id from the run's stored citations JSONB so the
-    client only needs to send the citation index, not the chunk_id.
-    Returns 204 even when the citation index isn't in the run — clicks
-    are best-effort signals, no need to error a frontend nav over a
-    stale link.
     """
-    row = db.query(RagQueryRun).filter(
-        RagQueryRun.id == run_id,
-        RagQueryRun.organization_id == user.organization_id,
-    ).first()
-    if row is None:
-        # 404 here so a malicious user can't probe other orgs' run ids.
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    citations = row.citations or []
-    target = next(
-        (c for c in citations if c.get("index") == citation_index),
-        None,
-    )
-    if target is None or not target.get("chunk_id"):
-        # Citation index not present — silently no-op (still 204).
-        return
-
-    from app.services.importance.access_log import log_citation_click
-    log_citation_click(
-        db,
-        organization_id=user.organization_id,
-        run_id=run_id,
-        chunk_id=UUID(target["chunk_id"]),
-        citation_index=citation_index,
-        user_id=user.id,
-    )
+    query_service.record_citation_click(db, user, run_id, citation_index)

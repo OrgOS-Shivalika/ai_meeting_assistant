@@ -33,15 +33,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import desc, func as sa_func
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import (
-    TemplateBundle, TemplateBundleItem, TemplateProvisioningJob, User,
-    WorkspaceTemplateLink,
-)
+from app.db.database import get_db
+from app.db.models import User
 from app.dependencies.auth import get_current_user, require_org_admin
+from app.services import templates_service
 from app.services.behavior.provisioning import (
     ProvisioningError, install_bundle, install_profile,
 )
@@ -166,12 +163,9 @@ def list_bundles(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = db.query(TemplateBundle).filter(
-        TemplateBundle.state == "published",
+    return templates_service.list_published_bundles(
+        db, recommended_only=recommended_only,
     )
-    if recommended_only:
-        q = q.filter(TemplateBundle.is_recommended_on_signup.is_(True))
-    return q.order_by(TemplateBundle.display_name.asc()).all()
 
 
 @router.get("/bundles/{slug}", response_model=BundleDetailResponse)
@@ -180,20 +174,8 @@ def get_bundle(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    bundle = (
-        db.query(TemplateBundle)
-        .filter(TemplateBundle.slug == slug)
-        .order_by(desc(TemplateBundle.created_at))
-        .first()
-    )
-    if bundle is None:
-        raise HTTPException(status_code=404, detail="Bundle not found")
-    items = (
-        db.query(TemplateBundleItem)
-        .filter(TemplateBundleItem.bundle_id == bundle.id)
-        .order_by(TemplateBundleItem.ordering.asc())
-        .all()
-    )
+    bundle = templates_service.get_bundle_by_slug(db, slug=slug)
+    items = templates_service.list_bundle_items(db, bundle_id=bundle.id)
     # Filter out item_type='agent' — those are obsolete in the new
     # behavior-profile model.
     visible_items = [it for it in items if it.item_type in ("category", "team")]
@@ -237,20 +219,8 @@ def preview_bundle(
     BehaviorProfile so the install confirmation screen can show
     'you're about to install N categories + M teams with these
     behavior dimensions.'"""
-    bundle = (
-        db.query(TemplateBundle)
-        .filter(TemplateBundle.slug == slug)
-        .order_by(desc(TemplateBundle.created_at))
-        .first()
-    )
-    if bundle is None:
-        raise HTTPException(status_code=404, detail="Bundle not found")
-    raw_items = (
-        db.query(TemplateBundleItem)
-        .filter(TemplateBundleItem.bundle_id == bundle.id)
-        .order_by(TemplateBundleItem.ordering.asc())
-        .all()
-    )
+    bundle = templates_service.get_bundle_by_slug(db, slug=slug)
+    raw_items = templates_service.list_bundle_items(db, bundle_id=bundle.id)
     expanded: list[BundlePreviewItem] = []
     counts = {"category": 0, "team": 0, "unresolved": 0}
     for it in raw_items:
@@ -396,17 +366,9 @@ def get_links_summary(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rows = (
-        db.query(
-            WorkspaceTemplateLink.source_template_kind,
-            sa_func.count().label("n"),
-        )
-        .filter(WorkspaceTemplateLink.organization_id == user.organization_id)
-        .group_by(WorkspaceTemplateLink.source_template_kind)
-        .all()
+    total, by_kind = templates_service.get_links_summary(
+        db, organization_id=user.organization_id,
     )
-    by_kind = {k: int(n) for k, n in rows}
-    total = sum(by_kind.values())
     return WorkspaceLinkSummary(total=total, by_source_template_kind=by_kind)
 
 
@@ -417,14 +379,10 @@ def list_links(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    q = db.query(WorkspaceTemplateLink).filter(
-        WorkspaceTemplateLink.organization_id == user.organization_id,
+    return templates_service.list_workspace_links(
+        db, organization_id=user.organization_id,
+        source_template_kind=source_template_kind, limit=limit,
     )
-    if source_template_kind is not None:
-        q = q.filter(
-            WorkspaceTemplateLink.source_template_kind == source_template_kind,
-        )
-    return q.order_by(desc(WorkspaceTemplateLink.provisioned_at)).limit(limit).all()
 
 
 @router.get("/links/{link_id}", response_model=WorkspaceLinkResponse)
@@ -433,17 +391,9 @@ def get_link(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    row = (
-        db.query(WorkspaceTemplateLink)
-        .filter(
-            WorkspaceTemplateLink.id == link_id,
-            WorkspaceTemplateLink.organization_id == user.organization_id,
-        )
-        .first()
+    return templates_service.get_workspace_link(
+        db, link_id=link_id, organization_id=user.organization_id,
     )
-    if row is None:
-        raise HTTPException(status_code=404, detail="Link not found")
-    return row
 
 
 # ---------------------------------------------------------------------------
@@ -476,11 +426,6 @@ def list_provisioning_jobs(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rows = (
-        db.query(TemplateProvisioningJob)
-        .filter(TemplateProvisioningJob.organization_id == user.organization_id)
-        .order_by(desc(TemplateProvisioningJob.created_at))
-        .limit(limit)
-        .all()
+    return templates_service.list_provisioning_jobs(
+        db, organization_id=user.organization_id, limit=limit,
     )
-    return rows

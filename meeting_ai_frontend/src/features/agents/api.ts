@@ -5,6 +5,7 @@
 // response models verbatim — see `app/schemas/agent_api_schema.py`.
 
 import { apiClient } from "../../services/apiClient";
+import { apiUrl } from "../../services/config";
 import type {
   AgentProfile,
   AgentPromptConfig,
@@ -326,16 +327,14 @@ export async function* streamPlayground(payload: {
     tool_permissions?: { allowed: string[]; denied: string[] };
   } | null;
 }): AsyncIterable<PlaygroundEvent> {
-  const token = localStorage.getItem("token");
-  const base = (import.meta as any).env.VITE_API_URL || "";
   const res = await fetch(
-    `${base.replace(/\/$/, "")}/agent-playground/run`,
+    apiUrl("/agent-playground/run"),
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
+      credentials: "include",
       body: JSON.stringify(payload),
     },
   );

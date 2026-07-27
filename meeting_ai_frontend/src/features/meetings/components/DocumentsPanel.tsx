@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { apiClient } from "../../../services/apiClient";
+import { clearAuthFlag } from "../../../services/authFlag";
+import { apiUrl } from "../../../services/config";
 import type { CategoryDocument } from "../types";
 
 /**
@@ -141,18 +143,17 @@ export default function DocumentsPanel({
     if (!files || files.length === 0) return;
     setError("");
     setUploading(true);
-    const token = localStorage.getItem("token");
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
-        const res = await fetch(basePath(scope, scopeId), {
+        const res = await fetch(apiUrl(basePath(scope, scopeId)), {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           body: form,
         });
         if (res.status === 401) {
-          localStorage.removeItem("token");
+          clearAuthFlag();
           window.location.href = "/login";
           return;
         }

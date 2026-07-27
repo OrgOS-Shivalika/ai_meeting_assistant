@@ -9,6 +9,7 @@ import {
   Upload,
 } from "lucide-react";
 import { apiClient } from "../../../services/apiClient";
+import { apiUrl } from "../../../services/config";
 import { useCategories } from "../hooks/useCategories";
 import type { Category, CategoryDocument } from "../types";
 
@@ -174,16 +175,15 @@ export default function OrgDocumentsPanel() {
 
     setError("");
     setUploading(true);
-    const token = localStorage.getItem("token");
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
         const res = await fetch(
-          `/categories/${pendingCategoryId}/documents`,
+          apiUrl(`/categories/${pendingCategoryId}/documents`),
           {
             method: "POST",
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
             body: form,
           },
         );

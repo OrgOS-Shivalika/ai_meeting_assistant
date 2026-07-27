@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agents_v2.shared import tracing
-from app.api.db_dependency import get_db
+from app.db.database import get_db
 from app.celery_tasks.continuum_tasks import dispatch_continuum_process
 from app.config.settings import settings
 from app.db.models import (

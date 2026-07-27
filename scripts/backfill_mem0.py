@@ -5,10 +5,13 @@ from the legacy `org_memory_facts` table into mem0, one-for-one, mirroring
 exactly what the distiller's mem0 branch writes (engine.py) + a couple of
 backfill markers. Read-only on the source table; nothing native is mutated.
 
-Idempotency: mem0 IS the source of truth. Before pushing an org, we read back
-the `native_fact_id`s already stored in mem0 and skip them — so crash-resume
-and re-runs never double-write, with no local state file to desync. (Managed
-mem0 offers no cheap server-side dedup, hence the read-back.)
+Idempotency: mem0 IS the source of truth, keyed on the fact TEXT. Before
+pushing an org, we read back every memory already stored and skip any native
+fact whose (normalized) text is already there — whether a prior backfill OR
+the distiller (post-flip meetings) wrote it. Text is the right key because
+it's what mem0 itself dedups on with infer=False: a metadata key like
+native_fact_id does NOT survive mem0 merging our write into a pre-existing
+identical memory, so it can't be relied on. No local state file to desync.
 
 Run:
     python -m scripts.backfill_mem0 --dry-run            # counts only, no writes
@@ -40,22 +43,29 @@ log = logging.getLogger("backfill_mem0")
 _PAGE = 100  # managed get_all page size
 
 
-def _existing_native_ids(org_id: str) -> set[str]:
-    """native_fact_ids already in mem0 for this org (idempotency source of truth).
+def _norm(text: str) -> str:
+    """Normalize a fact for text-identity comparison (mem0 stores verbatim
+    under infer=False, so exact-after-whitespace/case is enough)."""
+    return " ".join((text or "").split()).lower()
+
+
+def _existing_texts(org_id: str) -> set[str]:
+    """Normalized texts of every memory already in mem0 for this org
+    (idempotency source of truth — see module docstring).
 
     Pages the raw client so we get ALL of them, not the facade's capped fetch —
     branching on mode because managed paginates (page/page_size) while OSS
     returns the set for a filter in one call.
     """
     client = mem._mem()
-    ids: set[str] = set()
+    texts: set[str] = set()
 
     def _collect(rows) -> int:
         batch = mem._unwrap(rows)
         for r in batch:
-            nid = (r.get("metadata") or {}).get("native_fact_id")
-            if nid:
-                ids.add(str(nid))
+            txt = r.get("memory") or r.get("text")
+            if txt:
+                texts.add(_norm(txt))
         return len(batch)
 
     if mem._is_managed():
@@ -69,7 +79,7 @@ def _existing_native_ids(org_id: str) -> set[str]:
     else:
         # OSS: one filtered fetch; big top_k so nothing is silently capped.
         _collect(client.get_all(filters={"user_id": org_id}, top_k=1_000_000))
-    return ids
+    return texts
 
 
 def run(*, org_id: uuid.UUID | None = None, dry_run: bool = False,
@@ -109,14 +119,15 @@ def run(*, org_id: uuid.UUID | None = None, dry_run: bool = False,
         group = list(grp)
         # Read-back happens even in dry-run — it's read-only and makes the
         # preview's skipped-count honest.
-        existing = _existing_native_ids(org_str)
+        existing = _existing_texts(org_str)
         pushed_this_org: set[str] = set()
         o = {"active": 0, "skipped": 0, "pushed": 0, "failed": 0}
 
         for f in group:
             o["active"] += 1
             fid = str(f.id)
-            if fid in existing or fid in pushed_this_org:
+            key = _norm(f.fact)
+            if key in existing or key in pushed_this_org:
                 o["skipped"] += 1
                 continue
             if dry_run:
@@ -140,7 +151,7 @@ def run(*, org_id: uuid.UUID | None = None, dry_run: bool = False,
                         "backfilled": True,
                     },
                 )
-                pushed_this_org.add(fid)
+                pushed_this_org.add(key)
                 o["pushed"] += 1
             except Exception as e:  # one bad fact never aborts the run
                 o["failed"] += 1

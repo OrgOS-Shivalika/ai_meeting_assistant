@@ -35,7 +35,7 @@ from app.agents_v2.shared.prompt_store import (
     load_active_prompt,
     rollback_to,
 )
-from app.api.db_dependency import get_db
+from app.db.database import get_db
 from app.db.models import AgentInsight, AgentPrompt, AgentV2, Category, Meeting, Team
 from app.dependencies.auth import get_current_user
 

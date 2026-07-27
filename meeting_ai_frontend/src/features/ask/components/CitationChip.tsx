@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, FileText, MessageSquare } from "lucide-react";
 import type { CitationDTO } from "../types";
+import { apiUrl } from "../../../services/config";
 
 interface Props {
   citation: CitationDTO;
@@ -24,18 +25,15 @@ interface Props {
   runId?: string | null;
 }
 
-const BASE_URL = import.meta.env.VITE_API_URL || "";
-
 function beaconClick(runId: string, citationIndex: number): void {
   // Fire-and-forget. `keepalive` ensures the request survives the
   // navigation that follows. Beacon failure must never block UX —
   // we don't await or surface errors.
-  const token = localStorage.getItem("token");
-  const url = `${BASE_URL.replace(/\/$/, "")}/rag/runs/${runId}/citations/${citationIndex}/click`;
+  const url = apiUrl(`/rag/runs/${runId}/citations/${citationIndex}/click`);
   try {
     fetch(url, {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
       keepalive: true,
     }).catch(() => {
       /* silent */

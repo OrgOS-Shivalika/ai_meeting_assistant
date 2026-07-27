@@ -34,10 +34,11 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import ClosingBriefing, Meeting
+from app.db.database import get_db
+from app.db.models import ClosingBriefing
 from app.dependencies.auth import get_current_user
 from app.schemas.briefing_schema import ALL_SECTIONS
+from app.services.briefing import briefing_queries
 from app.services.briefing.briefing_composer import BriefingComposer
 from app.services.briefing.closing_briefing_orchestrator import get_orchestrator
 from app.services.meeting_memory.meeting_state_store import state_store
@@ -97,25 +98,6 @@ def _serialize(row: ClosingBriefing) -> Dict[str, Any]:
     }
 
 
-def _load_briefing_for_user(
-    meeting_id: int, db: Session, current_user
-) -> ClosingBriefing:
-    """Tenant-scoped load. 404 on missing row OR cross-org access — the
-    convention used elsewhere is "indistinguishable 404" rather than 403."""
-    row = (
-        db.query(ClosingBriefing)
-        .join(Meeting, Meeting.id == ClosingBriefing.meeting_id)
-        .filter(ClosingBriefing.meeting_id == meeting_id)
-        .filter(Meeting.organization_id == current_user.organization_id)
-        .first()
-    )
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail="Closing briefing not found for this meeting."
-        )
-    return row
-
-
 @closing_briefing_router.get("/meetings/{meeting_id}/closing-briefing")
 def get_closing_briefing(
     meeting_id: int,
@@ -123,7 +105,7 @@ def get_closing_briefing(
     current_user=Depends(get_current_user),
 ):
     """Return the persisted closing-brief record for a meeting."""
-    row = _load_briefing_for_user(meeting_id, db, current_user)
+    row = briefing_queries.load_briefing_for_user(db, current_user, meeting_id)
     return _serialize(row)
 
 
@@ -136,7 +118,7 @@ def get_closing_briefing_audio_url(
     """Mint a fresh presigned URL for the audio file. Presigned URLs are
     short-lived (1 hour by default) so the frontend should call this on
     demand rather than caching the URL."""
-    row = _load_briefing_for_user(meeting_id, db, current_user)
+    row = briefing_queries.load_briefing_for_user(db, current_user, meeting_id)
     if not row.audio_storage_key:
         raise HTTPException(
             status_code=404,
@@ -164,21 +146,6 @@ def get_closing_briefing_audio_url(
 # ---------------------------------------------------------------------------
 
 
-def _verify_meeting_tenancy(meeting_id: int, db: Session, current_user) -> Meeting:
-    """Tenant gate: confirms the meeting exists AND belongs to the
-    caller's org. Returns the Meeting row so callers can use bot_id,
-    closing_briefing_status, etc."""
-    meeting = (
-        db.query(Meeting)
-        .filter(Meeting.id == meeting_id)
-        .filter(Meeting.organization_id == current_user.organization_id)
-        .first()
-    )
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found.")
-    return meeting
-
-
 @closing_briefing_router.get("/meetings/{meeting_id}/live-state")
 def get_live_state(
     meeting_id: int,
@@ -200,7 +167,7 @@ def get_live_state(
     didn't ingest the meeting's transcripts — diagnostic hint for the
     single-worker constraint.
     """
-    meeting = _verify_meeting_tenancy(meeting_id, db, current_user)
+    meeting = briefing_queries.verify_meeting_tenancy(db, current_user, meeting_id)
     state = state_store.get_state(str(meeting_id))
 
     # Reuse the composer's snapshot helper so the routing logic
@@ -284,7 +251,7 @@ def preview_closing_briefing(
       - status='composed' + full script JSON
       - status='skipped' + hint when state is too sparse to brief
     """
-    _verify_meeting_tenancy(meeting_id, db, current_user)
+    briefing_queries.verify_meeting_tenancy(db, current_user, meeting_id)
     logger.info(
         f"[PREVIEW] composing briefing for meeting={meeting_id} "
         f"max_seconds={max_seconds}"
@@ -371,7 +338,7 @@ def speak_briefing_now(
     state via Recall API. Returns 400 with a clear reason if not
     (most common cause of failed speak attempts).
     """
-    _verify_meeting_tenancy(meeting_id, db, current_user)
+    briefing_queries.verify_meeting_tenancy(db, current_user, meeting_id)
     orch = get_orchestrator()
     result = orch.speak_now(
         meeting_id,
@@ -400,11 +367,7 @@ def speak_briefing_now(
             except Exception as exc:
                 logger.error(f"[SPEAK_NOW] sync wait failed: {exc}", exc_info=True)
         # Re-read the audit row.
-        row = (
-            db.query(ClosingBriefing)
-            .filter(ClosingBriefing.meeting_id == meeting_id)
-            .first()
-        )
+        row = briefing_queries.get_briefing_row(db, meeting_id)
         if row is None:
             return {
                 "status": "no_row",
@@ -446,7 +409,7 @@ def get_orchestrator_runtime(
     currently speaking?", "is anything cached?". Combined with
     /closing-briefing (the persisted audit row) you can reconstruct
     why a meeting did or didn't get a spoken brief."""
-    meeting = _verify_meeting_tenancy(meeting_id, db, current_user)
+    meeting = briefing_queries.verify_meeting_tenancy(db, current_user, meeting_id)
     runtime = get_orchestrator().get_runtime_state(meeting_id)
     return {
         "meeting_id": meeting_id,

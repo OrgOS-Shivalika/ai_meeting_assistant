@@ -3,8 +3,8 @@ import secrets
 from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.db.models import User
 from app.services.google_service import SCOPES
+from app.services import google_auth_service
 from app.dependencies.auth import get_current_user
 from app.utils.logger import setup_logger
 from app.config.settings import settings
@@ -131,11 +131,6 @@ def exchange_code(
         access_token = tokens.get("access_token")
         refresh_token = tokens.get("refresh_token")
         expires_in = tokens.get("expires_in") # seconds
-        
-        expires_at = None
-        if expires_in:
-            from datetime import datetime, timedelta, timezone
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
         if not access_token:
             logger.error("No access token received from Google")
@@ -150,21 +145,17 @@ def exchange_code(
 
         logger.info(f"Google tokens fetched successfully. Refresh token present: {bool(refresh_token)}")
 
-        # Manual update to ensure persistence
-        db.query(User).filter(User.id == user.id).update({
-            "google_access_token": access_token,
-            "google_refresh_token": refresh_token if refresh_token else User.google_refresh_token,
-            "google_token_expires_at": expires_at,
-            "google_profile_name": profile.get("name"),
-            "google_profile_picture": profile.get("picture")
-        })
-        
-        db.commit()
-        
-        # Verify immediately
-        db.refresh(user)
+        google_auth_service.persist_google_tokens(
+            db,
+            user,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=expires_in,
+            profile=profile,
+        )
+
         logger.info(f"Post-commit check - User: {user.email}, AT set: {bool(user.google_access_token)}")
-        
+
         return {"message": "Google connected", "is_connected": True}
 
     except HTTPException:
@@ -181,20 +172,7 @@ def disconnect_google(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    try:
-        db.query(User).filter(User.id == user.id).update({
-            "google_access_token": None,
-            "google_refresh_token": None,
-            "google_token_expires_at": None,
-            "google_profile_name": None,
-            "google_profile_picture": None
-        })
-        db.commit()
-        return {"message": "Google Calendar disconnected successfully"}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error disconnecting Google for user {user.email}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to disconnect Google Calendar")
+    return google_auth_service.disconnect_google(db, user)
 
 @router.get("/status")
 def get_google_status(user=Depends(get_current_user)):
