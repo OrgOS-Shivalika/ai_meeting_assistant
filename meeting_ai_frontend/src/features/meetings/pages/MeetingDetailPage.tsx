@@ -7,6 +7,7 @@ import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components
 import CategoryAssignControl from "../components/CategoryAssignControl";
 import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import AskAssistantPanel from "../components/AskAssistantPanel";
+import AttendeeAccessModal from "../components/AttendeeAccessModal";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
 import {
   Calendar,
@@ -187,6 +188,7 @@ export default function MeetingDetailPage() {
   // so the meeting content (transcript, tasks) gets the full visual focus.
   // Cmd+K toggles, ? opens, Esc closes (wired inside the panel).
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [showAttendees, setShowAttendees] = useState(false);
   const [agentInsights, setAgentInsights] = useState<AgentInsight[]>([]);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -473,6 +475,10 @@ export default function MeetingDetailPage() {
   const dateStr = formatDate(meeting.scheduled_at || meeting.started_at || meeting.created_at) || "—";
   const durationStr = computeDuration(meeting);
   const participants: Participant[] = meeting.participants ?? [];
+  // Attendees whose identity was never confirmed, so attending this
+  // meeting gave them nothing. Surfaced on the chip because it is
+  // otherwise silent — the row looks identical either way.
+  const missingAccess = participants.filter((p) => !p.grants_access).length;
   const taskCount = tasks.length;
   const completedTaskCount = tasks.filter((t) => t.is_completed).length;
   const isTaskUnassigned = (t: Task) => {
@@ -665,11 +671,28 @@ export default function MeetingDetailPage() {
                   {durationStr}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1.5">
+              {/* A button, because this count is where anyone looks for
+                  the attendee list — and the attendee list is the only
+                  place the access consequences of a bad name match are
+                  visible or fixable. */}
+              <button
+                onClick={() => setShowAttendees(true)}
+                className="inline-flex items-center gap-1.5 hover:underline"
+                style={{ font: "inherit", color: "inherit", cursor: "pointer" }}
+                title="View attendees and who can open this meeting"
+              >
                 <Users className="w-3.5 h-3.5" style={{ color: "var(--vb-muted-soft)" }} />
                 {participants.length} participant
                 {participants.length === 1 ? "" : "s"}
-              </span>
+                {missingAccess > 0 && (
+                  <span
+                    className="ml-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                    title={`${missingAccess} attendee(s) cannot open this meeting`}
+                  >
+                    {missingAccess} without access
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -1237,6 +1260,29 @@ export default function MeetingDetailPage() {
             open={false}
             onOpen={() => setAskPanelOpen(true)}
             onClose={() => setAskPanelOpen(false)}
+          />
+        )}
+
+        {showAttendees && (
+          <AttendeeAccessModal
+            meetingId={meeting.id}
+            participants={participants}
+            onClose={() => setShowAttendees(false)}
+            onChanged={(updated) =>
+              // Patch the row in place rather than refetching the meeting —
+              // the response is the authoritative version of that row, and
+              // a refetch would discard the transcript scroll position.
+              setMeeting((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      participants: (prev.participants ?? []).map((p) =>
+                        p.id === updated.id ? updated : p,
+                      ),
+                    }
+                  : prev,
+              )
+            }
           />
         )}
       </div>

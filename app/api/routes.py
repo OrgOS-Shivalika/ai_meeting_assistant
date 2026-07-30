@@ -9,6 +9,7 @@ from app.schemas.meeting_schema import (
     MeetingAssignRequest,
     MeetingUpdateRequest,
     MeetingScheduleRequest,
+    ParticipantLinkRequest,
     TaskUpdateRequest,
 )
 from app.utils.logger import setup_logger
@@ -278,6 +279,32 @@ def get_meeting_tasks(
     user=Depends(get_current_user),
 ):
     return meeting_service.get_meeting_tasks(db, user, meeting_id)
+
+
+@router.patch("/meetings/{meeting_id}/participants/{participant_id}")
+def link_participant(
+    meeting_id: int,
+    participant_id: int,
+    payload: ParticipantLinkRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Attach a meeting attendee to a user account, or detach them.
+
+    The manual override for attendance matching. The pipeline can only
+    produce a trusted link from an exact calendar hit, so a fuzzy name
+    match lands as 'heuristic' and grants nothing — and every row that
+    predates the RBAC migration is 'legacy', which also grants nothing.
+    Both are common and neither self-corrects; this is how a human fixes
+    them, and the link becomes trusted because a human vouched for it.
+
+    Requires manage rights on the meeting: linking someone hands them the
+    transcript, its tasks and its cards. Send `user_id: null` to detach,
+    which is also how a wrong match is corrected.
+    """
+    return meeting_service.link_participant(
+        db, user, meeting_id, participant_id, payload.user_id
+    )
 
 
 @router.patch("/tasks/{task_id}")

@@ -20,6 +20,21 @@ class MeetingAssignRequest(BaseModel):
     team_id: Optional[int] = None
 
 
+class ParticipantLinkRequest(BaseModel):
+    """Attach a meeting attendee to a user account, or detach them.
+
+    This is an ACCESS decision, not a cosmetic one: a trusted link is what
+    makes someone a member of the meeting, so it hands them the transcript,
+    its tasks and its cards. Hence manage rights on the meeting, and hence
+    `match_source='manual'` on the way in — the resulting row is trusted
+    precisely because a human vouched for it.
+
+    `user_id=null` detaches, which is also the only way to correct a bad
+    match: it revokes the access the link conferred.
+    """
+    user_id: Optional[UUID] = None
+
+
 class TaskUpdateRequest(BaseModel):
     """Inline edits from the Action Items page / Kanban card drawer.
     Any subset may be provided.

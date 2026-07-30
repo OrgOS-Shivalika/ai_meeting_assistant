@@ -211,7 +211,10 @@ def create_board(
         )
         if not team:
             raise HTTPException(status_code=404, detail="Team not found")
-        permissions.require_category_access(db, user, team.category_id, manage=True)
+        # The TEAM, not its category. Asking for category-manage rights
+        # refused an admin scoped to exactly this team — the one person
+        # who most obviously should be able to create its board.
+        permissions.require_team_access(db, user, team, manage=True)
 
     board = KanbanBoard(
         organization_id=user.organization_id,

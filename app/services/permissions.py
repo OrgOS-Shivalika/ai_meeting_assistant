@@ -11,7 +11,9 @@ Three roles, on ``users.access_role`` (stored UPPERCASE):
     Implicit — nobody grants it. A user is a member of a meeting because
     they attended it, i.e. there is a ``participants`` row linking them
     to it. Sees those meetings, their tasks and their cards, plus any
-    task assigned to them directly.
+    task assigned to them directly. A member may ALSO hold rows in
+    ``category_admins``, which widen what they can see without letting
+    them change any of it — see the grant/role split below.
 
 ``ADMIN``
     Category-level. Sees and manages everything in the categories granted
@@ -23,7 +25,20 @@ Three roles, on ``users.access_role`` (stored UPPERCASE):
 ``ORG_ADMIN``
     Everything in the organization.
 
-Two conventions worth knowing before editing this file:
+**A grant says WHERE, the role says WHAT.** A ``category_admins`` row
+names a category or team; it does not by itself confer the right to
+change anything there. So the same row means "can read this category"
+for a member and "can read and manage this category" for an admin, and
+the view clauses below consult grants for every role while the manage
+clauses consult them only for admins. The table name predates the split
+and is now slightly narrow — read it as ``category_grants``.
+
+That is why an org admin can scope a plain member: assigning them a
+category or a team is not a promotion. Before this split every clause
+gated the grant subqueries behind ``is_category_admin``, so a member's
+grants were dead rows.
+
+Two more conventions worth knowing before editing this file:
 
 **Org scoping is still separate.** Nothing here replaces the existing
 ``organization_id`` filters. These clauses narrow *within* a tenant; the
@@ -51,6 +66,7 @@ to pass to ``IN`` would be both slow and racy.
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, exists, or_, select
@@ -191,8 +207,15 @@ def _reachable_category_ids(user: User):
 
 
 def managed_category_ids(db: Session, user: User) -> Optional[list[int]]:
-    """Materialized list of managed category IDs, or ``None`` for an org
+    """Materialized list of WHOLE-category grants, or ``None`` for an org
     admin (who manages all of them).
+
+    Whole-category only, matching :func:`_managed_category_ids`. It used
+    to return every row's ``category_id``, team-scoped grants included,
+    which made a user holding one team look like they held the category:
+    the frontend's ``managesCategory()`` is built on this list and drew
+    manage controls that the server then refused. Team grants are
+    reported separately by :func:`managed_team_ids`.
 
     Only for callers that genuinely need the values — ``/auth/me`` and
     the admin management UI. Query filters should use the clause helpers
@@ -202,7 +225,10 @@ def managed_category_ids(db: Session, user: User) -> Optional[list[int]]:
         return None
     rows = (
         db.query(CategoryAdmin.category_id)
-        .filter(CategoryAdmin.user_id == user.id)
+        .filter(
+            CategoryAdmin.user_id == user.id,
+            CategoryAdmin.team_id.is_(None),
+        )
         .all()
     )
     return [r[0] for r in rows]
@@ -242,20 +268,19 @@ def meeting_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     if is_org_admin(user):
         return None
 
-    attended = Meeting.id.in_(_attended_meeting_ids(user))
-
-    if is_category_admin(user):
-        # Union, not replacement: an admin who personally sat in a call
-        # outside their categories still sees that call. Team grants add
-        # a second, narrower path — a meeting filed under a granted team
-        # even when the category as a whole isn't theirs.
-        return or_(
-            attended,
-            Meeting.category_id.in_(_managed_category_ids(user)),
-            Meeting.team_id.in_(_managed_team_ids(user)),
-        )
-
-    return attended
+    # Union, not replacement: someone who personally sat in a call
+    # outside their granted categories still sees that call. Team grants
+    # add a third, narrower path — a meeting filed under a granted team
+    # even when the category as a whole isn't theirs.
+    #
+    # No role branch. Grants widen the view for members too, and a member
+    # who holds none contributes two `IN (empty set)` arms, which is
+    # exactly the attendance-only clause they had before.
+    return or_(
+        Meeting.id.in_(_attended_meeting_ids(user)),
+        Meeting.category_id.in_(_managed_category_ids(user)),
+        Meeting.team_id.in_(_managed_team_ids(user)),
+    )
 
 
 def meeting_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
@@ -360,12 +385,11 @@ def category_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
         .scalar_subquery()
     )
 
-    if is_category_admin(user):
-        # `_reachable_*`, not `_managed_*`: an admin granted a single team
-        # must still see the category to navigate into it.
-        return or_(attended_here, Category.id.in_(_reachable_category_ids(user)))
-
-    return attended_here
+    # `_reachable_*`, not `_managed_*`: someone granted a single team must
+    # still see the parent category to navigate into it. Applies to
+    # members as well as admins — a member scoped to one team needs the
+    # category header to find it.
+    return or_(attended_here, Category.id.in_(_reachable_category_ids(user)))
 
 
 def category_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
@@ -382,6 +406,102 @@ def category_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
 
 
 _NEVER_CATEGORY = and_(Category.id.is_(None), Category.id.isnot(None))
+
+
+def team_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
+    """Restrict ``Team`` rows to those the user may see. ``None`` =
+    unrestricted.
+
+    Reaching a category does NOT mean reaching every team in it. A grant
+    on one team makes that team visible and its siblings not, which is
+    the whole point of picking a team instead of the category — without
+    this, the category list still named every team in the organization's
+    structure and a narrow grant looked no different from a broad one.
+
+    Three ways in, mirroring the category rules one level down:
+    a whole-category grant (which covers all of its teams), a grant on
+    this specific team, or having attended a meeting filed under it.
+    """
+    if is_org_admin(user):
+        return None
+    return or_(
+        Team.category_id.in_(_managed_category_ids(user)),
+        Team.id.in_(_managed_team_ids(user)),
+        Team.id.in_(
+            select(Meeting.team_id)
+            .where(
+                Meeting.id.in_(_attended_meeting_ids(user)),
+                Meeting.team_id.isnot(None),
+            )
+            .scalar_subquery()
+        ),
+    )
+
+
+def require_team_access(
+    db: Session, user: User, team: Team, *, manage: bool = False
+) -> None:
+    """Guard for endpoints addressing one team directly.
+
+    Deliberately narrower than ``require_category_access`` on the same
+    team's category: that helper answers "may you reach this category at
+    all", which any grant inside it satisfies. Used for a team it would
+    let someone holding team A read team B — different team, same parent.
+    """
+    if is_org_admin(user):
+        return
+
+    if manage and not is_category_admin(user):
+        # Members manage no teams, whatever they are scoped to.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requires an admin role.",
+        )
+
+    # A whole-category grant covers every team inside it.
+    whole_category = (
+        db.query(CategoryAdmin.id)
+        .filter(
+            CategoryAdmin.user_id == user.id,
+            CategoryAdmin.category_id == team.category_id,
+            CategoryAdmin.team_id.is_(None),
+        )
+        .first()
+    )
+    if whole_category:
+        return
+
+    this_team = (
+        db.query(CategoryAdmin.id)
+        .filter(
+            CategoryAdmin.user_id == user.id,
+            CategoryAdmin.team_id == team.id,
+        )
+        .first()
+    )
+    if this_team:
+        return
+
+    if not manage:
+        attended_here = (
+            db.query(Meeting.id)
+            .filter(
+                Meeting.team_id == team.id,
+                Meeting.id.in_(_attended_meeting_ids(user)),
+            )
+            .first()
+        )
+        if attended_here:
+            return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "You do not manage this team."
+            if manage
+            else "You do not have access to this team."
+        ),
+    )
 
 
 def require_category_access(
@@ -504,11 +624,12 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     if is_org_admin(user):
         return None
 
-    assigned_to_me = Task.assignee_user_id == user.id
-    from_attended = Task.meeting_id.in_(_attended_meeting_ids(user))
-
-    if is_category_admin(user):
-        in_managed_scope = Task.meeting_id.in_(
+    return or_(
+        Task.assignee_user_id == user.id,
+        Task.meeting_id.in_(_attended_meeting_ids(user)),
+        # Grants, for every role — same reasoning as
+        # `meeting_view_clause`. A task is visible when its meeting is.
+        Task.meeting_id.in_(
             select(Meeting.id)
             .where(
                 or_(
@@ -517,10 +638,8 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
                 )
             )
             .scalar_subquery()
-        )
-        return or_(assigned_to_me, from_attended, in_managed_scope)
-
-    return or_(assigned_to_me, from_attended)
+        ),
+    )
 
 
 def task_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
@@ -628,32 +747,30 @@ def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
         .correlate(KanbanBoard)
     )
 
-    if is_category_admin(user):
-        managed = _managed_category_ids(user)
-        # A team board is reachable two ways: its team sits under a
-        # wholly-granted category, or the team itself was granted.
-        teams_under_managed = (
-            select(Team.id).where(Team.category_id.in_(managed)).scalar_subquery()
-        )
-        return or_(
-            holds_a_visible_card,
-            and_(
-                KanbanBoard.scope_type == "category",
-                KanbanBoard.scope_id.in_(managed),
+    managed = _managed_category_ids(user)
+    # A team board is reachable two ways: its team sits under a
+    # wholly-granted category, or the team itself was granted.
+    teams_under_managed = (
+        select(Team.id).where(Team.category_id.in_(managed)).scalar_subquery()
+    )
+    # Grants, for every role. Nobody gets an ORG-scoped board from its
+    # scope alone — org-wide means unbounded, so it stays reachable only
+    # through the cards the viewer is entitled to, and an empty one is
+    # simply not theirs to see.
+    return or_(
+        holds_a_visible_card,
+        and_(
+            KanbanBoard.scope_type == "category",
+            KanbanBoard.scope_id.in_(managed),
+        ),
+        and_(
+            KanbanBoard.scope_type == "team",
+            or_(
+                KanbanBoard.scope_id.in_(teams_under_managed),
+                KanbanBoard.scope_id.in_(_managed_team_ids(user)),
             ),
-            and_(
-                KanbanBoard.scope_type == "team",
-                or_(
-                    KanbanBoard.scope_id.in_(teams_under_managed),
-                    KanbanBoard.scope_id.in_(_managed_team_ids(user)),
-                ),
-            ),
-        )
-
-    # Members get no board by virtue of its scope — an org-wide board is
-    # visible to them only through the cards they're entitled to, and an
-    # empty board is simply not theirs to see.
-    return holds_a_visible_card
+        ),
+    )
 
 
 def board_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
@@ -768,17 +885,18 @@ def visible_category_ids_subqueries(db: Session, user: User):
     """
     if is_org_admin(user):
         return None
-    parts = [
+    return [
         select(Meeting.category_id)
         .where(
             Meeting.id.in_(_attended_meeting_ids(user)),
             Meeting.category_id.isnot(None),
         )
-        .scalar_subquery()
+        .scalar_subquery(),
+        # Whole-category grants, for every role. Team-only grants are
+        # deliberately absent — they don't make the whole category
+        # readable; `document_chunk_clause` adds them at the team level.
+        _managed_category_ids(user),
     ]
-    if is_category_admin(user):
-        parts.append(_managed_category_ids(user))
-    return parts
 
 
 def meeting_chunk_clause(db: Session, user: User, chunk_model) -> Optional[ColumnElement]:
@@ -810,6 +928,10 @@ def document_chunk_clause(db: Session, user: User, chunk_model) -> Optional[Colu
     return or_(
         *[chunk_model.category_id.in_(p) for p in parts],
         *[chunk_model.team_id.in_(t) for t in visible_teams],
+        # A team-only grant reaches that team's documents and no further.
+        # Without this arm the grant would be invisible here, because
+        # `visible_category_ids_subqueries` reports whole categories only.
+        chunk_model.team_id.in_(_managed_team_ids(user)),
     )
 
 
@@ -836,3 +958,186 @@ def require_admin_role(user: User) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Requires an admin role.",
         )
+
+
+# --------------------------------------------------------------------------
+# Delegated administration
+# --------------------------------------------------------------------------
+#
+# A category admin may run the Members page for their own categories and
+# teams. Everything in this section answers one question: is the thing
+# this actor is about to do confined to what they themselves hold?
+#
+# The rule, uniformly: an actor may set any role BELOW org admin, on any
+# target that is not itself an org admin, with grants confined to their
+# own scope. Org admins skip all of it.
+
+
+def grant_scope(db: Session, user: User) -> Optional[tuple[set[int], set[int]]]:
+    """``(whole_category_ids, team_ids)`` this user holds, or ``None``
+    for an org admin (who holds everything).
+
+    Materialized rather than a subquery because the callers are all
+    membership tests against small sets, and the error messages need the
+    actual IDs to be useful.
+    """
+    if is_org_admin(user):
+        return None
+    rows = (
+        db.query(CategoryAdmin.category_id, CategoryAdmin.team_id)
+        .filter(CategoryAdmin.user_id == user.id)
+        .all()
+    )
+    categories = {cid for cid, tid in rows if tid is None}
+    teams = {tid for _, tid in rows if tid is not None}
+    return categories, teams
+
+
+def assert_grants_within_scope(
+    db: Session,
+    actor: User,
+    *,
+    category_ids: list[int],
+    team_ids: list[int],
+) -> None:
+    """Refuse to hand out access the actor does not hold.
+
+    Without this a category admin could grant themselves — or anyone —
+    any category in the organization, which turns delegated
+    administration into full administration in one request.
+
+    A team inside a wholly-granted category is allowed: holding the
+    category means holding its teams. The reverse is not — holding one
+    team confers nothing over the category.
+    """
+    scope = grant_scope(db, actor)
+    if scope is None:
+        return
+    held_categories, held_teams = scope
+
+    stray_categories = [c for c in category_ids if c not in held_categories]
+    if stray_categories:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You can only grant categories you manage. "
+                f"Not yours: {sorted(stray_categories)}"
+            ),
+        )
+
+    if not team_ids:
+        return
+    # One query for the parents rather than per-team lookups; the picker
+    # can submit a dozen teams at once.
+    parents = dict(
+        db.query(Team.id, Team.category_id).filter(Team.id.in_(team_ids)).all()
+    )
+    stray_teams = [
+        t
+        for t in team_ids
+        if t not in held_teams and parents.get(t) not in held_categories
+    ]
+    if stray_teams:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You can only grant teams you manage. "
+                f"Not yours: {sorted(stray_teams)}"
+            ),
+        )
+
+
+def _drop_org_admins(db: Session, ids: set[UUID]) -> set[UUID]:
+    """Remove every org admin from a visibility set.
+
+    An org admin's row is never shown to a category admin or a member.
+    Two reasons. Their access comes from the role and not from any grant,
+    so there is nothing about it a delegated admin could act on — the
+    write guards in ``admin_service`` already refuse. And the Members page
+    is where names, email addresses, attendance counts and grant scope are
+    exposed, which is precisely the detail an org admin should not be
+    broadcasting to everyone they have delegated a category to.
+
+    Safe to apply to the actor's own id: this is only reached for actors
+    who are NOT org admins, because :func:`admin_visible_user_ids` returns
+    ``None`` (unrestricted) for one long before here.
+    """
+    if not ids:
+        return ids
+    hidden = {
+        r[0]
+        for r in db.query(User.id)
+        .filter(
+            User.id.in_(sorted(ids)),
+            User.access_role == ROLE_ORG_ADMIN,
+        )
+        .all()
+    }
+    return ids - hidden
+
+
+def admin_visible_user_ids(db: Session, actor: User) -> Optional[set[UUID]]:
+    """Users a category admin may see on the Members page, or ``None``
+    for an org admin (everyone).
+
+    Two ways to be in scope, mirroring the meeting rules: the person
+    holds a grant inside the actor's scope, or they attended a meeting
+    filed under it. The actor is always included — a page that omits the
+    person reading it looks broken. Org admins are then removed, however
+    they qualified: see :func:`_drop_org_admins`.
+
+    Materialized because the Members page renders a whole org at once and
+    the result feeds a single `IN`. An org with enough users for this to
+    matter has an org admin doing the managing anyway.
+    """
+    scope = grant_scope(db, actor)
+    if scope is None:
+        return None
+    held_categories, held_teams = scope
+
+    ids: set[UUID] = {actor.id}
+
+    # One exit, so the org-admin filter cannot be bypassed by an early
+    # return added later.
+    if held_categories or held_teams:
+        # Teams inside a wholly-held category count as held.
+        if held_categories:
+            rows = (
+                db.query(Team.id)
+                .filter(Team.category_id.in_(sorted(held_categories)))
+                .all()
+            )
+            held_teams = held_teams | {r[0] for r in rows}
+
+        # Sorted lists rather than sets: `in_()` tolerates a set, but a
+        # stable parameter order keeps the emitted SQL identical between
+        # calls, which is what lets Postgres reuse the plan.
+        cats = sorted(held_categories)
+        teams = sorted(held_teams)
+
+        grant_holders = db.query(CategoryAdmin.user_id).filter(
+            or_(
+                and_(
+                    CategoryAdmin.category_id.in_(cats),
+                    CategoryAdmin.team_id.is_(None),
+                ),
+                CategoryAdmin.team_id.in_(teams),
+            )
+        )
+        ids.update(r[0] for r in grant_holders.all())
+
+        attendees = (
+            db.query(Participant.user_id)
+            .join(Meeting, Participant.meeting_id == Meeting.id)
+            .filter(
+                Participant.user_id.isnot(None),
+                Participant.match_source.in_(TRUSTED_MATCH_SOURCES),
+                or_(
+                    Meeting.category_id.in_(cats),
+                    Meeting.team_id.in_(teams),
+                ),
+            )
+        )
+        ids.update(r[0] for r in attendees.all())
+
+    return _drop_org_admins(db, ids)

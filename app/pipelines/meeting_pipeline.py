@@ -162,6 +162,14 @@ class MeetingPipeline:
                 current_counts[name] += 1
                 display_name = f"{name} ({current_counts[name]})"
 
+            # Per participant, not per meeting. Without the reset the
+            # first organizer match leaked onto everyone processed after
+            # them — and before this line existed at all the reference
+            # below raised NameError on the first non-organizer, which is
+            # nearly every call, so no participant rows were written and
+            # member access could never work.
+            is_organizer = False
+
             # Exact first, and remember which path won — the answer
             # decides whether this person gets access to the meeting.
             lookup = name.strip().lower()

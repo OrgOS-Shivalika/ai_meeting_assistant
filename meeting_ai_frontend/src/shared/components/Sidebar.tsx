@@ -68,7 +68,12 @@ const NAV: NavSection[] = [
       { path: "/meeting-types", label: "Categories", icon: Layers },
       { path: "/templates", label: "Templates", icon: Package },
       { path: "/integrations", label: "Integrations", icon: Zap },
-      { path: "/members", label: "Members", icon: Users, roles: ["ORG_ADMIN"] },
+      {
+        path: "/members",
+        label: "Members",
+        icon: Users,
+        roles: ["ADMIN", "ORG_ADMIN"],
+      },
       { path: "/reports", label: "Reports", icon: FileText },
     ],
   },

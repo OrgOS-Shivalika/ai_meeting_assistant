@@ -26,6 +26,11 @@ def create_token(data: dict):
     # long-running enough that "refresh and get 401" is a real annoyance
     # — bump it. Real refresh-token flow can come later if anyone cares.
     payload["exp"] = datetime.now(timezone.utc) + timedelta(days=7)
+    # Issued-at, so a password change can revoke the tokens that predate
+    # it — see `dependencies/auth.resolve_user_from_token`. Without this
+    # an admin resetting a compromised account's password would believe
+    # they had cut off access while a stolen 7-day cookie kept working.
+    payload["iat"] = datetime.now(timezone.utc)
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 

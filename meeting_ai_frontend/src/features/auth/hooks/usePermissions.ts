@@ -27,9 +27,21 @@ export interface Permissions {
   canManageOrganization: boolean;
   canCreateMeeting: boolean;
   canManageBoards: boolean;
-  /** null = every category (org admin). */
+  /**
+   * The Members page. Org admins run the whole organization; a category
+   * admin runs their own categories and teams, and the server scopes
+   * every response accordingly.
+   */
+  canManageMembers: boolean;
+  /** null = every category (org admin). Whole-category grants only. */
   managedCategoryIds: number[] | null;
-  /** Whether this user administers one specific category. */
+  /** null = every team (org admin). Individually granted teams. */
+  managedTeamIds: number[] | null;
+  /**
+   * Whether this user MANAGES one specific category — a grant plus a
+   * role that can act on it. A scoped member holds the grant and gets
+   * `false`, which is what keeps destructive controls hidden from them.
+   */
   managesCategory: (categoryId: number | null | undefined) => boolean;
 }
 
@@ -41,6 +53,7 @@ export function usePermissions(): Permissions {
   const isAdmin = role === "ADMIN";
   const canManage = isAdmin || isOrgAdmin;
   const managedCategoryIds = isOrgAdmin ? null : user?.managed_category_ids ?? [];
+  const managedTeamIds = isOrgAdmin ? null : user?.managed_team_ids ?? [];
 
   return {
     loading,
@@ -52,9 +65,15 @@ export function usePermissions(): Permissions {
     canManageOrganization: isOrgAdmin,
     canCreateMeeting: canManage,
     canManageBoards: canManage,
+    canManageMembers: canManage,
     managedCategoryIds,
+    managedTeamIds,
     managesCategory: (categoryId) => {
       if (isOrgAdmin) return true;
+      // The role gate is load-bearing: a MEMBER can hold category grants
+      // (they widen what that member may READ), and treating the grant
+      // alone as authority would draw delete buttons the server refuses.
+      if (!canManage) return false;
       if (categoryId === null || categoryId === undefined) return false;
       return (managedCategoryIds ?? []).includes(categoryId);
     },

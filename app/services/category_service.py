@@ -30,6 +30,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _visible_teams_option(db: Session, user):
+    """Loader option that eager-loads only the teams ``user`` may see.
+
+    `CategorySchema.teams` reads `category.teams`, so any Category handed
+    to the router serializes its whole team collection — a plain
+    `joinedload` (or a lazy load) therefore publishes every team in the
+    category regardless of what the caller is scoped to. The filter has
+    to ride along with the load itself, which is what
+    `relationship.and_()` is for.
+    """
+    clause = permissions.team_view_clause(db, user)
+    if clause is None:
+        return joinedload(Category.teams)
+    return joinedload(Category.teams.and_(clause))
+
+
 def get_owned_category(db: Session, user, category_id: int, *, manage: bool = False) -> Category:
     """Fetch a category the caller may read (or manage).
 
@@ -37,8 +53,18 @@ def get_owned_category(db: Session, user, category_id: int, *, manage: bool = Fa
     access comes from a `category_admins` grant or from having attended a
     meeting in the category, not from `categories.user_id` (which only
     records who created it).
+
+    Teams are eager-loaded pre-filtered, because `GET /categories/{id}`
+    returns this row straight through `CategorySchema`, which renders
+    `teams`. Applied here rather than at that one route so a future
+    caller can't reintroduce the leak by serializing the same object.
     """
-    category = db.query(Category).filter(Category.id == category_id).first()
+    category = (
+        db.query(Category)
+        .options(_visible_teams_option(db, user))
+        .filter(Category.id == category_id)
+        .first()
+    )
     if not category:
         raise HTTPException(status_code=404, detail="Meeting type not found")
     if category.organization_id != user.organization_id:
@@ -48,8 +74,12 @@ def get_owned_category(db: Session, user, category_id: int, *, manage: bool = Fa
 
 
 def get_owned_team(db: Session, user, team_id: int, *, manage: bool = False) -> Team:
-    """Fetch a team, gated on access to its parent category — a team has
-    no access rules of its own."""
+    """Fetch a team the caller may reach.
+
+    Gated on the TEAM, not merely on its parent category. Category access
+    is satisfied by any grant inside the category, so checking it here let
+    someone scoped to one team read a sibling team they hold nothing on.
+    """
     team = (
         db.query(Team)
         .join(Category, Team.category_id == Category.id)
@@ -58,7 +88,7 @@ def get_owned_team(db: Session, user, team_id: int, *, manage: bool = False) -> 
     )
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    permissions.require_category_access(db, user, team.category_id, manage=manage)
+    permissions.require_team_access(db, user, team, manage=manage)
     return team
 
 
@@ -76,7 +106,7 @@ def list_categories(db: Session, user):
     """
     query = (
         db.query(Category)
-        .options(joinedload(Category.teams))
+        .options(_visible_teams_option(db, user))
         .filter(Category.organization_id == user.organization_id)
     )
     clause = permissions.category_view_clause(db, user)
@@ -143,17 +173,25 @@ def delete_category(db: Session, user, category_id: int) -> dict:
 
 
 def list_teams(db: Session, user, category_id: int):
+    """The teams in a category that the caller may see.
+
+    Reaching the category is not the same as reaching everything in it —
+    a grant on one team must not enumerate its siblings.
+    """
     get_owned_category(db, user, category_id)
-    return (
-        db.query(Team)
-        .filter(Team.category_id == category_id)
-        .order_by(Team.created_at.asc())
-        .all()
-    )
+    query = db.query(Team).filter(Team.category_id == category_id)
+    clause = permissions.team_view_clause(db, user)
+    if clause is not None:
+        query = query.filter(clause)
+    return query.order_by(Team.created_at.asc()).all()
 
 
 def create_team(db: Session, user, category_id: int, payload: TeamCreate) -> Team:
-    get_owned_category(db, user, category_id, manage=True)
+    # The returned row is used below for the Continuum client check. The
+    # binding was dropped when this file was merged, which left
+    # `category.name` raising NameError AFTER the team had already been
+    # committed — so team creation 500'd while still creating the team.
+    category = get_owned_category(db, user, category_id, manage=True)
     team = Team(
         category_id=category_id,
         name=payload.name.strip(),

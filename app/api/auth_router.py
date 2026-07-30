@@ -81,6 +81,7 @@ def get_me(
     org = user.organization
     role = permissions.access_role(user)
     managed = permissions.managed_category_ids(db, user)
+    managed_teams = permissions.managed_team_ids(db, user)
     return {
         "id": str(user.id),
         "name": user.name,
@@ -92,7 +93,17 @@ def get_me(
         # None means "all categories" (org admin). An empty list means
         # this user administers none — the two are not the same and the
         # frontend must not conflate them.
+        #
+        # WHOLE-category grants only. A grant scoped to one team appears
+        # in `managed_team_ids` instead; reporting it here would make a
+        # team-level grant look like control of the entire category, and
+        # the UI would draw manage controls the server then refuses.
+        #
+        # A scope is not a role: a MEMBER can hold these, in which case
+        # they mean read access, not management. Pair them with
+        # `access_role` before enabling anything destructive.
         "managed_category_ids": managed,
+        "managed_team_ids": managed_teams,
         "must_change_password": bool(user.must_change_password),
         "prompt_role": user.role,
         "organization": {
@@ -106,6 +117,7 @@ def get_me(
 @router.post("/change-password")
 def change_password(
     payload: PasswordChangeRequest,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -114,7 +126,15 @@ def change_password(
     Also the exit from `must_change_password`, which is how an admin
     provisioned with a generated password takes ownership of their
     account.
+
+    Issues a fresh cookie on the way out. Changing the password moves
+    `password_set_at`, which revokes every token minted before it — the
+    point being to end sessions elsewhere, but that includes the one
+    making this request. Re-issuing here means the caller stays signed in
+    and everyone else holding an older cookie does not.
     """
-    return admin_service.change_password(
+    result = admin_service.change_password(
         db, user, payload.current_password, payload.new_password
     )
+    _set_auth_cookie(response, auth_service.create_token({"user_id": str(user.id)}))
+    return result

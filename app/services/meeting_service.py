@@ -14,9 +14,12 @@ from urllib.parse import urlparse
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
 from app.db.models import (
-    Meeting, Task, Category, Team, KanbanBoard, KanbanColumn, User,
+    Meeting, Task, Category, Team, KanbanBoard, KanbanColumn, Participant, User,
 )
+from app.utils.admin_enums import ParticipantMatchSource
 from app.schemas.meeting_schema import (
     MeetingRequest,
     MeetingAssignRequest,
@@ -555,6 +558,8 @@ def get_meeting_detail(db: Session, user, meeting_id: int) -> dict:
         if latest_failed and latest_failed.error_message:
             graph_error = latest_failed.error_message[:500]
 
+    suggestions = _account_suggestions(db, meeting)
+
     return {
         "id": meeting.id,
         "meeting_url": meeting.meeting_url,
@@ -589,17 +594,136 @@ def get_meeting_detail(db: Session, user, meeting_id: int) -> dict:
         "tasks": [_task_dict(t) for t in meeting.tasks],
         "unassigned_task_count": sum(1 for t in meeting.tasks if _task_is_unassigned(t)),
         "participants": [
-            {
-                "id": p.id,
-                "name": p.name,
-                "email": p.email,
-                "is_organizer": p.is_organizer,
-                "avatar_url": p.avatar_url,
-                "created_at": p.created_at
-            }
+            _participant_dict(p, suggestions.get((p.email or "").lower()))
             for p in meeting.participants
         ]
     }
+
+
+# ---------------------------------------------------------------------------
+# Attendee → account links
+# ---------------------------------------------------------------------------
+#
+# `participants.user_id` plus a trusted `match_source` is what makes
+# someone a member of a meeting, so this is the input the entire MEMBER
+# role depends on. The pipeline can only produce a trusted link from an
+# exact calendar hit; a fuzzy name-token match is recorded as 'heuristic'
+# and grants nothing, and the RBAC migration tagged every pre-existing row
+# 'legacy' for the same reason.
+#
+# Both of those are common, and neither is recoverable automatically. This
+# is the human override: an admin who can already manage the meeting says
+# "this speaker is that person", and the link becomes trusted because
+# somebody vouched for it.
+
+
+def _participant_dict(p, suggestion=None) -> dict:
+    """One attendee, including why they do or don't have access.
+
+    `grants_access` is the whole point of the payload — a row can carry a
+    `user_id` and still confer nothing, because the source it was matched
+    by isn't trusted. Showing the link without that distinction is how you
+    end up believing someone has access when they don't.
+    """
+    return {
+        "id": p.id,
+        "name": p.name,
+        "email": p.email,
+        "is_organizer": p.is_organizer,
+        "avatar_url": p.avatar_url,
+        "created_at": p.created_at,
+        "user_id": str(p.user_id) if p.user_id else None,
+        "match_source": p.match_source,
+        "grants_access": bool(
+            p.user_id is not None
+            and p.match_source in permissions.TRUSTED_MATCH_SOURCES
+        ),
+        # The account this attendee's recorded email exactly matches, if
+        # any. Lets the UI offer a one-click confirm instead of requiring
+        # a people-picker: the overwhelmingly common case is an email that
+        # was already right, on a row whose provenance wasn't trusted.
+        "suggested_user_id": str(suggestion[0]) if suggestion else None,
+        "suggested_user_name": suggestion[1] if suggestion else None,
+    }
+
+
+def _account_suggestions(db: Session, meeting) -> dict:
+    """Map ``lower(email) -> (user_id, name)`` for this meeting's attendees.
+
+    One query for the whole meeting rather than a lookup per row. Exact,
+    case-normalized email equality against users in the SAME organization
+    — the same rule the pipeline uses, so a suggestion never proposes a
+    link the pipeline would have rejected.
+    """
+    emails = {
+        (p.email or "").strip().lower() for p in meeting.participants if p.email
+    }
+    if not emails:
+        return {}
+    rows = (
+        db.query(User.id, User.name, User.email)
+        .filter(
+            func.lower(User.email).in_(sorted(emails)),
+            User.organization_id == meeting.organization_id,
+        )
+        .all()
+    )
+    return {email.lower(): (uid, name) for uid, name, email in rows}
+
+
+def link_participant(
+    db: Session, user, meeting_id: int, participant_id: int, target_user_id
+) -> dict:
+    """Attach an attendee to an account, or detach them.
+
+    Manage rights, not read: a trusted link hands the target person the
+    transcript, its tasks and its cards. It is a disclosure decision, so
+    it sits with whoever administers the meeting's category rather than
+    with anyone who can open it.
+
+    Detaching (``target_user_id=None``) is the correction path for a wrong
+    match, and it revokes the access that match conferred.
+    """
+    # 404 cross-org, 403 in-org-but-out-of-scope.
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
+
+    participant = (
+        db.query(Participant)
+        .filter(
+            Participant.id == participant_id,
+            Participant.meeting_id == meeting.id,
+        )
+        .first()
+    )
+    if not participant:
+        raise HTTPException(status_code=404, detail="Participant not found")
+
+    if target_user_id is None:
+        participant.user_id = None
+        # Provenance describes a link. With no link there is nothing to
+        # describe, and leaving a stale 'manual' behind would make the row
+        # read as trusted.
+        participant.match_source = None
+    else:
+        target = (
+            db.query(User)
+            .filter(
+                User.id == target_user_id,
+                User.organization_id == meeting.organization_id,
+            )
+            .first()
+        )
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        participant.user_id = target.id
+        participant.match_source = ParticipantMatchSource.MANUAL.value
+
+    db.commit()
+    db.refresh(participant)
+    return _participant_dict(
+        participant,
+        _account_suggestions(db, meeting).get((participant.email or "").lower()),
+    )
 
 
 # ---------------------------------------------------------------------------

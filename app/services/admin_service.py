@@ -89,17 +89,26 @@ def _serialize_member(
     }
 
 
-def list_members(db: Session, org_id: UUID) -> list[dict]:
-    """Everyone in the organization, with their grants and attendance
+def list_members(db: Session, actor: User) -> list[dict]:
+    """People the actor may administer, with their grants and attendance
     counts.
 
+    An org admin gets the whole organization. A category admin gets the
+    people inside their categories and teams — anyone holding a grant
+    there or who attended a meeting filed there, plus themselves.
+
     Three batched queries rather than per-user lookups — the Members
-    page renders the whole org at once and an N+1 here is felt
+    page renders the whole list at once and an N+1 here is felt
     immediately.
     """
+    query = db.query(User).filter(User.organization_id == actor.organization_id)
+    visible = permissions.admin_visible_user_ids(db, actor)
+    if visible is not None:
+        # `sorted` for a stable parameter order — see the note in
+        # `permissions.admin_visible_user_ids`.
+        query = query.filter(User.id.in_(sorted(visible)))
     users = (
-        db.query(User)
-        .filter(User.organization_id == org_id)
+        query
         .order_by(User.created_at.asc().nullslast(), User.name.asc())
         .all()
     )
@@ -140,6 +149,16 @@ def list_members(db: Session, org_id: UUID) -> list[dict]:
     ]
 
 
+def get_member_for_actor(db: Session, actor: User, user_id: UUID) -> dict:
+    """One member, gated on the actor's administrative scope.
+
+    Separate from :func:`get_member`, which is the plain serializer used
+    to build a response after a write that was already authorized.
+    """
+    target = _require_manageable_target(db, actor, user_id)
+    return get_member(db, actor.organization_id, target.id)
+
+
 def get_member(db: Session, org_id: UUID, user_id: UUID) -> dict:
     user = _require_org_user(db, org_id, user_id)
     grants = (
@@ -172,6 +191,104 @@ def _require_org_user(db: Session, org_id: UUID, user_id: UUID) -> User:
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+# --------------------------------------------------------------------------
+# Delegated administration guards
+# --------------------------------------------------------------------------
+#
+# A category admin runs this page for their own categories and teams. One
+# rule covers every write here: they may set any role below org admin, on
+# any target that is not itself an org admin, with grants confined to
+# what they hold. `permissions.assert_grants_within_scope` enforces the
+# grant half; the two guards below enforce the target and role halves.
+
+
+def _require_manageable_target(db: Session, actor: User, user_id: UUID) -> User:
+    """Load a user the actor is allowed to act on.
+
+    404 outside the org, 403 inside it but outside the actor's scope —
+    the same split the rest of the app uses.
+
+    Org admins are off limits to a category admin even when in scope.
+    Their access does not come from any grant, so there is nothing a
+    category admin could meaningfully change about it, and allowing the
+    attempt would only produce a confusing partial result.
+    """
+    target = _require_org_user(db, actor.organization_id, user_id)
+    if permissions.is_org_admin(actor):
+        return target
+
+    visible = permissions.admin_visible_user_ids(db, actor)
+    if visible is not None and target.id not in visible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That person is not in a category you manage.",
+        )
+    if permissions.access_role(target) == permissions.ROLE_ORG_ADMIN:
+        # Unreachable in practice — `admin_visible_user_ids` already drops
+        # org admins, so the scope check above rejects them first. Kept as
+        # the second layer, and worded IDENTICALLY to it on purpose: a
+        # distinct message here would let a category admin walk user ids
+        # and learn which one is the org admin, which is the very thing
+        # the concealment exists to prevent.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That person is not in a category you manage.",
+        )
+    return target
+
+
+def _assert_can_set_role(actor: User, new_role: str) -> None:
+    """A category admin may not mint an org admin.
+
+    They may promote to ADMIN within their own scope — that is delegation
+    and it is intended. ORG_ADMIN is not scoped to anything, so granting
+    it would hand over the whole organization.
+    """
+    if permissions.is_org_admin(actor):
+        return
+    if new_role == permissions.ROLE_ORG_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization admin can grant the organization admin role.",
+        )
+
+
+def _out_of_scope_pairs(
+    db: Session, actor: User, target: User
+) -> set[tuple[int, Optional[int]]]:
+    """The target's existing grants that ``actor`` cannot see.
+
+    Preserved verbatim across an edit. The Members UI sends the full
+    intended grant set, but a category admin's picker only ever offered
+    them their own categories — so treating an omission as a revocation
+    would let one admin silently strip another's unrelated access by
+    saving a form they could not have filled in correctly.
+    """
+    scope = permissions.grant_scope(db, actor)
+    if scope is None:
+        return set()
+    held_categories, held_teams = scope
+    if held_categories:
+        rows = (
+            db.query(Team.id)
+            .filter(Team.category_id.in_(sorted(held_categories)))
+            .all()
+        )
+        held_teams = held_teams | {r[0] for r in rows}
+
+    keep: set[tuple[int, Optional[int]]] = set()
+    rows = db.query(CategoryAdmin).filter(CategoryAdmin.user_id == target.id).all()
+    for row in rows:
+        in_scope = (
+            row.category_id in held_categories
+            if row.team_id is None
+            else row.team_id in held_teams
+        )
+        if not in_scope:
+            keep.add((row.category_id, row.team_id))
+    return keep
 
 
 # --------------------------------------------------------------------------
@@ -263,6 +380,13 @@ def create_member(
     collision must fail loudly instead of silently handing someone else's
     account over. Changing an existing user's role goes through
     :func:`update_member`.
+
+    Grants arrive with the request and are written in this transaction.
+    They cannot be a follow-up call: the new account holds no grants and
+    has attended nothing, so it is outside a category admin's visible set
+    until the moment its first grant exists, and
+    :func:`_require_manageable_target` would refuse the very request that
+    was going to fix that.
     """
     email = payload.email.strip().lower()
 
@@ -270,6 +394,33 @@ def create_member(
         raise HTTPException(
             status_code=400,
             detail=f"access_role must be one of {permissions.VALID_ROLES}",
+        )
+    # A category admin may create members and admins, not org admins.
+    _assert_can_set_role(actor, payload.access_role)
+
+    # Resolved and scope-checked BEFORE the account exists, so a grant the
+    # actor doesn't hold fails without leaving an orphan account behind.
+    categories = _resolve_categories(db, actor.organization_id, payload.category_ids)
+    teams = _resolve_teams(db, actor.organization_id, payload.team_ids)
+    permissions.assert_grants_within_scope(
+        db,
+        actor,
+        category_ids=payload.category_ids,
+        team_ids=payload.team_ids,
+    )
+
+    # A category admin creating someone with no scope at all would create
+    # a person they cannot then see: no grant and no attendance puts the
+    # new account outside their own visible set, so it would vanish from
+    # the page that created it and only an org admin could recover it.
+    if not permissions.is_org_admin(actor) and not categories and not teams:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Pick at least one category or team. Someone created "
+                "outside the categories you manage would not be visible "
+                "to you afterwards."
+            ),
         )
 
     existing = db.query(User).filter(func.lower(User.email) == email).first()
@@ -302,6 +453,9 @@ def create_member(
     db.add(user)
     db.flush()
 
+    if categories or teams:
+        _replace_grants(db, user, categories, granted_by=actor, teams=teams)
+
     # Attendance is membership, so a new account inherits the meetings
     # this person already sat in before they had a login.
     linked = _link_existing_participation(db, user)
@@ -309,8 +463,10 @@ def create_member(
     db.commit()
     db.refresh(user)
     logger.info(
-        "Created %s %s in org %s (linked %d prior meetings) by %s",
-        payload.access_role, user.email, actor.organization_id, linked, actor.email,
+        "Created %s %s in org %s over %d categories + %d teams "
+        "(linked %d prior meetings) by %s",
+        payload.access_role, user.email, actor.organization_id,
+        len(categories), len(teams), linked, actor.email,
     )
     return get_member(db, actor.organization_id, user.id), payload.password, linked
 
@@ -346,8 +502,14 @@ def _link_existing_participation(db: Session, user: User) -> int:
 def update_member(
     db: Session, actor: User, user_id: UUID, payload: RoleUpdateRequest
 ) -> dict:
-    """Change a user's role and/or replace their category grants."""
-    user = _require_org_user(db, actor.organization_id, user_id)
+    """Change a user's role and/or replace their category grants.
+
+    Note that assigning grants is NOT a promotion. A grant says where a
+    person may look; their role says what they may do there. So a plain
+    member can be scoped to a category or a team and stay a member —
+    they gain read access to it and nothing else.
+    """
+    user = _require_manageable_target(db, actor, user_id)
 
     if payload.access_role is not None:
         if payload.access_role not in permissions.VALID_ROLES:
@@ -355,12 +517,14 @@ def update_member(
                 status_code=400,
                 detail=f"access_role must be one of {permissions.VALID_ROLES}",
             )
-        if user.id == actor.id and payload.access_role != permissions.ROLE_ORG_ADMIN:
+        _assert_can_set_role(actor, payload.access_role)
+        if user.id == actor.id and payload.access_role != permissions.access_role(actor):
             # Self-demotion is how an organization ends up with nobody
-            # who can administer it.
+            # who can administer it — and how a category admin locks
+            # themselves out of the page they are standing on.
             raise HTTPException(
                 status_code=400,
-                detail="You cannot remove your own organization admin role.",
+                detail="You cannot change your own role.",
             )
         _guard_last_org_admin(db, user, payload.access_role)
         user.access_role = payload.access_role
@@ -370,11 +534,25 @@ def update_member(
         # omitted field is read as "none of those" rather than "leave
         # alone" — otherwise a UI that only sends categories could never
         # clear a team grant.
-        categories = _resolve_categories(
-            db, actor.organization_id, payload.category_ids or []
+        requested_categories = payload.category_ids or []
+        requested_teams = payload.team_ids or []
+        # Nobody may hand out access they do not hold themselves.
+        permissions.assert_grants_within_scope(
+            db, actor, category_ids=requested_categories, team_ids=requested_teams
         )
-        teams = _resolve_teams(db, actor.organization_id, payload.team_ids or [])
-        _replace_grants(db, user, categories, granted_by=actor, teams=teams)
+        categories = _resolve_categories(
+            db, actor.organization_id, requested_categories
+        )
+        teams = _resolve_teams(db, actor.organization_id, requested_teams)
+        _replace_grants(
+            db,
+            user,
+            categories,
+            granted_by=actor,
+            teams=teams,
+            # Grants the actor cannot see survive their edit.
+            keep=_out_of_scope_pairs(db, actor, user),
+        )
 
     db.commit()
     logger.info(
@@ -413,17 +591,96 @@ def revoke_admin(db: Session, actor: User, user_id: UUID) -> dict:
     The account itself survives — they attended meetings, and deleting
     the user would orphan that history.
     """
-    user = _require_org_user(db, actor.organization_id, user_id)
+    user = _require_manageable_target(db, actor, user_id)
     if user.id == actor.id:
         raise HTTPException(
             status_code=400, detail="You cannot revoke your own access."
         )
     _guard_last_org_admin(db, user, permissions.ROLE_MEMBER)
     user.access_role = permissions.ROLE_MEMBER
-    _replace_grants(db, user, [], granted_by=actor)
+    # Grants outside the actor's own scope survive — a category admin
+    # revoking someone's rights over *their* categories has no mandate
+    # over categories they cannot see. For an org admin this set is
+    # empty, so the demotion drops everything, as before.
+    _replace_grants(
+        db, user, [], granted_by=actor, keep=_out_of_scope_pairs(db, actor, user)
+    )
     db.commit()
     logger.info("Revoked admin from %s by %s", user.email, actor.email)
     return get_member(db, actor.organization_id, user.id)
+
+
+def delete_member(db: Session, actor: User, user_id: UUID) -> dict:
+    """Remove an account from the organization for good.
+
+    A hard delete, but NOT a bare ``db.delete(user)`` — the foreign keys
+    into ``users`` are not uniformly safe and two of them have to be
+    dealt with first:
+
+    ``categories.user_id`` is NOT NULL with ``ON DELETE CASCADE``. Deleting
+        whoever created a category would therefore delete the CATEGORY,
+        and with it every team and document inside it, every
+        ``category_admins`` grant pointing at it, and the filing of every
+        meeting in it (``meetings.category_id`` is SET NULL) — which is
+        also what drives access scope and agent routing. That column
+        records who created the row and confers nothing, so it is
+        reassigned to the actor rather than followed.
+
+    ``meetings.user_id`` has no ``ON DELETE`` clause at all, so the delete
+        would simply fail on a foreign-key violation. Nulled explicitly.
+        The meeting itself is org-owned and survives.
+
+    Everything else is already correct: their comments, task activity,
+    uploads, audit rows and task assignments are SET NULL and survive
+    authorless, while their category grants and their own RAG
+    conversations are a deliberate CASCADE and go with them.
+
+    Their name stays on past transcripts — ``participants.name`` is its
+    own column, and only the ``user_id`` link is dropped. So the history
+    of who said what is preserved; what disappears is the login.
+    """
+    target = _require_manageable_target(db, actor, user_id)
+    if target.id == actor.id:
+        # An org admin deleting themselves is how an organization ends up
+        # unreachable, and the request is never what someone meant.
+        raise HTTPException(
+            status_code=400, detail="You cannot delete your own account."
+        )
+    _guard_last_org_admin(db, target, permissions.ROLE_MEMBER)
+
+    email = target.email
+
+    categories_reassigned = (
+        db.query(Category)
+        .filter(Category.user_id == target.id)
+        .update({Category.user_id: actor.id}, synchronize_session=False)
+    )
+    meetings_detached = (
+        db.query(Meeting)
+        .filter(Meeting.user_id == target.id)
+        .update({Meeting.user_id: None}, synchronize_session=False)
+    )
+
+    # Those were bulk updates, so the session's own copies are stale —
+    # including `User.categories`, whose `delete-orphan` cascade would
+    # otherwise re-delete the very categories just rescued.
+    db.expire_all()
+
+    db.delete(target)
+    db.commit()
+    logger.info(
+        "Deleted user %s from org %s (reassigned %d categories, detached "
+        "%d meetings) by %s",
+        email, actor.organization_id, categories_reassigned,
+        meetings_detached, actor.email,
+    )
+    return {
+        "status": "ok",
+        "deleted_id": user_id,
+        "email": email,
+        "categories_reassigned": categories_reassigned,
+        "meetings_detached": meetings_detached,
+    }
 
 
 def _resolve_categories(
@@ -477,6 +734,7 @@ def _replace_grants(
     *,
     granted_by: User,
     teams: Optional[list[Team]] = None,
+    keep: Optional[set[tuple[int, Optional[int]]]] = None,
 ) -> None:
     """Make the user's grants exactly ``categories`` + ``teams``.
 
@@ -495,6 +753,12 @@ def _replace_grants(
     category grant already covers it, and keeping both would leave two
     rows saying the same thing, with the narrower one implying a limit
     that isn't real.
+
+    ``keep`` is added to the wanted set untouched. It exists for
+    delegated administration: a category admin editing someone's scope
+    submits only the categories they can see, and grants outside their
+    scope must survive that edit rather than being silently revoked by
+    an omission the actor could not have avoided.
     """
     whole_category_ids = {c.id for c in categories}
     team_pairs = {
@@ -502,7 +766,7 @@ def _replace_grants(
         for t in (teams or [])
         if t.category_id not in whole_category_ids
     }
-    wanted = {(cid, None) for cid in whole_category_ids} | team_pairs
+    wanted = {(cid, None) for cid in whole_category_ids} | team_pairs | (keep or set())
 
     current = (
         db.query(CategoryAdmin).filter(CategoryAdmin.user_id == user.id).all()
@@ -527,9 +791,122 @@ def _replace_grants(
     db.flush()
 
 
+def list_grantable_categories(db: Session, actor: User) -> list[dict]:
+    """The option list for the grant picker: what this actor can hand out.
+
+    An org admin sees every category in the org with all of its teams —
+    deliberately unfiltered, unlike ``GET /categories``, since someone
+    handing out rights has to see everything there is to hand out,
+    including categories they would not otherwise be shown.
+
+    A category admin sees only their own scope, and a category they hold
+    only *some* teams of comes back carrying just those teams. The picker
+    then cannot offer them anything they don't hold, and
+    ``assert_grants_within_scope`` refuses it server-side if they try
+    anyway.
+    """
+    scope = permissions.grant_scope(db, actor)
+
+    query = (
+        db.query(Category)
+        .options(joinedload(Category.teams))
+        .filter(Category.organization_id == actor.organization_id)
+    )
+
+    if scope is None:
+        rows = query.order_by(Category.name.asc()).all()
+        return [_category_option(c, c.teams or []) for c in rows]
+
+    held_categories, held_teams = scope
+    if not held_categories and not held_teams:
+        return []
+
+    # Categories reached either way: held in full, or holding a held team.
+    reachable = set(held_categories)
+    if held_teams:
+        parents = (
+            db.query(Team.category_id)
+            .filter(Team.id.in_(sorted(held_teams)))
+            .all()
+        )
+        reachable.update(p[0] for p in parents)
+
+    rows = (
+        query.filter(Category.id.in_(sorted(reachable)))
+        .order_by(Category.name.asc())
+        .all()
+    )
+    out = []
+    for c in rows:
+        if c.id in held_categories:
+            teams = c.teams or []
+        else:
+            teams = [t for t in (c.teams or []) if t.id in held_teams]
+        out.append(_category_option(c, teams))
+    return out
+
+
+def _category_option(category: Category, teams) -> dict:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "color": category.color,
+        "teams": [
+            {"id": t.id, "name": t.name}
+            for t in sorted(teams, key=lambda t: (t.name or ""))
+        ],
+    }
+
+
 # --------------------------------------------------------------------------
 # Password lifecycle
 # --------------------------------------------------------------------------
+
+
+def reset_password(db: Session, actor: User, user_id: UUID) -> tuple[dict, str]:
+    """Issue a new temporary password for someone else's account.
+
+    Returns ``(serialized_user, temporary_password)``. The password is
+    returned only here — the server keeps a bcrypt hash, so this response
+    is the one and only chance to read it.
+
+    Exists because the alternative was worse. A provisioned password is
+    shown exactly once, and without a re-issue path the only recovery for
+    a lost one was to delete the account and recreate it — which drops the
+    ``participants.user_id`` links that make that person a member of every
+    meeting they attended. Trading someone's entire meeting history for a
+    forgotten password is not a recovery procedure.
+
+    Two consequences worth being deliberate about:
+
+    * ``must_change_password`` goes back on. The actor now knows a working
+      credential for an account that isn't theirs, so it is a delivery
+      mechanism and nothing more — the API refuses everything outside the
+      password-change allowlist until the owner replaces it.
+    * every existing session for that user stops working. Bumping
+      ``password_set_at`` revokes tokens issued before it (see
+      ``dependencies/auth``), which is the point: a reset is most often a
+      response to a credential someone else may hold.
+    """
+    target = _require_manageable_target(db, actor, user_id)
+    if target.id == actor.id:
+        # Their own password is `/auth/change-password`, which asks for the
+        # current one. Routing self-service through here would hand them a
+        # generated password and then lock them into the change screen.
+        raise HTTPException(
+            status_code=400,
+            detail="Use the change-password page to set your own password.",
+        )
+
+    temporary_password = _generate_temporary_password()
+    target.password = hash_password(temporary_password)
+    target.must_change_password = True
+    # Doubles as the revocation point for existing sessions, so it is set
+    # even though the owner has not chosen this password themselves.
+    target.password_set_at = datetime.now(timezone.utc)
+    db.commit()
+    logger.info("Reset password for %s by %s", target.email, actor.email)
+    return get_member(db, actor.organization_id, target.id), temporary_password
 
 
 def change_password(

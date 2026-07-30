@@ -37,17 +37,6 @@ export interface OrgMember {
   meeting_count: number;
 }
 
-export interface CreateAdminResult {
-  user: OrgMember;
-  /**
-   * Returned exactly once, at creation, and null when an existing
-   * account was promoted instead. There is no mail provider wired up
-   * yet, so the org admin has to hand this over themselves.
-   */
-  temporary_password: string | null;
-  email_delivered: boolean;
-}
-
 export interface CreateMemberResult {
   user: OrgMember;
   /**
@@ -60,15 +49,44 @@ export interface CreateMemberResult {
   linked_meetings: number;
 }
 
+export interface ResetPasswordResult {
+  user: OrgMember;
+  /** Shown once. Unrecoverable afterwards. */
+  temporary_password: string;
+  /** Every session that user held is now refused. */
+  sessions_revoked: boolean;
+}
+
+export interface DeleteMemberResult {
+  status: string;
+  deleted_id: string;
+  email: string;
+  /** Categories the deleted person created, now owned by the caller. */
+  categories_reassigned: number;
+  /** Meetings they scheduled, now without a creator link. */
+  meetings_detached: number;
+}
+
 export const membersApi = {
   list: (): Promise<OrgMember[]> => apiClient("/admin/members"),
 
-  /** Add a user to this organization with a chosen role and password. */
+  /**
+   * Add a user to this organization with a chosen role, password and
+   * scope.
+   *
+   * The grants go in this request, not a follow-up PATCH: a brand-new
+   * account holds no grants and has attended nothing, so it sits outside
+   * a category admin's own visible set until its first grant exists, and
+   * the follow-up call was refused with "That person is not in a category
+   * you manage" — after the account had already been created.
+   */
   createMember: (payload: {
     email: string;
     password: string;
     access_role: AccessRole;
     name?: string;
+    category_ids?: number[];
+    team_ids?: number[];
   }): Promise<CreateMemberResult> =>
     apiClient("/admin/members", {
       method: "POST",
@@ -78,17 +96,6 @@ export const membersApi = {
 
   /** Every category in the org — the option list for the grant picker. */
   categories: (): Promise<CategoryRef[]> => apiClient("/admin/categories"),
-
-  createAdmin: (payload: {
-    name: string;
-    email: string;
-    category_ids: number[];
-  }): Promise<CreateAdminResult> =>
-    apiClient("/admin/admins", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
 
   update: (
     userId: string,
@@ -109,4 +116,26 @@ export const membersApi = {
   /** Demote to member and drop all grants. The account survives. */
   revokeAdmin: (userId: string): Promise<OrgMember> =>
     apiClient(`/admin/members/${userId}/admin`, { method: "DELETE" }),
+
+  /**
+   * Issue a new temporary password. Returned once — the server keeps only
+   * a bcrypt hash, so a missed value means running this again.
+   *
+   * Also ends every session that person had, and puts the account back
+   * into forced-password-change.
+   */
+  resetPassword: (userId: string): Promise<ResetPasswordResult> =>
+    apiClient(`/admin/members/${userId}/reset-password`, { method: "POST" }),
+
+  /**
+   * Delete the account outright. Not the same as `revokeAdmin`, which
+   * only demotes.
+   *
+   * Their meeting history survives — the transcript keeps their name, and
+   * only the account link is dropped. Categories they created are handed
+   * to the caller, because that column cascades and would otherwise take
+   * the category and everything in it down with the account.
+   */
+  remove: (userId: string): Promise<DeleteMemberResult> =>
+    apiClient(`/admin/members/${userId}`, { method: "DELETE" }),
 };

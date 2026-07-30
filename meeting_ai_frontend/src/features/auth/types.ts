@@ -25,14 +25,27 @@ export interface CurrentUser {
 
   access_role: AccessRole;
   /**
-   * Categories this user administers.
+   * Categories granted to this user, in full.
    *
    * `null` means ALL categories (org admin) — it is NOT the same as `[]`,
-   * which means this user administers none. Conflating the two is the
-   * easy bug here: `(managed_category_ids ?? []).length` reads an org
-   * admin as having no access at all.
+   * which means none are granted. Conflating the two is the easy bug
+   * here: `(managed_category_ids ?? []).length` reads an org admin as
+   * having no access at all.
+   *
+   * A grant is a SCOPE, not a role. A MEMBER can hold these, in which
+   * case they mean read access to that category — not the right to
+   * change anything in it. Always pair with `access_role` before
+   * enabling a destructive control.
+   *
+   * Whole-category grants only; a grant scoped to a single team appears
+   * in `managed_team_ids` instead.
    */
   managed_category_ids: number[] | null;
+  /**
+   * Individually granted teams — narrower than the categories above.
+   * `null` for an org admin, same convention.
+   */
+  managed_team_ids: number[] | null;
   must_change_password: boolean;
   /** Phase 7E prompt-governance role — unrelated to meeting access. */
   prompt_role: string | null;

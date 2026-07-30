@@ -7,17 +7,19 @@ frontend:
 frontend-dev:
 	cd meeting_ai_frontend && npm run dev
 
+# ponytail: `python -m` not the Scripts\*.exe shims — Windows Smart App Control
+# blocks those unsigned pip launchers (make e=4551). Works on Linux/mac too.
 backend:
-	uvicorn main:app --reload
+	python -m uvicorn main:app --reload
 
 docker:
 	docker compose up -d
 
 celery:
-	celery -A app.celery_app.celery worker --loglevel=info --pool=solo
+	python -m celery -A app.celery_app.celery worker --loglevel=info --pool=solo
 
 celery-beat:
-	celery -A app.celery_app.celery beat --loglevel=info
+	python -m celery -A app.celery_app.celery beat --loglevel=info
 
 dev:
 	make docker
@@ -39,4 +41,4 @@ run: res
 # Needs VITE_API_URL=http://localhost:8000 in meeting_ai_frontend/.env.
 dev-live:
 	cd meeting_ai_frontend && npm run dev &
-	uvicorn main:app --reload
+	python -m uvicorn main:app --reload

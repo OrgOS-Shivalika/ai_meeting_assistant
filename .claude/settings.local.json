@@ -11,7 +11,8 @@
       "Bash(docker exec *)",
       "Bash(./venv/Scripts/python.exe -c ' *)",
       "Bash(./venv/Scripts/alembic.exe heads *)",
-      "Bash(./venv/Scripts/alembic.exe current *)"
+      "Bash(./venv/Scripts/alembic.exe current *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

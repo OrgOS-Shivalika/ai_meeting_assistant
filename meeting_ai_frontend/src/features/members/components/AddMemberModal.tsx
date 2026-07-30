@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -10,8 +10,11 @@ import {
 } from "lucide-react";
 import { membersApi, type CategoryRef, type CreateMemberResult } from "../api";
 import GrantPicker, { type GrantSelection } from "./GrantPicker";
-import { ROLE_LABEL, roleBadgeClass } from "../roles";
+import { ROLE_HINT, ROLE_LABEL, roleBadgeClass } from "../roles";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import type { AccessRole } from "../../auth/types";
+
+const ROLE_ORDER: AccessRole[] = ["MEMBER", "ADMIN", "ORG_ADMIN"];
 
 /**
  * Two-step "Add Member" flow.
@@ -39,6 +42,13 @@ export default function AddMemberModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AccessRole>("MEMBER");
+  // A category admin can create members and admins inside their own
+  // categories, but not org admins — that role is scoped to nothing, so
+  // the server refuses it. Don't list an option that can only 403.
+  const { isOrgAdmin } = usePermissions();
+  const roleOptions = isOrgAdmin
+    ? ROLE_ORDER
+    : ROLE_ORDER.filter((r) => r !== "ORG_ADMIN");
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -52,9 +62,24 @@ export default function AddMemberModal({
   });
   const grantCount = grants.categoryIds.length + grants.teamIds.length;
 
+  // Escape closes, except mid-write: the request is already in flight and
+  // the password it echoes back has to be shown, not dismissed.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [submitting, onClose]);
+
   const emailLooksValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
   const passwordLongEnough = password.length >= 8;
-  const canReview = emailLooksValid && passwordLongEnough;
+  // A category admin has to attach the new person to something they hold.
+  // Created outside their scope, the account would be invisible to them
+  // the moment it existed — the server refuses this for the same reason.
+  const scopeRequired = !isOrgAdmin;
+  const canReview =
+    emailLooksValid && passwordLongEnough && (!scopeRequired || grantCount > 0);
 
   const copyPassword = async () => {
     try {
@@ -71,22 +96,24 @@ export default function AddMemberModal({
     setSubmitting(true);
     setError(null);
     try {
+      // One request, account and scope together. This used to create the
+      // account and then PATCH the grants, which failed for a category
+      // admin: the new user holds no grant and has attended nothing, so
+      // they are outside the creator's visible set until the first grant
+      // exists, and the PATCH was refused with "That person is not in a
+      // category you manage" — leaving an account nobody but an org admin
+      // could reach. Sending both also makes it atomic, so a rejected
+      // scope no longer leaves a stranded account.
+      //
+      // Grants are sent for MEMBER too. A scope is not a promotion — for a
+      // member it is read access to those categories.
       const result = await membersApi.createMember({
         email: email.trim(),
         password,
         access_role: role,
+        category_ids: grants.categoryIds,
+        team_ids: grants.teamIds,
       });
-      // Grants are a second call: creation owns the credential, and
-      // rolling the scope into it would mean a partial failure left an
-      // account whose password was already shown but whose access is
-      // wrong. This way a failed grant leaves a usable account that an
-      // org admin can scope from the row editor.
-      if (role === "ADMIN" && grantCount > 0) {
-        await membersApi.update(result.user.id, {
-          category_ids: grants.categoryIds,
-          team_ids: grants.teamIds,
-        });
-      }
       onCreated(result);
     } catch (e: any) {
       setError(e?.message || "Could not create that member.");
@@ -98,10 +125,19 @@ export default function AddMemberModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={() => !submitting && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-member-title"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg shadow-lg max-w-md w-full p-6"
+      >
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-lg font-bold text-[#0F1523]">
+          <h2 id="add-member-title" className="text-lg font-bold text-[#0F1523]">
             {step === "form" ? "Add Member" : "Review New Member"}
           </h2>
           <span className="text-xs font-semibold text-[#777681]">
@@ -200,21 +236,29 @@ export default function AddMemberModal({
                 onChange={(e) => setRole(e.target.value as AccessRole)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
               >
-                <option value="MEMBER">Member — meetings they attended</option>
-                <option value="ADMIN">Admin — categories they manage</option>
-                <option value="ORG_ADMIN">
-                  Org Admin — the whole organization
-                </option>
+                {roleOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABEL[r]} — {ROLE_HINT[r].toLowerCase()}
+                  </option>
+                ))}
               </select>
-              {role === "ADMIN" && (
+              {/* Offered for MEMBER as well as ADMIN. The scope is the same
+                  choice either way — which categories and teams this person
+                  is attached to — and only the role decides whether that
+                  means reading them or running them. */}
+              {role !== "ORG_ADMIN" && (
                 <div className="mt-2">
                   <p className="text-[11px] font-semibold text-[#777681] uppercase tracking-wide mb-1">
-                    What they manage
+                    {role === "ADMIN" ? "What they manage" : "What they can see"}
                   </p>
                   <p className="text-[11px] text-[#777681] mb-2">
-                    Tick a category for all of it, or expand it to grant
-                    individual teams. An admin with nothing ticked sees
-                    nothing.
+                    Tick a category for all of it, or expand it to pick
+                    individual teams.{" "}
+                    {scopeRequired
+                      ? "Required — you can only add people to the categories you manage."
+                      : role === "ADMIN"
+                        ? "An admin with nothing ticked manages nothing."
+                        : "Optional — a member always sees the meetings they attended."}
                   </p>
                   <div className="max-h-48 overflow-y-auto pr-1">
                     <GrantPicker
@@ -290,14 +334,17 @@ export default function AddMemberModal({
               </div>
             </dl>
 
-            {role === "ADMIN" && (
+            {/* Members get a scope summary too — it is the same review
+                step, and omitting it made a member's assigned scope
+                invisible right where it should be confirmed. */}
+            {role !== "ORG_ADMIN" && (grantCount > 0 || role === "ADMIN") && (
               <div className="rounded-lg border border-gray-200 px-3 py-2 mb-4">
                 <p className="text-xs font-semibold text-[#777681] mb-1">
-                  Manages
+                  {role === "ADMIN" ? "Manages" : "Can see"}
                 </p>
                 {grantCount === 0 ? (
                   <p className="text-[11px] text-amber-700">
-                    Nothing selected — they will see no meetings until you
+                    Nothing selected — they will manage nothing until you
                     assign categories or teams.
                   </p>
                 ) : (

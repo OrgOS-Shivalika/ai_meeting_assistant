@@ -134,9 +134,11 @@ export const router = createBrowserRouter([
         element: <TemplatesInstalledPage />,
       },
       {
-        // Org-admin only. The guard is a courtesy — every endpoint the
-        // page calls enforces the same rule and 403s otherwise.
-        element: <RequireRole allow={["ORG_ADMIN"]} />,
+        // Admins and org admins. A category admin gets the same page
+        // scoped to their own categories and teams — the server filters
+        // every response, so this guard only decides who is offered the
+        // route at all.
+        element: <RequireRole allow={["ADMIN", "ORG_ADMIN"]} />,
         children: [{ path: "/members", element: <MembersPage /> }],
       },
       {

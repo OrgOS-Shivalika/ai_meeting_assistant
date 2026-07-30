@@ -90,6 +90,16 @@ class MemberCreateRequest(BaseModel):
     # service derives a display name from the email local-part. Sending
     # it explicitly is better whenever the real name is known.
     name: Optional[str] = Field(default=None, max_length=200)
+    # Scope, applied in the same transaction as the account.
+    #
+    # Not a second request on purpose. A brand-new user holds no grants and
+    # has attended nothing, so they fall outside a category admin's
+    # visible set — which made the follow-up `PATCH /admin/members/{id}`
+    # refuse with "That person is not in a category you manage" and strand
+    # the account that had just been created. Mirrors
+    # `AdminCreateRequest`, which has always taken its grants inline.
+    category_ids: List[int] = Field(default_factory=list)
+    team_ids: List[int] = Field(default_factory=list)
 
 
 class MemberCreateResponse(BaseModel):
@@ -119,6 +129,38 @@ class RoleUpdateRequest(BaseModel):
     # server-side, so only the team id is needed. Sending either list
     # replaces the entire grant set.
     team_ids: Optional[List[int]] = None
+
+
+class PasswordResetResponse(BaseModel):
+    """A freshly issued temporary password, returned once.
+
+    Same one-shot contract as `AdminCreateResponse.temporary_password`: the
+    server stores only a bcrypt hash, so if this value is missed the reset
+    has to be run again.
+    """
+    user: OrgMemberResponse
+    temporary_password: str
+    # Every session that user had is now refused — `password_set_at` moved,
+    # and tokens issued before it no longer validate. Reported so the UI can
+    # say so rather than leaving the admin to assume otherwise.
+    sessions_revoked: bool = True
+
+
+class MemberDeleteResponse(BaseModel):
+    """What a member deletion actually did.
+
+    The two counts are reported rather than swallowed because the delete
+    touches rows the caller didn't name: a category the deleted person
+    created is reassigned to whoever ran the delete (the column is NOT
+    NULL and cascades, so it can neither be kept nor nulled), and meetings
+    they scheduled lose their creator link. Both are survivable, and both
+    are surprising if they happen silently.
+    """
+    status: str
+    deleted_id: UUID
+    email: str
+    categories_reassigned: int = 0
+    meetings_detached: int = 0
 
 
 class PasswordChangeRequest(BaseModel):

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.models import User
 from app.config.settings import settings
 from app.utils.admin_enums import PromptRole
+from datetime import timezone
 import uuid
 
 SECRET_KEY = settings.AUTH_SECRET_KEY
@@ -45,10 +46,46 @@ def resolve_user_from_token(db: Session, token: str | None) -> User | None:
         user_id: str = payload.get("user_id")
         if user_id is None:
             return None
-        return db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+        user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+        if user is None:
+            return None
+        if _issued_before_password_change(user, payload.get("iat")):
+            return None
+        return user
     except (JWTError, ValueError):
         # ValueError catches malformed UUIDs.
         return None
+
+
+# The JWT is stateless with a 7-day TTL, so there is nothing to delete
+# server-side when a password changes. `users.password_set_at` is the
+# revocation point instead: a token issued before the hash last changed is
+# refused. That is what makes an admin password reset actually cut off a
+# live session rather than merely changing what the next login needs.
+#
+# `iat` is whole seconds while `password_set_at` carries microseconds, so a
+# token minted in the same instant as the change would compare as older
+# than it. The leeway keeps a fresh login — and registration, which sets
+# the timestamp then immediately issues a token — from invalidating itself.
+_TOKEN_CLOCK_LEEWAY_SECONDS = 30
+
+
+def _issued_before_password_change(user: User, issued_at) -> bool:
+    """True when this token predates the user's current password.
+
+    Fails OPEN for tokens with no `iat` claim: those were minted before
+    this check existed, and refusing them would sign out every active
+    session on deploy. They expire within the 7-day TTL anyway.
+    """
+    changed_at = getattr(user, "password_set_at", None)
+    if changed_at is None or issued_at is None:
+        return False
+    if changed_at.tzinfo is None:
+        # Postgres returns aware datetimes; a naive one means a fixture or
+        # a backend without timezone support. Assume UTC rather than the
+        # server's local zone, which would shift the comparison by hours.
+        changed_at = changed_at.replace(tzinfo=timezone.utc)
+    return changed_at.timestamp() > float(issued_at) + _TOKEN_CLOCK_LEEWAY_SECONDS
 
 
 # Endpoints reachable while `must_change_password` is set. Matched as a
