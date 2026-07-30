@@ -175,13 +175,21 @@ def add_facts(
 
 
 def add_turn(*, question, answer, org_id, conversation_id, meeting_id=None) -> list:
-    """Session-level chat memory for /ask (run_id = conversation thread)."""
+    """Session-level chat memory for /ask (run_id = conversation thread).
+
+    infer=False is REQUIRED here. With infer=True (mem0's default) the managed
+    platform runs an LLM over the turn, which (1) strips run_id and promotes the
+    turn to a general org-level memory — destroying session scoping — and (2)
+    rephrases + merges it into the long-term fact pool, polluting it with
+    ephemeral chat. Verified against managed mem0: infer=False stores the turn
+    verbatim, scoped to run_id, and run_id search isolates conversations."""
     uid = _require_org(org_id)
     return _unwrap(_mem().add(
         [{"role": "user", "content": question},
          {"role": "assistant", "content": answer}],
         user_id=uid, run_id=str(conversation_id),
         metadata=_metadata(meeting_id=meeting_id),
+        infer=False,
     ))
 
 

@@ -356,6 +356,35 @@ def ask_stream(
         if not hasattr(bundle, "prior_facts"):
             bundle.prior_facts = []
 
+    # Memory Phase 4 — session/chat memory. Inject the relevant turns from
+    # earlier in THIS conversation (run_id = conversation_id) so follow-ups
+    # resolve against what was already said. mem0-only + flag-gated;
+    # non-fatal — a miss degrades to no session context.
+    if (
+        settings.MEMORY_CHAT_ENABLED
+        and settings.MEMORY_BACKEND == "mem0"
+        and conversation_id is not None
+    ):
+        try:
+            from app.services.memory import mem0_backend
+            turns = mem0_backend.search(
+                query=query_text, org_id=organization_id,
+                conversation_id=conversation_id, window="all", limit=6,
+            )
+            turn_lines = [f"- {t.fact}" for t in turns if getattr(t, "fact", None)]
+            if turn_lines:
+                bundle.session_block = (
+                    "### Earlier in this conversation\n" + "\n".join(turn_lines)
+                )
+                if not bundle.has_context:
+                    bundle.has_context = True
+                logger.info(
+                    "💭 Memory wire-in (/ask): %d session turn(s) injected (conv=%s)",
+                    len(turn_lines), conversation_id,
+                )
+        except Exception as exc:
+            logger.warning("session memory wire-in (/ask) skipped: %s", exc)
+
     # Memory Phase 2 — stamp the live-meeting state block (if any) onto
     # the bundle. /rag/ask-live passes this when the meeting is still
     # in-progress; for completed meetings (and /rag/ask) it's "" and the
@@ -528,6 +557,29 @@ def ask_stream(
             logger.warning(
                 "ask_pipeline: access event logging failed: %s", exc,
             )
+
+    # Memory Phase 4 — persist this turn as session memory (run_id =
+    # conversation_id) so later turns in the same conversation can recall
+    # it. add_turn enforces infer=False (verbatim, run-scoped). Only store
+    # completed answers. mem0-only, flag-gated, fire-and-forget — a write
+    # failure never affects the response.
+    if (
+        settings.MEMORY_CHAT_ENABLED
+        and settings.MEMORY_BACKEND == "mem0"
+        and conversation_id is not None
+        and status == "completed"
+        and synth_result.answer_text
+    ):
+        try:
+            from app.services.memory import mem0_backend
+            mem0_backend.add_turn(
+                question=query_text,
+                answer=synth_result.answer_text,
+                org_id=organization_id,
+                conversation_id=conversation_id,
+            )
+        except Exception as exc:
+            logger.warning("session memory write (/ask) skipped: %s", exc)
 
     yield {"event": "done", "data": {
         "run_id": str(run_id),
