@@ -337,7 +337,10 @@ def test_category_admin_can_create_scoped_member():
 
     with _session() as db:
         actor = _user(db, "alice")
-        created, _pw, _linked = admin_service.create_member(
+        # 4-tuple since the invite-email merge: (user, password, linked,
+        # email_result). The email is a no-op here — SMTP_HOST is unset in
+        # dev, so `mail_service` reports 'skipped' and sends nothing.
+        created, _pw, _linked, _mail = admin_service.create_member(
             db,
             actor,
             MemberCreateRequest(
@@ -423,7 +426,10 @@ def test_org_admin_may_create_unscoped():
     from app.services import admin_service
 
     with _session() as db:
-        created, _pw, _linked = admin_service.create_member(
+        # 4-tuple since the invite-email merge: (user, password, linked,
+        # email_result). The email is a no-op here — SMTP_HOST is unset in
+        # dev, so `mail_service` reports 'skipped' and sends nothing.
+        created, _pw, _linked, _mail = admin_service.create_member(
             db,
             _user(db, "owner"),
             MemberCreateRequest(

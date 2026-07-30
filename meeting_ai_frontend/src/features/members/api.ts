@@ -37,14 +37,37 @@ export interface OrgMember {
   meeting_count: number;
 }
 
+/**
+ * Invite email outcome.
+ *
+ * `skipped` means no SMTP is configured — an expected deployment state,
+ * not a failure, so it must not be shown as an error.
+ */
+export type EmailStatus = "sent" | "skipped" | "failed";
+
+export interface CreateAdminResult {
+  user: OrgMember;
+  /**
+   * Returned exactly once, at creation, and null when an existing
+   * account was promoted instead (that path reuses their password).
+   * Also emailed to the recipient when SMTP is configured.
+   */
+  temporary_password: string | null;
+  email_status: EmailStatus;
+  email_error: string | null;
+}
+
 export interface CreateMemberResult {
   user: OrgMember;
   /**
    * The password, echoed back once. Stored server-side only as a bcrypt
    * hash, so this response is the last time it can ever be read — the UI
-   * must show it before navigating away.
+   * must show it before navigating away. Returned even when the invite
+   * email was sent, because mail bounces and spam filters exist.
    */
   password: string;
+  email_status: EmailStatus;
+  email_error: string | null;
   /** Past meetings this person attended that got linked to the new account. */
   linked_meetings: number;
 }

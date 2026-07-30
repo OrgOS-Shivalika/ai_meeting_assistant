@@ -4,6 +4,7 @@ import {
   UserPlus,
   Shield,
   Users as UsersIcon,
+  Copy,
   Check,
   AlertCircle,
   Loader2,
@@ -13,7 +14,12 @@ import {
 import Layout from "../../../shared/components/Layout";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
 import { usePermissions } from "../../auth/hooks/usePermissions";
-import { membersApi, type CategoryRef, type OrgMember } from "../api";
+import {
+  membersApi,
+  type CategoryRef,
+  type EmailStatus,
+  type OrgMember,
+} from "../api";
 import { ROLE_HINT, ROLE_LABEL, roleBadgeClass } from "../roles";
 import AddMemberModal from "../components/AddMemberModal";
 import EditGrantsModal from "../components/EditGrantsModal";
@@ -77,15 +83,21 @@ export default function MembersPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  // The member whose grants are being edited. Held here rather than per
-  // row so only one dialog can be open, and so it isn't re-mounted (and
-  // its selection lost) when the row beneath it re-renders.
+  // The member each dialog is acting on. Held here rather than per row so
+  // only one can be open, and so a dialog isn't re-mounted — losing its
+  // state — when the row beneath it re-renders after a write.
   const [editingMember, setEditingMember] = useState<OrgMember | null>(null);
-  // The member awaiting delete confirmation. Same reasoning as
-  // `editingMember` — held here so the dialog survives the row's
-  // re-render, and so only one can be open.
   const [deletingMember, setDeletingMember] = useState<OrgMember | null>(null);
   const [resettingMember, setResettingMember] = useState<OrgMember | null>(null);
+
+  // Shown once, after provisioning. Held in component state and never
+  // persisted — the server hashes it and cannot show it again.
+  const [issuedCredential, setIssuedCredential] = useState<{
+    email: string;
+    password: string;
+    emailStatus: EmailStatus;
+    emailError: string | null;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -237,6 +249,16 @@ export default function MembersPage() {
           </button>
         </div>
 
+        {issuedCredential && (
+          <CredentialBanner
+            email={issuedCredential.email}
+            password={issuedCredential.password}
+            emailStatus={issuedCredential.emailStatus}
+            emailError={issuedCredential.emailError}
+            onDismiss={() => setIssuedCredential(null)}
+          />
+        )}
+
         {error && (
           <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
@@ -386,12 +408,21 @@ export default function MembersPage() {
         <AddMemberModal
           categories={categories}
           onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
-            // No password echo here. Unlike a reset, the password on this
-            // flow is typed by the admin and shown back to them on the
-            // review step before the account exists — they already have it,
-            // so repeating it on the page afterwards was noise.
+          onCreated={(result) => {
             setShowCreateModal(false);
+            // The banner is kept for the EMAIL OUTCOME, which is the one
+            // thing the admin cannot already know: neither this page nor
+            // the modal reports it anywhere else, so without it a silently
+            // failed invite reads as a delivered one. The password rides
+            // along as the fallback for exactly that case — they typed it
+            // on the review step, but the copy button is here when mail
+            // didn't land and it has to be passed on by hand.
+            setIssuedCredential({
+              email: result.user.email,
+              password: result.password,
+              emailStatus: result.email_status,
+              emailError: result.email_error,
+            });
             load();
           }}
         />
@@ -415,6 +446,81 @@ function StatCard({
         {label}
       </p>
       <p className={`text-2xl font-bold mt-1 ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+/**
+ * The generated password, shown once.
+ *
+ * Deliberately loud and deliberately dismissible-only-by-the-user: no
+ * mail provider is wired up, so if this banner is missed the password
+ * is unrecoverable and the account has to be re-provisioned.
+ */
+function CredentialBanner({
+  email,
+  password,
+  emailStatus,
+  emailError,
+  onDismiss,
+}: {
+  email: string;
+  password: string;
+  emailStatus: EmailStatus;
+  emailError: string | null;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the value is selectable on screen anyway */
+    }
+  };
+
+  return (
+    <div className="p-4 mb-4 rounded-lg bg-amber-50 border border-amber-200">
+      <div className="flex items-start gap-2.5">
+        <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-900">
+            {emailStatus === "sent" ? "Invite emailed to" : "Password for"} {email}
+          </p>
+          <p className="text-xs text-amber-800 mt-0.5">
+            {emailStatus === "sent"
+              ? "An invite with these details has been emailed to them. Keep this to hand until they confirm — mail can bounce or be filtered. It cannot be retrieved later."
+              : emailStatus === "failed"
+                ? "The invite email could NOT be sent, so you'll need to pass this on yourself. It is shown once and cannot be retrieved later."
+                : "Email isn't configured on this deployment, so send this to them over a channel you trust. It is shown once and cannot be retrieved later."}
+            {" "}They'll be asked to replace it when they first sign in.
+          </p>
+          {emailStatus === "failed" && emailError && (
+            <p className="text-[11px] text-red-700 mt-1 font-mono">{emailError}</p>
+          )}
+          <div className="flex items-center gap-2 mt-2">
+            <code className="px-2 py-1 rounded bg-white border border-amber-300 text-sm font-mono text-amber-900 select-all">
+              {password}
+            </code>
+            <button
+              onClick={copy}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 rounded transition-colors"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-xs font-semibold text-amber-800 hover:underline shrink-0"
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }

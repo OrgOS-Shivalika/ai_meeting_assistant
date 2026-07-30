@@ -408,6 +408,31 @@ class Settings:
     # backend module also sets this env var before importing mem0.
     MEM0_TELEMETRY = os.getenv("MEM0_TELEMETRY", "false")
 
+    # ---- Outbound email (SMTP) -------------------------------------------
+    # Used for member invite emails. Plain SMTP via stdlib `smtplib` rather
+    # than a provider SDK, so any of Gmail/SES/Postmark/Mailgun works by
+    # config alone and no new dependency is introduced.
+    #
+    # Email is OPTIONAL. With SMTP_HOST unset, `mail_service.is_configured()`
+    # is False and invite sending is skipped — member creation still
+    # succeeds and the API returns the password for manual sharing. That
+    # keeps local dev working without a mail server.
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    # STARTTLS on 587 (the common default). Set SMTP_USE_SSL for implicit
+    # TLS on 465 instead; the two are mutually exclusive.
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
+    SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
+    # Envelope sender. Falls back to SMTP_USER, which is what most providers
+    # require the From address to match anyway.
+    SMTP_FROM = os.getenv("SMTP_FROM", "") or os.getenv("SMTP_USER", "")
+    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "OrgOS")
+    # Kept short: this send happens inside the HTTP request that creates the
+    # member, so a hanging mail server must not hang the request.
+    SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
+
     def __init__(self):
         if not self.OPEN_API_KEY:
             logger.warning("OPEN_API_KEY is not set in environment variables.")

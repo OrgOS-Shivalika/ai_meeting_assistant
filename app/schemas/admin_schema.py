@@ -64,12 +64,13 @@ class AdminCreateRequest(BaseModel):
 
 class AdminCreateResponse(BaseModel):
     user: OrgMemberResponse
-    # Returned exactly once, at creation. There is no transactional email
-    # provider wired up in this codebase (`send_email` is a stub with
-    # implemented=False), so the org admin has to pass this along out of
-    # band. Once email is wired, drop this field and mail it instead.
+    # Returned exactly once, at creation. Also emailed to the recipient
+    # when SMTP is configured, but still returned regardless — mail can
+    # bounce or be filtered, and without a fallback the account would have
+    # to be re-provisioned.
     temporary_password: Optional[str] = None
-    email_delivered: bool = False
+    email_status: str = "skipped"
+    email_error: Optional[str] = None
 
 
 class MemberCreateRequest(BaseModel):
@@ -107,7 +108,16 @@ class MemberCreateResponse(BaseModel):
     # Echoed back so the UI can render the "copy this now" panel from the
     # server's response rather than from local form state — that way what
     # is displayed is what was actually stored.
+    #
+    # Still returned even when the invite email succeeded: mail can bounce
+    # or land in spam, and the org admin having no fallback would mean
+    # re-provisioning the account.
     password: str
+    # Invite email outcome. 'sent' | 'skipped' | 'failed' —
+    # 'skipped' means no SMTP is configured, which is an expected
+    # deployment state and not an error worth alarming the user about.
+    email_status: str = "skipped"
+    email_error: Optional[str] = None
     # How many of this person's pre-existing meeting attendances were
     # linked to the new account (they may have been in meetings long
     # before having a login).
