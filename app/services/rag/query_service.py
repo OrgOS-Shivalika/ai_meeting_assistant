@@ -21,6 +21,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.services import permissions
 from app.db.models import (
     Category, Meeting, RagConversation, RagQueryRun, Team, User,
 )
@@ -84,14 +85,13 @@ def scope_from_meeting(
 
 
 def get_meeting_or_404(db: Session, user: User, meeting_id: int) -> Meeting:
-    """Fetch a meeting scoped to the user's org. Cross-org 404."""
-    m = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
-        Meeting.organization_id == user.organization_id,
-    ).first()
-    if m is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    return m
+    """Fetch a meeting the caller may read. Cross-org 404, out-of-scope
+    403.
+
+    This is the entry point for the in-meeting Ask panel, so it decides
+    whose live transcript a question can be asked against.
+    """
+    return permissions.get_viewable_meeting(db, user, meeting_id)
 
 
 # ---------------------------------------------------------------------------

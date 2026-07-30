@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Optional
 import json
 import logging
@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.db.models import User
 from app.dependencies.auth import resolve_user_from_token
-from app.services import ws_service
+from app.services import permissions
 from app.services.transcript_persistence import schedule_transcript_save
 from app.config.settings import settings
 
@@ -28,11 +28,18 @@ async def _authenticate_ws(
     meeting_id: int,
     db: Session,
 ) -> Optional[User]:
-    """Validate the JWT + org scope on a WebSocket handshake.
+    """Validate the JWT + access scope on a WebSocket handshake.
 
     Closes with 4401 on any failure (invalid token, missing token,
     cross-org meeting, meeting not found — all treated the same to
     avoid leaking meeting-existence).
+
+    This socket streams the live transcript as it is spoken, so it is
+    exactly as sensitive as the transcript endpoint and gets the same
+    check. Access failures collapse into one close code here rather
+    than the HTTP layer's 404/403 split — a close reason isn't a
+    response body, and there's nothing to gain from being precise
+    about why a socket was refused.
 
     Must be called BEFORE `websocket.accept()` so the handshake fails
     cleanly on the client side with the reason attached.
@@ -44,8 +51,9 @@ async def _authenticate_ws(
     if user is None:
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED, reason="Invalid token")
         return None
-    meeting = ws_service.get_meeting_by_id(db, meeting_id)
-    if not meeting or meeting.organization_id != user.organization_id:
+    try:
+        permissions.get_viewable_meeting(db, user, meeting_id)
+    except HTTPException:
         await websocket.close(code=_WS_CLOSE_FORBIDDEN, reason="Unauthorized")
         return None
     return user

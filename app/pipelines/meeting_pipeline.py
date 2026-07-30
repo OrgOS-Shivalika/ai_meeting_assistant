@@ -7,7 +7,9 @@ from app.services.kanban.defaults import resolve_landing_for_meeting
 from app.services.kanban.positions import position_for_end
 from app.utils.logger import setup_logger
 import json
-from app.db.models import Meeting, Task, Participant
+from app.db.models import Meeting, Task, Participant, User
+from app.utils.admin_enums import ParticipantMatchSource
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -53,9 +55,6 @@ class MeetingPipeline:
             if p_id and name and p_id not in unique_participants:
                 unique_participants[p_id] = name
         
-        # Get attendee map from Google Calendar data if available
-        attendee_map = {}
-        
         # If google_event_data is missing, try to fetch it if we have a user with google tokens
         if not meeting.google_event_data and meeting.user and meeting.user.google_access_token:
             try:
@@ -79,33 +78,72 @@ class MeetingPipeline:
             except Exception as e:
                 logger.error(f"Failed to dynamically fetch calendar data: {str(e)}")
 
+        # Two maps, not one, because they carry different levels of
+        # trust and `participants.user_id` is now an authorization
+        # input rather than just an avatar lookup.
+        #
+        #   exact_map — the Recall name IS the attendee's email, or IS
+        #               their full calendar display name. Unambiguous.
+        #   fuzzy_map — email local-part, or a single token of a display
+        #               name. Good enough to render a face next to a
+        #               transcript line; nowhere near good enough to
+        #               decide who may read the meeting. Two colleagues
+        #               named "Chris" resolve to the same token.
+        #
+        # A link made through fuzzy_map is stored with
+        # match_source='heuristic' and grants nothing — see
+        # `permissions.TRUSTED_MATCH_SOURCES`.
+        exact_map: dict[str, str] = {}
+        fuzzy_map: dict[str, str] = {}
+        ambiguous_fuzzy_keys: set[str] = set()
+
+        def _add_fuzzy(key: str, email: str) -> None:
+            """Record a loose key, tracking collisions.
+
+            When two attendees claim the same token the key is poisoned
+            rather than won by whoever the iteration order happened to
+            reach first — a silently wrong avatar is bad, and the same
+            code path used to feed access decisions."""
+            existing = fuzzy_map.get(key)
+            if existing and existing.lower() != email.lower():
+                ambiguous_fuzzy_keys.add(key)
+            else:
+                fuzzy_map[key] = email
+
         if meeting.google_event_data and "attendees" in meeting.google_event_data:
             logger.info(f"Processing {len(meeting.google_event_data['attendees'])} attendees from Google data")
             for attendee in meeting.google_event_data["attendees"]:
                 a_email = attendee.get("email")
                 if not a_email:
                     continue
-                
-                # Store by exact email (Recall often uses email if display name is missing)
-                attendee_map[a_email.lower()] = a_email
 
-                # Store by full name
-                a_name = attendee.get("displayName")
+                # Exact: the email itself (Recall often uses the email
+                # when a display name is missing).
+                exact_map[a_email.strip().lower()] = a_email
+
+                # Exact: the complete display name.
+                a_name = (attendee.get("displayName") or "").strip()
                 if a_name:
-                    attendee_map[a_name.lower()] = a_email
-                
-                # Store by email prefix (common in Recall AI)
-                prefix = a_email.split("@")[0].lower()
-                attendee_map[prefix] = a_email
-                
-                # Store by parts of name
+                    exact_map[a_name.lower()] = a_email
+
+                # Fuzzy: email local-part, common in Recall.ai output.
+                _add_fuzzy(a_email.split("@")[0].strip().lower(), a_email)
+
+                # Fuzzy: individual name tokens.
                 if a_name:
                     for part in a_name.lower().split():
-                        if len(part) > 2: # ignore short names
-                            attendee_map[part] = a_email
+                        if len(part) > 2:  # ignore initials / particles
+                            _add_fuzzy(part, a_email)
 
-        logger.info(f"Cross-referencing {len(unique_participants)} participants with {len(attendee_map)} unique calendar mapping keys")
-        logger.info(f"Mapping keys available: {list(attendee_map.keys())}")
+        for key in ambiguous_fuzzy_keys:
+            fuzzy_map.pop(key, None)
+
+        logger.info(
+            "Cross-referencing %d participants with %d exact and %d unambiguous "
+            "fuzzy calendar keys (%d keys dropped as ambiguous)",
+            len(unique_participants), len(exact_map), len(fuzzy_map),
+            len(ambiguous_fuzzy_keys),
+        )
 
         # Track name occurrences for database display names
         name_counts = {}
@@ -124,32 +162,63 @@ class MeetingPipeline:
                 current_counts[name] += 1
                 display_name = f"{name} ({current_counts[name]})"
 
-            # Try to find email using multiple strategies
-            email = attendee_map.get(name.lower())
-            is_organizer = False
-            
+            # Exact first, and remember which path won — the answer
+            # decides whether this person gets access to the meeting.
+            lookup = name.strip().lower()
+            email = exact_map.get(lookup)
+            match_source = (
+                ParticipantMatchSource.CALENDAR_EXACT.value if email else None
+            )
+
             if not email:
-                # Try matching by first name or last name
-                for part in name.lower().split():
-                    if part in attendee_map:
-                        email = attendee_map[part]
+                for part in lookup.split():
+                    if part in fuzzy_map:
+                        email = fuzzy_map[part]
+                        match_source = ParticipantMatchSource.HEURISTIC.value
                         break
-            
+
             # Check if this person is the organizer
             if email and meeting.google_event_data and meeting.google_event_data.get("organizer", {}).get("email") == email:
                 is_organizer = True
-            
-            logger.debug(f"Matching participant: '{name}' -> Email: {email or 'NOT FOUND'}, Organizer: {is_organizer}")
-            
+
+            # Attendance is membership, so this is the row that grants a
+            # member their access. Exact, case-normalized email equality
+            # against a user in the SAME organization — never a name.
+            linked_user_id = None
+            if email:
+                linked_user = (
+                    db.query(User)
+                    .filter(
+                        func.lower(User.email) == email.strip().lower(),
+                        User.organization_id == meeting.organization_id,
+                    )
+                    .first()
+                )
+                linked_user_id = linked_user.id if linked_user else None
+            if linked_user_id is None:
+                # No account behind this attendee (external guest,
+                # dial-in, or someone who hasn't signed up yet).
+                # Provenance describes a link, so with no link there's
+                # nothing to describe.
+                match_source = None
+
+            logger.debug(
+                "Matching participant: '%s' -> email=%s source=%s user=%s organizer=%s",
+                name, email or "NOT FOUND", match_source or "-",
+                linked_user_id or "-", is_organizer,
+            )
+
             participant = Participant(
                 meeting_id=meeting.id,
                 name=display_name,
                 recall_id=p_id,
                 email=email,
+                user_id=linked_user_id,
+                match_source=match_source,
                 is_organizer=str(is_organizer) # Maintaining string compatibility for now
             )
             db.add(participant)
-        
+
         db.commit()
 
     def save_tasks(self, db, meeting_id, tasks):

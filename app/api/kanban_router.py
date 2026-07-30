@@ -147,7 +147,7 @@ def list_boards(
             task_count=task_count,
         )
         for board, col_count, task_count in kanban_service.list_boards(
-            db, user.organization_id
+            db, user
         )
     ]
 
@@ -198,7 +198,7 @@ def get_board(
     queries total (board, columns, tasks).
     """
     board, columns_data = kanban_service.get_board_detail(
-        db, board_id, user.organization_id, meeting_id
+        db, board_id, user, meeting_id
     )
 
     columns_out = [
@@ -237,7 +237,7 @@ def update_board(
     user: User = Depends(get_current_user),
 ):
     board, col_count, task_count = kanban_service.update_board(
-        db, board_id, user.organization_id, payload
+        db, board_id, user, payload
     )
     return BoardSummary(
         id=board.id,
@@ -267,7 +267,7 @@ def delete_board(
     Refuses to delete the org's last remaining default board to avoid
     leaving the auto-extraction path with no landing target.
     """
-    kanban_service.delete_board(db, board_id, user.organization_id)
+    kanban_service.delete_board(db, board_id, user)
     return None
 
 
@@ -287,7 +287,7 @@ def create_column(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    col = kanban_service.create_column(db, board_id, user.organization_id, payload)
+    col = kanban_service.create_column(db, board_id, user, payload)
     return ColumnSummary.model_validate(col)
 
 
@@ -298,7 +298,7 @@ def update_column(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    col = kanban_service.update_column(db, column_id, user.organization_id, payload)
+    col = kanban_service.update_column(db, column_id, user, payload)
     return ColumnSummary.model_validate(col)
 
 
@@ -312,7 +312,7 @@ def delete_column(
     """Move all of this column's cards to the target column BEFORE
     deletion. The client must pick a target — we don't silently drop
     cards (per the plan's explicit-target-picker decision)."""
-    kanban_service.delete_column(db, column_id, user.organization_id, payload, user)
+    kanban_service.delete_column(db, column_id, payload, user)
     return None
 
 
@@ -352,7 +352,7 @@ def delete_task(
 ):
     """Delete a task. Cascades to task_comments + task_activity via
     ON DELETE CASCADE. Org-scoped via meeting OR board ownership."""
-    kanban_service.delete_task(db, task_id, user.organization_id)
+    kanban_service.delete_task(db, task_id, user)
     return None
 
 
@@ -391,7 +391,7 @@ def get_task_detail(
     """Single-task detail for the card detail drawer. Includes the
     fields the board card omits (description, board+column names,
     meeting participants for the owner picker, counts)."""
-    detail = kanban_service.get_task_detail(db, task_id, user.organization_id)
+    detail = kanban_service.get_task_detail(db, task_id, user)
     task = detail["task"]
 
     # Mirror the unassigned heuristic from _serialize_task.
@@ -453,7 +453,7 @@ def list_task_comments(
 ):
     """Comments on a task, ordered oldest → newest (a thread reads
     top-to-bottom). Org-scoped via require_task."""
-    comments = kanban_service.list_task_comments(db, task_id, user.organization_id)
+    comments = kanban_service.list_task_comments(db, task_id, user)
     return [_serialize_comment(c, user.id) for c in comments]
 
 
@@ -534,7 +534,7 @@ def list_task_activity(
     (default 50 per page) because old/active tasks can accumulate a
     lot of rows after enough drag-drops."""
     rows, total = kanban_service.list_task_activity(
-        db, task_id, user.organization_id, limit=limit, offset=offset
+        db, task_id, user, limit=limit, offset=offset
     )
     return ActivityListResponse(
         items=[_serialize_activity(r) for r in rows],

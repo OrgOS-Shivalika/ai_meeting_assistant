@@ -5,6 +5,7 @@ from app.db.database import get_db
 from sqlalchemy.orm import Session
 from app.db.models import User
 from app.config.settings import settings
+from app.utils.admin_enums import PromptRole
 import uuid
 
 SECRET_KEY = settings.AUTH_SECRET_KEY
@@ -50,6 +51,22 @@ def resolve_user_from_token(db: Session, token: str | None) -> User | None:
         return None
 
 
+# Endpoints reachable while `must_change_password` is set. Matched as a
+# suffix so the API/public prefix doesn't have to be hardcoded here.
+#
+# The set is deliberately tiny: enough to sign in, see who you are, set
+# a password and sign out. An admin provisioned with a generated
+# password has, by definition, a credential that was transmitted out of
+# band — the window where it works should cover exactly the act of
+# replacing it and nothing else.
+_PASSWORD_CHANGE_ALLOWED_SUFFIXES = (
+    "/auth/me",
+    "/auth/change-password",
+    "/auth/logout",
+    "/auth/login",
+)
+
+
 def get_current_user(
     request: Request,
     bearer_token: str | None = Depends(oauth2_scheme),
@@ -64,46 +81,54 @@ def get_current_user(
     user = resolve_user_from_token(db, token)
     if user is None:
         raise credentials_exception
+
+    # Forced password change. Enforced here rather than as a per-route
+    # dependency so a route added tomorrow inherits it — the failure mode
+    # of the alternative is a forgotten guard on exactly the endpoint
+    # that mattered.
+    if getattr(user, "must_change_password", False):
+        path = request.url.path.rstrip("/")
+        if not any(path.endswith(s) for s in _PASSWORD_CHANGE_ALLOWED_SUFFIXES):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must set a new password before using the application.",
+            )
     return user
 
 
 # ---------------------------------------------------------------------------
 # Phase 7E — RBAC
 #
-# `User.role` is one of:
-#   - 'viewer'        — read-only on agent surfaces
-#   - 'prompt_editor' — viewer + create/edit drafts, publish, rollback
-#   - 'org_admin'     — prompt_editor + archive profiles, run playground,
-#                       view audit log
+# `User.role` is one of VIEWER | PROMPT_EDITOR | ORG_ADMIN, stored
+# UPPERCASE. Canonical definition: `app/utils/admin_enums.PromptRole`,
+# which also owns the privilege ordering.
 #
-# NULL is treated as 'viewer' (safe-deny default). The 7E migration
-# backfills existing rows to 'org_admin' so no user loses access.
+# NULL is treated as VIEWER (safe-deny default). The 7E migration
+# backfills existing rows to ORG_ADMIN so no user loses access.
 # The dependency helpers below are designed to be drop-in `Depends()`
 # slots — the route declares `user: User = Depends(require_org_admin)`
 # and gets a 403 if the user's role isn't sufficient.
+#
+# NOTE: this is NOT the meeting-access role. `users.access_role`
+# (`AccessRole`) governs meetings, tasks and boards and is a separate
+# column with a separate meaning for its identically-named ORG_ADMIN.
 # ---------------------------------------------------------------------------
-
-_ROLE_RANK = {
-    "viewer": 0,
-    "prompt_editor": 1,
-    "org_admin": 2,
-}
 
 
 def _user_rank(user: User) -> int:
-    """Resolve the user's effective rank. NULL role → viewer."""
-    return _ROLE_RANK.get(user.role or "viewer", 0)
+    """Resolve the user's effective rank. NULL / unknown role → VIEWER."""
+    return PromptRole.coerce(getattr(user, "role", None)).rank
 
 
 def require_prompt_editor(
     user: User = Depends(get_current_user),
 ) -> User:
-    """Allow prompt_editor + org_admin. Used on draft/publish/rollback
+    """Allow PROMPT_EDITOR + ORG_ADMIN. Used on draft/publish/rollback
     endpoints."""
-    if _user_rank(user) < _ROLE_RANK["prompt_editor"]:
+    if _user_rank(user) < PromptRole.PROMPT_EDITOR.rank:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires role 'prompt_editor' or higher.",
+            detail=f"Requires role '{PromptRole.PROMPT_EDITOR}' or higher.",
         )
     return user
 
@@ -111,11 +136,11 @@ def require_prompt_editor(
 def require_org_admin(
     user: User = Depends(get_current_user),
 ) -> User:
-    """Allow org_admin only. Used on archive + playground + eval-gate
+    """Allow ORG_ADMIN only. Used on archive + playground + eval-gate
     config endpoints."""
-    if _user_rank(user) < _ROLE_RANK["org_admin"]:
+    if _user_rank(user) < PromptRole.ORG_ADMIN.rank:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires role 'org_admin'.",
+            detail=f"Requires role '{PromptRole.ORG_ADMIN}'.",
         )
     return user

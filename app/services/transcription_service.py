@@ -9,16 +9,17 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.models import Meeting
+from app.services import permissions
 
 
 def get_owned_meeting(db: Session, user, meeting_id: int) -> Meeting:
-    """Load a meeting owned by ``user`` or raise 404 (which also covers the
-    access-denied case — we do not distinguish missing vs. not-owned)."""
-    meeting = (
-        db.query(Meeting)
-        .filter(Meeting.id == meeting_id, Meeting.user_id == user.id)
-        .first()
-    )
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found or access denied")
-    return meeting
+    """Load a meeting the caller may read, or raise.
+
+    Was `Meeting.user_id == user.id` — creator-only, which is both
+    narrower than the access rules (an attendee couldn't read the
+    transcript of their own meeting) and unrelated to them (the creator
+    keeps access after being removed from a category). Now it routes
+    through the same scope everything else uses: 404 cross-org, 403
+    in-org but out of scope.
+    """
+    return permissions.get_viewable_meeting(db, user, meeting_id)

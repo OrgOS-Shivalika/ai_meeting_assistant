@@ -8,7 +8,10 @@
       "Bash(alembic upgrade *)",
       "PowerShell(venv\\\\Scripts\\\\pip.exe install python-multipart==0.0.20 2>&1)",
       "PowerShell(venv\\\\Scripts\\\\python.exe -c \"from main import app; from app.celery_app import celery; print\\('routes:', len\\(app.routes\\)\\); print\\('tasks:', sorted\\(t for t in celery.tasks if t.startswith\\('meeting_ai'\\)\\)\\)\")",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(./venv/Scripts/alembic.exe heads *)",
+      "Bash(./venv/Scripts/alembic.exe current *)"
     ]
   }
 }

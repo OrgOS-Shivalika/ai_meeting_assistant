@@ -38,6 +38,7 @@ from app.agents_v2.shared.prompt_store import (
 from app.db.database import get_db
 from app.db.models import AgentInsight, AgentPrompt, AgentV2, Category, Meeting, Team
 from app.dependencies.auth import get_current_user
+from app.services import permissions
 
 router = APIRouter(prefix="/agents_v2", tags=["Agents v2"])
 
@@ -301,18 +302,11 @@ def get_meeting_insights(
 ):
     """All insight payloads produced by agents_v2 agents for this meeting.
 
-    IDOR-safe: 404 for meetings outside the caller's org.
+    Insights are LLM summaries of the transcript, so they inherit the
+    meeting's access rules: 404 outside the caller's org, 403 inside it
+    but outside their scope.
     """
-    meeting = (
-        db.query(Meeting)
-        .filter(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == user.organization_id,
-        )
-        .first()
-    )
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    permissions.get_viewable_meeting(db, user, meeting_id)
 
     rows = (
         db.query(AgentInsight, AgentV2.slug, AgentV2.name)

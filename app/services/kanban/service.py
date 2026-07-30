@@ -20,12 +20,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import (
+    Category,
     KanbanBoard,
     KanbanColumn,
     Meeting,
     Task,
     TaskActivity,
     TaskComment,
+    Team,
 )
 from app.schemas.kanban_schema import (
     BoardCreateRequest,
@@ -38,6 +40,7 @@ from app.schemas.kanban_schema import (
     TaskCreateRequest,
     TaskMoveRequest,
 )
+from app.services import permissions
 from app.services.kanban.activity import record_activity
 from app.services.kanban.defaults import DEFAULT_COLUMNS
 from app.services.kanban.positions import (
@@ -55,59 +58,52 @@ logger = setup_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def require_board(db: Session, board_id: int, org_id) -> KanbanBoard:
-    """Fetch a board, 404 if missing or not in the caller's org."""
-    board = (
-        db.query(KanbanBoard)
-        .filter(
-            KanbanBoard.id == board_id,
-            KanbanBoard.organization_id == org_id,
-        )
-        .first()
-    )
-    if board is None:
-        raise HTTPException(status_code=404, detail="Board not found")
-    return board
+def require_board(db: Session, board_id: int, user) -> KanbanBoard:
+    """Fetch a board the caller may open. 404 outside their org, 403
+    inside it but out of scope."""
+    return permissions.get_viewable_board(db, user, board_id)
 
 
-def require_column(db: Session, column_id: int, org_id) -> KanbanColumn:
-    """Fetch a column with its board joined, verifying the board
-    belongs to the caller's org. Single query (one JOIN) so the
-    permission check is cheap."""
+def require_managed_board(db: Session, board_id: int, user) -> KanbanBoard:
+    """Fetch a board the caller may reconfigure — rename, add or remove
+    columns, delete. Members manage no boards."""
+    return permissions.get_manageable_board(db, user, board_id)
+
+
+def require_column(db: Session, column_id: int, user) -> KanbanColumn:
+    """Fetch a column, verifying the caller may open its board."""
     column = (
         db.query(KanbanColumn)
         .join(KanbanBoard, KanbanColumn.board_id == KanbanBoard.id)
         .filter(
             KanbanColumn.id == column_id,
-            KanbanBoard.organization_id == org_id,
+            KanbanBoard.organization_id == user.organization_id,
         )
         .first()
     )
     if column is None:
         raise HTTPException(status_code=404, detail="Column not found")
+    permissions.get_viewable_board(db, user, column.board_id)
     return column
 
 
-def require_task(db: Session, task_id: int, org_id) -> Task:
-    """Org-scoped via the parent meeting (existing pattern from
-    routes.py:update_task). Tasks without a meeting_id (rare,
-    manually-created) are also reachable via board ownership — we
-    fall back to the board check when meeting is None."""
-    task = (
-        db.query(Task)
-        .outerjoin(Meeting, Task.meeting_id == Meeting.id)
-        .outerjoin(KanbanBoard, Task.board_id == KanbanBoard.id)
-        .filter(
-            Task.id == task_id,
-            # Either the parent meeting OR the parent board belongs to org.
-            (Meeting.organization_id == org_id)
-            | (KanbanBoard.organization_id == org_id),
-        )
-        .first()
-    )
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+def require_managed_column(db: Session, column_id: int, user) -> KanbanColumn:
+    """As :func:`require_column`, for structural edits to the column."""
+    column = require_column(db, column_id, user)
+    permissions.get_manageable_board(db, user, column.board_id)
+    return column
+
+
+def require_task(db: Session, task_id: int, user) -> Task:
+    """Fetch a task the caller may read."""
+    return permissions.get_viewable_task(db, user, task_id)
+
+
+def require_managed_task(db: Session, task_id: int, user) -> Task:
+    """Fetch a task the caller may modify. Narrower than
+    :func:`require_task` — a member sees every card on a meeting they
+    attended but may only move or edit their own."""
+    return permissions.get_manageable_task(db, user, task_id)
 
 
 def _validate_scope(scope_type: str, scope_id: Optional[int]) -> None:
@@ -130,19 +126,31 @@ def _validate_scope(scope_type: str, scope_id: Optional[int]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def list_boards(db: Session, org_id) -> list[tuple[KanbanBoard, int, int]]:
-    """Boards in the org, each with its column + task counts.
+def list_boards(db: Session, user) -> list[tuple[KanbanBoard, int, int]]:
+    """Boards the caller may open, each with its column + task counts.
 
     Returns a list of ``(board, column_count, task_count)`` tuples so the
     router can build the response models.
+
+    The task count is scoped too — it has to be. Showing a member "48
+    cards" on a board where they may read three would leak the size of
+    work they have no access to, and the number wouldn't match what they
+    see when they open it.
     """
-    rows = (
+    board_q = (
         db.query(
             KanbanBoard,
             func.count(KanbanColumn.id).label("column_count"),
         )
         .outerjoin(KanbanColumn, KanbanColumn.board_id == KanbanBoard.id)
-        .filter(KanbanBoard.organization_id == org_id)
+        .filter(KanbanBoard.organization_id == user.organization_id)
+    )
+    board_clause = permissions.board_view_clause(db, user)
+    if board_clause is not None:
+        board_q = board_q.filter(board_clause)
+
+    rows = (
+        board_q
         .group_by(KanbanBoard.id)
         .order_by(
             # Default board first, then alphabetical.
@@ -156,12 +164,14 @@ def list_boards(db: Session, org_id) -> list[tuple[KanbanBoard, int, int]]:
 
     # Batch fetch task counts so we don't N+1 across boards.
     board_ids = [b.id for b, _ in rows]
-    task_counts = dict(
+    count_q = (
         db.query(Task.board_id, func.count(Task.id))
         .filter(Task.board_id.in_(board_ids))
-        .group_by(Task.board_id)
-        .all()
     )
+    task_clause = permissions.task_view_clause(db, user)
+    if task_clause is not None:
+        count_q = count_q.filter(task_clause)
+    task_counts = dict(count_q.group_by(Task.board_id).all())
 
     return [
         (board, col_count or 0, task_counts.get(board.id, 0))
@@ -181,6 +191,27 @@ def create_board(
     Returns ``(board, column_count)``.
     """
     _validate_scope(payload.scope_type, payload.scope_id)
+    # Members create no boards; admins create them only inside the
+    # categories they manage. An org-scoped board is organization-wide
+    # by definition, so only an org admin may create one.
+    permissions.require_admin_role(user)
+    if payload.scope_type == "org":
+        permissions.require_org_admin_role(user)
+    elif payload.scope_type == "category":
+        permissions.require_category_access(db, user, payload.scope_id, manage=True)
+    elif payload.scope_type == "team":
+        team = (
+            db.query(Team)
+            .join(Category, Team.category_id == Category.id)
+            .filter(
+                Team.id == payload.scope_id,
+                Category.organization_id == user.organization_id,
+            )
+            .first()
+        )
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        permissions.require_category_access(db, user, team.category_id, manage=True)
 
     board = KanbanBoard(
         organization_id=user.organization_id,
@@ -218,7 +249,7 @@ def create_board(
 
 
 def get_board_detail(
-    db: Session, board_id: int, org_id, meeting_id: Optional[int] = None
+    db: Session, board_id: int, user, meeting_id: Optional[int] = None
 ) -> tuple[KanbanBoard, list[tuple[KanbanColumn, list[tuple[Task, int]]]]]:
     """Single-fetch hot path. Returns the board and, per column (ordered
     by position), the cards on that column (ordered by position ASC =
@@ -227,9 +258,15 @@ def get_board_detail(
     Eagerly loads columns + tasks + each task's meeting in three
     queries total (board, columns, tasks).
 
+    This is where "boards for meetings they attended" is actually
+    enforced. Boards are org/category/team-scoped containers and are
+    never per-meeting, so the rule can't live at the board level — it
+    lives here, on the cards. Two people can open the same board and
+    correctly see different sets of cards.
+
     Returns ``(board, [(column, [(task, comment_count), ...]), ...])``.
     """
-    board = require_board(db, board_id, org_id)
+    board = require_board(db, board_id, user)
 
     columns = (
         db.query(KanbanColumn)
@@ -254,7 +291,12 @@ def get_board_detail(
         .filter(Task.column_id.in_(column_ids) if column_ids else False)
         .order_by(Task.position.asc().nullslast(), Task.id.asc())
     )
+    task_clause = permissions.task_view_clause(db, user)
+    if task_clause is not None:
+        task_q = task_q.filter(task_clause)
     if meeting_id is not None:
+        # Caller-supplied narrowing (the per-meeting Board tab), applied
+        # on top of — never instead of — the permission filter above.
         task_q = task_q.filter(Task.meeting_id == meeting_id)
     all_tasks = task_q.all()
 
@@ -289,13 +331,13 @@ def get_board_detail(
 
 
 def update_board(
-    db: Session, board_id: int, org_id, payload: BoardUpdateRequest
+    db: Session, board_id: int, user, payload: BoardUpdateRequest
 ) -> tuple[KanbanBoard, int, int]:
     """Apply a board rename / default-flag change.
 
     Returns ``(board, column_count, task_count)``.
     """
-    board = require_board(db, board_id, org_id)
+    board = require_managed_board(db, board_id, user)
     data = payload.model_dump(exclude_unset=True)
     if "name" in data:
         board.name = data["name"]
@@ -327,7 +369,7 @@ def update_board(
     return board, col_count, task_count
 
 
-def delete_board(db: Session, board_id: int, org_id) -> None:
+def delete_board(db: Session, board_id: int, user) -> None:
     """Cascade-deletes columns; tasks fall back to (board_id=NULL,
     column_id=NULL) via the FK's ON DELETE SET NULL. The tasks
     themselves are NOT deleted — they remain accessible via the flat
@@ -336,13 +378,13 @@ def delete_board(db: Session, board_id: int, org_id) -> None:
     Refuses to delete the org's last remaining default board to avoid
     leaving the auto-extraction path with no landing target.
     """
-    board = require_board(db, board_id, org_id)
+    board = require_managed_board(db, board_id, user)
     if board.is_default:
         # Check if any other board could serve as the default.
         other_count = (
             db.query(func.count(KanbanBoard.id))
             .filter(
-                KanbanBoard.organization_id == org_id,
+                KanbanBoard.organization_id == user.organization_id,
                 KanbanBoard.id != board.id,
                 KanbanBoard.scope_type == "org",
             )
@@ -364,9 +406,10 @@ def delete_board(db: Session, board_id: int, org_id) -> None:
 
 
 def create_column(
-    db: Session, board_id: int, org_id, payload: ColumnCreateRequest
+    db: Session, board_id: int, user, payload: ColumnCreateRequest
 ) -> KanbanColumn:
-    board = require_board(db, board_id, org_id)
+    # Adding a column changes the board's structure for every viewer.
+    board = require_managed_board(db, board_id, user)
 
     # Auto-position: append to end of board if not specified.
     if payload.position is None:
@@ -404,9 +447,9 @@ def create_column(
 
 
 def update_column(
-    db: Session, column_id: int, org_id, payload: ColumnUpdateRequest
+    db: Session, column_id: int, user, payload: ColumnUpdateRequest
 ) -> KanbanColumn:
-    col = require_column(db, column_id, org_id)
+    col = require_managed_column(db, column_id, user)
     data = payload.model_dump(exclude_unset=True)
 
     # Position changes need to shift siblings — handle BEFORE applying
@@ -459,13 +502,13 @@ def update_column(
 
 
 def delete_column(
-    db: Session, column_id: int, org_id, payload: ColumnDeleteRequest, user
+    db: Session, column_id: int, payload: ColumnDeleteRequest, user
 ) -> None:
     """Move all of this column's cards to the target column BEFORE
     deletion. The client must pick a target — we don't silently drop
     cards (per the plan's explicit-target-picker decision)."""
-    col = require_column(db, column_id, org_id)
-    target = require_column(db, payload.move_cards_to_column_id, org_id)
+    col = require_managed_column(db, column_id, user)
+    target = require_managed_column(db, payload.move_cards_to_column_id, user)
     if target.id == col.id:
         raise HTTPException(
             status_code=400,
@@ -528,11 +571,13 @@ def create_board_task(
     board's first column if column_id is omitted). Emits a
     `created` activity event.
     """
-    board = require_board(db, board_id, user.organization_id)
+    # Creating work on a board is a management action — the
+    # visibility matrix gives task creation to admins and org admins.
+    board = require_managed_board(db, board_id, user)
 
     # Resolve target column — either explicit, or the board's first.
     if payload.column_id is not None:
-        column = require_column(db, payload.column_id, user.organization_id)
+        column = require_column(db, payload.column_id, user)
         if column.board_id != board.id:
             raise HTTPException(
                 status_code=400,
@@ -551,18 +596,12 @@ def create_board_task(
                 detail="Board has no columns — cannot create task",
             )
 
-    # If a meeting_id is provided, verify it belongs to the org.
+    # If a meeting_id is provided, the caller must be able to manage
+    # that meeting. Attaching a card to a meeting makes the card visible
+    # to everyone who attended it, so this is a disclosure decision, not
+    # just a foreign key.
     if payload.meeting_id is not None:
-        meeting = (
-            db.query(Meeting)
-            .filter(
-                Meeting.id == payload.meeting_id,
-                Meeting.organization_id == user.organization_id,
-            )
-            .first()
-        )
-        if not meeting:
-            raise HTTPException(status_code=404, detail="Meeting not found")
+        permissions.get_manageable_meeting(db, user, payload.meeting_id)
 
     status = column.bound_status or "todo"
     pos = position_for_end(db, column.id)
@@ -607,10 +646,10 @@ def create_board_task(
     return task
 
 
-def delete_task(db: Session, task_id: int, org_id) -> None:
+def delete_task(db: Session, task_id: int, user) -> None:
     """Delete a task. Cascades to task_comments + task_activity via
-    ON DELETE CASCADE. Org-scoped via meeting OR board ownership."""
-    task = require_task(db, task_id, org_id)
+    ON DELETE CASCADE."""
+    task = require_managed_task(db, task_id, user)
     db.delete(task)
     db.commit()
 
@@ -630,8 +669,9 @@ def move_task(
 
     Returns ``(task, comment_count)``.
     """
-    task = require_task(db, task_id, user.organization_id)
-    target_col = require_column(db, payload.column_id, user.organization_id)
+    # Moving a card is an edit, so members may only move their own.
+    task = require_managed_task(db, task_id, user)
+    target_col = require_column(db, payload.column_id, user)
 
     # Sanity: target column must be on a board we can see (already
     # enforced by require_column's join, but if task.board_id is set
@@ -718,7 +758,7 @@ def move_task(
 # ---------------------------------------------------------------------------
 
 
-def get_task_detail(db: Session, task_id: int, org_id) -> dict:
+def get_task_detail(db: Session, task_id: int, user) -> dict:
     """Single-task detail for the card detail drawer. Includes the
     fields the board card omits (description, board+column names,
     meeting participants for the owner picker, counts).
@@ -726,7 +766,7 @@ def get_task_detail(db: Session, task_id: int, org_id) -> dict:
     Returns a dict with the task plus the joined context the router
     needs to build the response.
     """
-    task = require_task(db, task_id, org_id)
+    task = require_task(db, task_id, user)
 
     column_name = None
     board_name = None
@@ -772,10 +812,10 @@ def get_task_detail(db: Session, task_id: int, org_id) -> dict:
     }
 
 
-def list_task_comments(db: Session, task_id: int, org_id) -> list[TaskComment]:
+def list_task_comments(db: Session, task_id: int, user) -> list[TaskComment]:
     """Comments on a task, ordered oldest → newest (a thread reads
-    top-to-bottom). Org-scoped via require_task."""
-    task = require_task(db, task_id, org_id)
+    top-to-bottom). Access-scoped via require_task."""
+    task = require_task(db, task_id, user)
     return (
         db.query(TaskComment)
         .filter(TaskComment.task_id == task.id)
@@ -787,7 +827,10 @@ def list_task_comments(db: Session, task_id: int, org_id) -> list[TaskComment]:
 def create_task_comment(
     db: Session, task_id: int, user, payload: CommentCreateRequest
 ) -> TaskComment:
-    task = require_task(db, task_id, user.organization_id)
+    # Commenting needs only read access — a member should be able to
+    # reply on an action item from a meeting they sat in, even one
+    # that isn't theirs to edit.
+    task = require_task(db, task_id, user)
     body = payload.body.strip()
     if not body:
         raise HTTPException(status_code=400, detail="Comment body cannot be empty")
@@ -871,7 +914,7 @@ def delete_comment(db: Session, comment_id: int, user) -> None:
 
 
 def list_task_activity(
-    db: Session, task_id: int, org_id, *, limit: int, offset: int
+    db: Session, task_id: int, user, *, limit: int, offset: int
 ) -> tuple[list[TaskActivity], int]:
     """Reverse-chronological activity feed for a task. Paginated
     (default 50 per page) because old/active tasks can accumulate a
@@ -879,7 +922,7 @@ def list_task_activity(
 
     Returns ``(rows, total)``.
     """
-    task = require_task(db, task_id, org_id)
+    task = require_task(db, task_id, user)
 
     total = (
         db.query(func.count(TaskActivity.id))

@@ -1,4 +1,5 @@
 import Layout from "../../../shared/components/Layout";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import { Skeleton } from "../../../shared/components/Skeleton";
 import { useMeetings } from "../hooks/useMeetings";
 import { useGroupedLatestMeetings } from "../hooks/useGroupedLatestMeetings";
@@ -597,6 +598,10 @@ function NoFilterResults({ onClear }: { onClear: () => void }) {
 // ─── MeetingsPage ─────────────────────────────────────────────────────────────
 
 export default function MeetingsPage() {
+  // Scheduling a meeting files it into a category, which the API only
+  // allows for that category's admins. Members get the list without the
+  // button rather than a button that always 403s.
+  const { canCreateMeeting } = usePermissions();
   const [searchParams] = useSearchParams();
   const categoryId = searchParams.get("category_id");
   const teamId = searchParams.get("team_id");
@@ -956,14 +961,16 @@ export default function MeetingsPage() {
                   <LayoutGrid className="w-4 h-4" />
                 </button>
               </div>
-              <Button
-                size="sm"
-                onClick={() => setShowScheduleForm(!showScheduleForm)}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New meeting
-              </Button>
+              {canCreateMeeting && (
+                <Button
+                  size="sm"
+                  onClick={() => setShowScheduleForm(!showScheduleForm)}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New meeting
+                </Button>
+              )}
             </div>
           </header>
 
@@ -1118,31 +1125,33 @@ export default function MeetingsPage() {
               .
             </p>
           </div>
-          <button
-            onClick={() => setShowScheduleForm(!showScheduleForm)}
-            className="inline-flex items-center transition-colors"
-            style={{
-              gap: 8,
-              height: 44,
-              padding: "0 18px",
-              background: "var(--vb-ink)",
-              color: "var(--vb-on-ink)",
-              border: "none",
-              borderRadius: 12,
-              fontFamily: "var(--vb-font-sans)",
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-            onMouseDown={(e) =>
-              (e.currentTarget.style.background = "var(--vb-ink-active)")
-            }
-            onMouseUp={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
-          >
-            <Plus className="w-4 h-4" />
-            New meeting
-          </button>
+          {canCreateMeeting && (
+            <button
+              onClick={() => setShowScheduleForm(!showScheduleForm)}
+              className="inline-flex items-center transition-colors"
+              style={{
+                gap: 8,
+                height: 44,
+                padding: "0 18px",
+                background: "var(--vb-ink)",
+                color: "var(--vb-on-ink)",
+                border: "none",
+                borderRadius: 12,
+                fontFamily: "var(--vb-font-sans)",
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+              onMouseDown={(e) =>
+                (e.currentTarget.style.background = "var(--vb-ink-active)")
+              }
+              onMouseUp={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
+            >
+              <Plus className="w-4 h-4" />
+              New meeting
+            </button>
+          )}
         </header>
 
         <div className="mb-8">

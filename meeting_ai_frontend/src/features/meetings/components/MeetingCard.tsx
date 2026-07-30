@@ -4,6 +4,7 @@ import { MoreVertical, Calendar, Users, ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import MeetingSourceIcon from "./MeetingSourceIcon";
 import AIMemoryStatusDot from "./AIMemoryStatusDot";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 
 // Avatars cycle through the vibrant feature palette rather than tailwind
 // slate/emerald hues so the stack feels part of the cream aesthetic.
@@ -53,6 +54,13 @@ export default function MeetingCard({
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
   const [hover, setHover] = useState(false);
+
+  // Deleting a meeting belongs to whoever administers its category (or
+  // an org admin). A member who attended it can see it here but has no
+  // business removing it — and the API would 403 them anyway, so the
+  // menu item would only ever produce an error toast.
+  const { managesCategory } = usePermissions();
+  const canDelete = managesCategory(meeting.category?.id ?? null);
 
   const handleCopyLink = async () => {
     if (!meeting.meeting_url) return;
@@ -335,6 +343,8 @@ export default function MeetingCard({
           >
             Share
           </button>
+          {canDelete && (
+            <>
           <div style={{ height: 1, background: "var(--vb-hairline-soft)", margin: "4px 0" }} />
           <button
             onClick={() => {
@@ -352,6 +362,8 @@ export default function MeetingCard({
           >
             {isDeleting ? "Deleting…" : "Delete"}
           </button>
+            </>
+          )}
         </div>
       )}
     </div>

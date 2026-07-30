@@ -9,11 +9,17 @@ load_dotenv()
 
 class Settings:
     # ---- Database ---------------------------------------------------------
-    # Defaults match the previous hardcoded value so existing dev envs Just
-    # Work. Override via DATABASE_URL in .env when needed.
+    # Set DATABASE_URL in .env; this fallback exists only so a fresh checkout
+    # without a .env still starts.
+    #
+    # The fallback deliberately points at the LOCAL docker-compose Postgres
+    # (pgvector/pg16 on :5433, per POSTGRES_* in .env) — never at a remote.
+    # `alembic/env.py` migrates whatever this resolves to, so a production
+    # default here would mean an accidental `alembic upgrade head` rewrites
+    # production.
     DATABASE_URL = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:8210682@localhost:5432/meeting_ai",
+        "postgresql://postgres:postgres@localhost:5433/meeting_ai",
     )
 
     # ---- Auth -------------------------------------------------------------

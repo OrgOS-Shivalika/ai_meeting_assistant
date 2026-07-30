@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.db.models import Meeting, Task, Category, Team, KanbanBoard, KanbanColumn
+from app.db.models import (
+    Meeting, Task, Category, Team, KanbanBoard, KanbanColumn, User,
+)
 from app.schemas.meeting_schema import (
     MeetingRequest,
     MeetingAssignRequest,
@@ -22,8 +24,23 @@ from app.schemas.meeting_schema import (
     MeetingScheduleRequest,
     TaskUpdateRequest,
 )
-from app.services import category_service
+from app.services import category_service, permissions
 from app.services.google_calendar_service import create_calendar_event
+
+
+def _scoped_meetings(db: Session, user):
+    """Base meeting query: tenant boundary + the caller's RBAC view scope.
+
+    Every read path starts here so list and detail can't disagree — the
+    security spec makes that consistency a hard requirement, and the
+    only reliable way to hold it is to leave nobody a way to build a
+    meeting query by hand.
+    """
+    query = db.query(Meeting).filter(Meeting.organization_id == user.organization_id)
+    clause = permissions.meeting_view_clause(db, user)
+    if clause is not None:
+        query = query.filter(clause)
+    return query
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +85,10 @@ def _task_dict(task: Task, include_meeting_id: bool = False) -> dict:
         "id": task.id,
         "task": task.task,
         "owner": task.owner_name,
+        # Resolvable assignee, distinct from the free-text `owner` label
+        # above. The frontend needs it to decide whether to enable the
+        # edit controls for a member.
+        "assignee_user_id": str(task.assignee_user_id) if task.assignee_user_id else None,
         "priority": task.priority,
         "due_date": task.due_date,
         "is_completed": bool(task.is_completed),
@@ -155,9 +176,18 @@ def validate_category_team(
     user,
     category_id: Optional[int],
     team_id: Optional[int],
+    *,
+    manage: bool = True,
 ) -> None:
     """Ensure the (category, team) pair belongs to the requesting user's org
-    and the team is inside that category."""
+    and the team is inside that category.
+
+    ``manage=True`` (the default) additionally requires the caller to
+    administer the category. Every caller of this function is placing a
+    meeting into a category — creating, scheduling or re-filing one —
+    which the visibility matrix restricts to admins of that category and
+    to org admins.
+    """
     if team_id is not None and category_id is None:
         raise HTTPException(status_code=400, detail="team_id requires category_id")
     if category_id is not None:
@@ -167,6 +197,12 @@ def validate_category_team(
         ).first()
         if not category:
             raise HTTPException(status_code=404, detail="Category not found")
+    # `team_id` is forwarded so an admin scoped to a single team can file a
+    # meeting into that team, without that grant also letting them file
+    # into the rest of the category.
+    permissions.require_category_access(
+        db, user, category_id, manage=manage, team_id=team_id
+    )
     if team_id is not None:
         team = db.query(Team).filter(
             Team.id == team_id, Team.category_id == category_id
@@ -242,14 +278,14 @@ def list_meetings(
     page: Optional[int],
     page_size: Optional[int],
 ):
-    """Meetings list, org-scoped.
+    """Meetings list, scoped to the caller's role.
 
     Backwards-compat: with NO pagination params → returns a bare array
     (legacy callers like DashboardPage stay working). With either
     `page` or `page_size` set → returns a paginated object:
         { items, total, page, page_size, has_more }
     """
-    query = db.query(Meeting).filter(Meeting.organization_id == user.organization_id)
+    query = _scoped_meetings(db, user)
     if uncategorized:
         query = query.filter(Meeting.category_id.is_(None))
     elif category_id is not None:
@@ -302,23 +338,22 @@ def get_meetings_grouped_latest(db: Session, user, per_category: int) -> dict:
     cats = db.query(Category).filter(Category.organization_id == org_id).all()
     for cat in cats:
         rows = (
-            db.query(Meeting)
-            .filter(
-                Meeting.organization_id == org_id,
-                Meeting.category_id == cat.id,
-            )
+            _scoped_meetings(db, user)
+            .filter(Meeting.category_id == cat.id)
             .order_by(Meeting.created_at.desc())
             .limit(per_category)
             .all()
         )
-        result_by_category[str(cat.id)] = [_meeting_dict(m) for m in rows]
+        # Drop categories the caller can see nothing in, rather than
+        # returning an empty bucket. An empty bucket still reveals that
+        # the category exists and roughly what it's for — the group
+        # headers are rendered from these keys.
+        if rows:
+            result_by_category[str(cat.id)] = [_meeting_dict(m) for m in rows]
 
     uncat = (
-        db.query(Meeting)
-        .filter(
-            Meeting.organization_id == org_id,
-            Meeting.category_id.is_(None),
-        )
+        _scoped_meetings(db, user)
+        .filter(Meeting.category_id.is_(None))
         .order_by(Meeting.created_at.desc())
         .limit(per_category)
         .all()
@@ -333,11 +368,8 @@ def get_meetings_grouped_latest(db: Session, user, per_category: int) -> dict:
 
 def list_uncategorized_meetings(db: Session, user):
     meetings = (
-        db.query(Meeting)
-        .filter(
-            Meeting.organization_id == user.organization_id,
-            Meeting.team_id.is_(None),
-        )
+        _scoped_meetings(db, user)
+        .filter(Meeting.team_id.is_(None))
         .order_by(Meeting.created_at.desc())
         .all()
     )
@@ -347,13 +379,13 @@ def list_uncategorized_meetings(db: Session, user):
 def list_team_meetings(db: Session, user, team_id: int):
     # Reuse the shared ownership check (join Team→Category, org-scoped, 404
     # on miss) so team access stays consistent with category_router.
-    category_service.get_owned_team(db, user, team_id)
+    team = category_service.get_owned_team(db, user, team_id)
+    # A team inherits its category's access rules. Read-only check: a
+    # member who attended a meeting in this category may list it.
+    permissions.require_category_access(db, user, team.category_id, manage=False)
     meetings = (
-        db.query(Meeting)
-        .filter(
-            Meeting.organization_id == user.organization_id,
-            Meeting.team_id == team_id,
-        )
+        _scoped_meetings(db, user)
+        .filter(Meeting.team_id == team_id)
         .order_by(Meeting.created_at.desc())
         .all()
     )
@@ -413,11 +445,8 @@ def create_scheduled_meeting(
 
 
 def delete_meeting(db: Session, user, meeting_id: int) -> dict:
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.organization_id != user.organization_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this meeting")
+    # 404 across tenants, 403 within one — see `permissions` module docs.
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
     db.delete(meeting)
     db.commit()
     return {"status": "ok", "deleted_id": meeting_id}
@@ -433,12 +462,9 @@ def delete_meeting(db: Session, user, meeting_id: int) -> dict:
 
 
 def mark_meeting_for_embedding_retry(db: Session, user, meeting_id: int) -> None:
-    meeting = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
-        Meeting.organization_id == user.organization_id,
-    ).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    # Re-running the AI pipeline is a management action, not a read —
+    # it burns tokens and rewrites derived data.
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
     if meeting.status != "completed":
         raise HTTPException(
             status_code=400,
@@ -452,12 +478,7 @@ def mark_meeting_for_embedding_retry(db: Session, user, meeting_id: int) -> None
 
 
 def mark_meeting_for_graph_retry(db: Session, user, meeting_id: int) -> None:
-    meeting = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
-        Meeting.organization_id == user.organization_id,
-    ).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
     if meeting.embedding_status != "embedded":
         raise HTTPException(
             status_code=400,
@@ -473,11 +494,12 @@ def mark_meeting_for_graph_retry(db: Session, user, meeting_id: int) -> None:
 def assign_meeting_category(
     db: Session, user, meeting_id: int, payload: MeetingAssignRequest
 ) -> dict:
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.organization_id != user.organization_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    # Re-filing a meeting needs rights over BOTH ends: the category it
+    # currently sits in (via get_manageable_meeting) and the one it's
+    # moving to (via validate_category_team). Checking only the target
+    # would let an admin pull any meeting in the org into a category
+    # they control and thereby grant themselves access to it.
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
     validate_category_team(db, user, payload.category_id, payload.team_id)
     meeting.category_id = payload.category_id
     meeting.team_id = payload.team_id
@@ -489,11 +511,7 @@ def assign_meeting_category(
 def update_meeting(
     db: Session, user, meeting_id: int, payload: MeetingUpdateRequest
 ) -> dict:
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    if meeting.organization_id != user.organization_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    meeting = permissions.get_manageable_meeting(db, user, meeting_id)
 
     data = payload.model_dump(exclude_unset=True)
 
@@ -512,20 +530,11 @@ def update_meeting(
 
 
 def get_meeting_detail(db: Session, user, meeting_id: int) -> dict:
-    # Tenant isolation: only surface meetings owned by the caller's org.
-    # Return 404 (not 403) for cross-org access so we don't leak whether
-    # the ID exists — mirrors the /rag/ask + /categories convention.
-    meeting = (
-        db.query(Meeting)
-        .filter(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == user.organization_id,
-        )
-        .first()
-    )
-
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    # Tenant isolation plus the caller's RBAC view scope. Cross-org still
+    # returns 404 so we don't leak whether the ID exists (mirrors the
+    # /rag/ask + /categories convention); in-org-but-out-of-scope returns
+    # 403, which is what the access-control spec asks for.
+    meeting = permissions.get_viewable_meeting(db, user, meeting_id)
 
     # If the graph extraction failed, surface the latest run's
     # error_message so the AI Memory card can render it + a retry CTA.
@@ -606,13 +615,25 @@ def list_tasks(
     unassigned_only: bool = False,
     completed: Optional[bool] = None,
 ):
-    """Cross-meeting task list, scoped to the caller's organization. Used by
-    the Action Items page."""
+    """Cross-meeting task list, scoped to the caller's role. Used by the
+    Action Items page.
+
+    OUTER join to Meeting on purpose: manual Kanban cards have no parent
+    meeting, and an inner join would drop them for everyone. Their tenant
+    check comes from the board instead.
+    """
     query = (
         db.query(Task)
-        .join(Meeting, Task.meeting_id == Meeting.id)
-        .filter(Meeting.organization_id == user.organization_id)
+        .outerjoin(Meeting, Task.meeting_id == Meeting.id)
+        .outerjoin(KanbanBoard, Task.board_id == KanbanBoard.id)
+        .filter(
+            (Meeting.organization_id == user.organization_id)
+            | (KanbanBoard.organization_id == user.organization_id)
+        )
     )
+    task_clause = permissions.task_view_clause(db, user)
+    if task_clause is not None:
+        query = query.filter(task_clause)
 
     if owner:
         query = query.filter(Task.owner_name == owner)
@@ -636,7 +657,19 @@ def list_tasks(
     return out
 
 
-def get_meeting_tasks(db: Session, meeting_id: int):
+def get_meeting_tasks(db: Session, user, meeting_id: int):
+    """Tasks for one meeting.
+
+    Gated on access to the *meeting*, not to each task: the visibility
+    matrix says a member who attended a meeting sees its tasks, not only
+    the ones assigned to them. (Acting on them is a separate, narrower
+    check — see `update_task`.)
+
+    This function previously took no user at all and its route had no
+    auth dependency, so any caller could read any meeting's action items
+    by guessing an integer ID.
+    """
+    permissions.get_viewable_meeting(db, user, meeting_id)
     tasks = db.query(Task).filter(Task.meeting_id == meeting_id).all()
     return [_task_dict(t) for t in tasks]
 
@@ -655,23 +688,12 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
       - status ↔ is_completed lockstep (mirrors the DB CHECK constraint)
       - moving into a column with a bound_status auto-sets task.status
     """
-    # Phase 14 — tasks may now exist without a parent meeting (manual
-    # Kanban cards). Org-scope check needs to fall back to the board's
-    # organization in that case. Same logic as `_require_task` in
-    # `kanban_router.py`.
-    task = (
-        db.query(Task)
-        .outerjoin(Meeting, Task.meeting_id == Meeting.id)
-        .outerjoin(KanbanBoard, Task.board_id == KanbanBoard.id)
-        .filter(
-            Task.id == task_id,
-            (Meeting.organization_id == user.organization_id)
-            | (KanbanBoard.organization_id == user.organization_id),
-        )
-        .first()
-    )
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    # Tenant check (tasks may have no parent meeting — manual Kanban
+    # cards fall back to the board's org) plus the caller's write scope.
+    # Members reach only tasks assigned to them, which is narrower than
+    # what they can see: attending a meeting shows you its action items,
+    # it doesn't let you rewrite someone else's.
+    task = permissions.get_manageable_task(db, user, task_id)
 
     # Phase 14 K2 — capture a snapshot BEFORE mutation so we can emit
     # one activity row per field that actually changed. Keep this
@@ -679,6 +701,7 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     before_snapshot = {
         "task": task.task,
         "owner_name": task.owner_name,
+        "assignee_user_id": task.assignee_user_id,
         "priority": task.priority,
         "due_date": task.due_date,
         "description": task.description,
@@ -696,6 +719,29 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
         task.task = new_text
     if "owner_name" in data:
         task.owner_name = (data["owner_name"] or "").strip() or None
+    if "assignee_user_id" in data:
+        # Assigning is a grant — it hands the assignee read+write on this
+        # task regardless of whether they attended the meeting. Members
+        # can't do it, including to themselves.
+        permissions.require_admin_role(user)
+        if data["assignee_user_id"] is None:
+            task.assignee_user_id = None
+        else:
+            assignee = (
+                db.query(User)
+                .filter(
+                    User.id == data["assignee_user_id"],
+                    User.organization_id == user.organization_id,
+                )
+                .first()
+            )
+            if not assignee:
+                raise HTTPException(status_code=404, detail="Assignee not found")
+            task.assignee_user_id = assignee.id
+            # Keep the display label in step unless the caller set it
+            # explicitly in the same request.
+            if "owner_name" not in data:
+                task.owner_name = assignee.name
     if "priority" in data and data["priority"]:
         priority = data["priority"].lower()
         if priority not in {"low", "medium", "high"}:
@@ -706,21 +752,15 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     if "description" in data:
         task.description = data["description"] or None
 
-    # Board move — must belong to caller's org.
+    # Board move — the target must be a board the caller can actually
+    # open. Org-scope alone would let someone file their card onto a
+    # board they can't see, which both hides it from them and drops it
+    # in front of an audience they didn't choose.
     if "board_id" in data:
         if data["board_id"] is None:
             task.board_id = None
         else:
-            board = (
-                db.query(KanbanBoard)
-                .filter(
-                    KanbanBoard.id == data["board_id"],
-                    KanbanBoard.organization_id == user.organization_id,
-                )
-                .first()
-            )
-            if not board:
-                raise HTTPException(status_code=404, detail="Board not found")
+            board = permissions.get_viewable_board(db, user, data["board_id"])
             task.board_id = board.id
 
     # Column move — auto-derives status from the column's bound_status
@@ -740,6 +780,9 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             )
             if not column:
                 raise HTTPException(status_code=404, detail="Column not found")
+            # Same reasoning as the board move above — reached via the
+            # column, the board check still has to happen.
+            permissions.get_viewable_board(db, user, column.board_id)
             task.column_id = column.id
             # Auto-sync board_id if the client didn't explicitly set it.
             if "board_id" not in data:
@@ -782,6 +825,7 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     after_snapshot = {
         "task": task.task,
         "owner_name": task.owner_name,
+        "assignee_user_id": task.assignee_user_id,
         "priority": task.priority,
         "due_date": task.due_date,
         "description": task.description,
@@ -799,6 +843,7 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
         field_to_event={
             "task": "title_changed",
             "owner_name": "owner_changed",
+            "assignee_user_id": "assignee_changed",
             "priority": "priority_changed",
             "due_date": "due_changed",
             "description": "description_changed",

@@ -272,8 +272,12 @@ def get_tasks(
 
 
 @router.get("/meetings/{meeting_id}/tasks")
-def get_meeting_tasks(meeting_id: int, db: Session = Depends(get_db)):
-    return meeting_service.get_meeting_tasks(db, meeting_id)
+def get_meeting_tasks(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return meeting_service.get_meeting_tasks(db, user, meeting_id)
 
 
 @router.patch("/tasks/{task_id}")

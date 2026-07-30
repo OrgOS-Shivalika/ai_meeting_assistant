@@ -7,6 +7,8 @@ import LoginPage from "../features/auth/pages/LoginPage";
 import RegisterPage from "../features/auth/pages/RegisterPage";
 import GoogleCallbackPage from "../features/auth/pages/GoogleCallbackPage";
 import ProtectedRoute from "../features/auth/components/ProtectedRoute";
+import RequireRole from "../features/auth/components/RequireRole";
+import ChangePasswordPage from "../features/auth/pages/ChangePasswordPage";
 import CalendarPage from "../features/calendar/pages/CalendarPage";
 import AgentControlPage from "../features/agent-control/pages/AgentControlPage";
 import HarnessRunsPage from "../features/agent-control/pages/HarnessRunsPage";
@@ -39,6 +41,14 @@ export const router = createBrowserRouter([
   {
     path: "/register",
     element: <RegisterPage />,
+  },
+  {
+    // Reachable with a session but BEFORE the forced-password-change
+    // gate, which is the whole point: an admin provisioned with a
+    // generated password gets 403 on everything else until they land
+    // here and set their own.
+    path: "/change-password",
+    element: <ChangePasswordPage />,
   },
   {
     element: <ProtectedRoute />,
@@ -124,8 +134,10 @@ export const router = createBrowserRouter([
         element: <TemplatesInstalledPage />,
       },
       {
-        path: "/members",
-        element: <MembersPage />,
+        // Org-admin only. The guard is a courtesy — every endpoint the
+        // page calls enforces the same rule and 403s otherwise.
+        element: <RequireRole allow={["ORG_ADMIN"]} />,
+        children: [{ path: "/members", element: <MembersPage /> }],
       },
       {
         path: "/reports",

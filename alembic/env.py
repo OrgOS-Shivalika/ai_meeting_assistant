@@ -7,6 +7,7 @@ from alembic import context
 
 from app.db.database import Base
 from app.db import models  # VERY IMPORTANT
+from app.config.settings import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -16,6 +17,25 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Migrate the database the APPLICATION uses, not whatever is hardcoded in
+# alembic.ini.
+#
+# The ini shipped with `sqlalchemy.url = postgresql://postgres:postgres@
+# localhost:5433/meeting_ai`, so `alembic upgrade head` silently targeted
+# a stale local database while the app ran against DATABASE_URL. The
+# symptom is deeply confusing — migrations "succeed" (or fail citing
+# revisions from the other database's history) and the app keeps raising
+# UndefinedColumn, because the two were never the same database.
+#
+# settings.DATABASE_URL wins whenever it is set; the ini value stays as a
+# fallback so `alembic` still works if the env isn't loaded.
+if settings.DATABASE_URL:
+    # escape '%' — ConfigParser treats it as interpolation syntax, and
+    # URL-encoded passwords routinely contain it.
+    config.set_main_option(
+        "sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%")
+    )
 
 # add your model's MetaData object here
 # for 'autogenerate' support

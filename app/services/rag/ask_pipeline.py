@@ -173,6 +173,12 @@ def ask_stream(
     *,
     organization_id: UUID,
     user_id: Optional[UUID],
+    # The User row behind `user_id`. Retrieval needs the whole object,
+    # not just the ID, to derive the caller's meeting scope. Optional so
+    # background/eval callers that legitimately run unscoped (the
+    # importance scorer, replay harnesses) keep working — but any
+    # request originating from a browser MUST pass it.
+    viewer=None,
     query_text: str,
     requested_scope_type: Optional[ScopeType] = None,
     requested_scope_id: Optional[int] = None,
@@ -294,7 +300,7 @@ def ask_stream(
             db, organization_id=organization_id,
             query_text=query_text, plan=plan, embedder=embedder,
             top_k_final=top_k_final, sources=sources,
-            rerank_strategy=rerank_strategy,
+            rerank_strategy=rerank_strategy, viewer=viewer,
         )
     except Exception as e:
         logger.error("ask_stream: retrieval crashed: %s", e, exc_info=True)

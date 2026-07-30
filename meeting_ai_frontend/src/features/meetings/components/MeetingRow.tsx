@@ -1,4 +1,5 @@
 import type { Meeting } from "../types";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import { useNavigate } from "react-router-dom";
 import { MoreVertical, ChevronRight } from "lucide-react";
 import { useState } from "react";
@@ -36,6 +37,9 @@ interface MeetingRowProps {
 }
 
 export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRowProps) {
+  // Same rule as MeetingCard — delete follows the category grant.
+  const { managesCategory } = usePermissions();
+  const canDelete = managesCategory(meeting.category?.id ?? null);
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -220,13 +224,15 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
               >
                 {copied ? "Copied!" : "Copy Link"}
               </button>
-              <button
-                onClick={() => onDelete?.(meeting.id)}
-                disabled={isDeleting || !onDelete}
-                className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDeleting ? "Deleting…" : "Delete Meeting"}
-              </button>
+              {canDelete && (
+                <button
+                  onClick={() => onDelete?.(meeting.id)}
+                  disabled={isDeleting || !onDelete}
+                  className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDeleting ? "Deleting…" : "Delete Meeting"}
+                </button>
+              )}
             </div>
           </td>
         </tr>
