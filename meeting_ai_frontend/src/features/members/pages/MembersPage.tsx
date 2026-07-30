@@ -13,7 +13,12 @@ import {
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
-import { membersApi, type CategoryRef, type OrgMember } from "../api";
+import {
+  membersApi,
+  type CategoryRef,
+  type EmailStatus,
+  type OrgMember,
+} from "../api";
 import { ROLE_LABEL, roleBadgeClass } from "../roles";
 import AddMemberModal from "../components/AddMemberModal";
 import GrantPicker, { type GrantSelection } from "../components/GrantPicker";
@@ -72,6 +77,8 @@ export default function MembersPage() {
   const [issuedCredential, setIssuedCredential] = useState<{
     email: string;
     password: string;
+    emailStatus: EmailStatus;
+    emailError: string | null;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -163,6 +170,8 @@ export default function MembersPage() {
           <CredentialBanner
             email={issuedCredential.email}
             password={issuedCredential.password}
+            emailStatus={issuedCredential.emailStatus}
+            emailError={issuedCredential.emailError}
             onDismiss={() => setIssuedCredential(null)}
           />
         )}
@@ -258,6 +267,8 @@ export default function MembersPage() {
             setIssuedCredential({
               email: result.user.email,
               password: result.password,
+              emailStatus: result.email_status,
+              emailError: result.email_error,
             });
             load();
           }}
@@ -296,10 +307,14 @@ function StatCard({
 function CredentialBanner({
   email,
   password,
+  emailStatus,
+  emailError,
   onDismiss,
 }: {
   email: string;
   password: string;
+  emailStatus: EmailStatus;
+  emailError: string | null;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -320,13 +335,19 @@ function CredentialBanner({
         <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-amber-900">
-            Temporary password for {email}
+            {emailStatus === "sent" ? "Invite emailed to" : "Password for"} {email}
           </p>
           <p className="text-xs text-amber-800 mt-0.5">
-            This is shown once and cannot be retrieved later. Send it to them
-            over a channel you trust — they'll be asked to replace it when they
-            first sign in.
+            {emailStatus === "sent"
+              ? "An invite with these details has been emailed to them. Keep this to hand until they confirm — mail can bounce or be filtered. It cannot be retrieved later."
+              : emailStatus === "failed"
+                ? "The invite email could NOT be sent, so you'll need to pass this on yourself. It is shown once and cannot be retrieved later."
+                : "Email isn't configured on this deployment, so send this to them over a channel you trust. It is shown once and cannot be retrieved later."}
+            {" "}They'll be asked to replace it when they first sign in.
           </p>
+          {emailStatus === "failed" && emailError && (
+            <p className="text-[11px] text-red-700 mt-1 font-mono">{emailError}</p>
+          )}
           <div className="flex items-center gap-2 mt-2">
             <code className="px-2 py-1 rounded bg-white border border-amber-300 text-sm font-mono text-amber-900 select-all">
               {password}

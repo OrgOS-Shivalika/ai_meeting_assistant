@@ -29,6 +29,7 @@ from app.schemas.admin_schema import (
     RoleUpdateRequest,
 )
 from app.services import permissions
+from app.services import mail_service, mail_templates
 from app.services.auth_service import hash_password, verify_password
 from app.utils.admin_enums import AccessRole, ParticipantMatchSource
 from app.utils.logger import setup_logger
@@ -181,7 +182,7 @@ def _require_org_user(db: Session, org_id: UUID, user_id: UUID) -> User:
 
 def create_admin(
     db: Session, actor: User, payload: AdminCreateRequest
-) -> tuple[dict, Optional[str]]:
+) -> tuple[dict, Optional[str], Optional[mail_service.SendResult]]:
     """Create an admin account in the actor's org and grant it
     categories.
 
@@ -215,7 +216,9 @@ def create_admin(
             "Promoted existing user %s to admin over %d categories (by %s)",
             existing.email, len(categories), actor.email,
         )
-        return get_member(db, actor.organization_id, existing.id), None
+        # Promotion reuses the existing account and leaves its password
+        # alone, so there is no credential to email.
+        return get_member(db, actor.organization_id, existing.id), None, None
 
     temporary_password = _generate_temporary_password()
     user = User(
@@ -246,16 +249,21 @@ def create_admin(
         "Provisioned admin %s over %d categories, linked %d prior meetings (by %s)",
         user.email, len(categories), linked, actor.email,
     )
-    return get_member(db, actor.organization_id, user.id), temporary_password
+    email_result = send_invite(db, user, temporary_password, invited_by=actor)
+    return (
+        get_member(db, actor.organization_id, user.id),
+        temporary_password,
+        email_result,
+    )
 
 
 def create_member(
     db: Session, actor: User, payload: MemberCreateRequest
-) -> tuple[dict, str, int]:
+) -> tuple[dict, str, int, mail_service.SendResult]:
     """Add a user to the actor's organization with an explicit role and a
     caller-chosen password.
 
-    Returns ``(serialized_user, password, linked_meeting_count)``.
+    Returns ``(serialized_user, password, linked_meeting_count, email_result)``.
 
     Unlike :func:`create_admin` this refuses to reuse an existing account.
     Setting a password on a live account is a takeover of it, and the flow
@@ -312,7 +320,17 @@ def create_member(
         "Created %s %s in org %s (linked %d prior meetings) by %s",
         payload.access_role, user.email, actor.organization_id, linked, actor.email,
     )
-    return get_member(db, actor.organization_id, user.id), payload.password, linked
+
+    # After the commit, never before: an invite for an account that failed
+    # to save would send someone a password that doesn't work.
+    email_result = send_invite(db, user, payload.password, invited_by=actor)
+
+    return (
+        get_member(db, actor.organization_id, user.id),
+        payload.password,
+        linked,
+        email_result,
+    )
 
 
 def _link_existing_participation(db: Session, user: User) -> int:
@@ -449,6 +467,37 @@ def _resolve_categories(
             status_code=404, detail=f"Unknown categories: {missing}"
         )
     return categories
+
+
+def send_invite(
+    db: Session, user: User, password: str, *, invited_by: User
+) -> mail_service.SendResult:
+    """Email a newly created member their sign-in details.
+
+    Best-effort by design. The account is already committed by the time
+    this runs, so a mail failure must not undo it — the caller reports the
+    outcome and the UI falls back to showing the password for manual
+    sharing. Returns the result rather than raising for the same reason.
+    """
+    org = user.organization
+    text_body, html_body = mail_templates.invite_bodies(
+        recipient_name=user.name,
+        email=user.email,
+        password=password,
+        access_role=permissions.access_role(user),
+        organization_name=org.name if org else None,
+        invited_by_name=invited_by.name,
+    )
+    result = mail_service.send_email(
+        to=user.email,
+        subject=mail_templates.invite_subject(org.name if org else None),
+        text_body=text_body,
+        html_body=html_body,
+    )
+    logger.info(
+        "Invite email %s for %s (by %s)", result.status, user.email, invited_by.email
+    )
+    return result
 
 
 def _resolve_teams(db: Session, org_id: UUID, team_ids: list[int]) -> list[Team]:

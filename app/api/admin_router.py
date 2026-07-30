@@ -74,9 +74,13 @@ def create_member(
     409 if the email already has an account anywhere. Promoting or
     re-roling an existing user goes through `PATCH /admin/members/{id}`.
     """
-    member, password, linked = admin_service.create_member(db, user, payload)
+    member, password, linked, email = admin_service.create_member(db, user, payload)
     return MemberCreateResponse(
-        user=member, password=password, linked_meetings=linked
+        user=member,
+        password=password,
+        linked_meetings=linked,
+        email_status=email.status,
+        email_error=email.error,
     )
 
 
@@ -89,21 +93,24 @@ def create_admin(
     """Provision an admin: create the account with a generated password
     and grant it the requested categories.
 
-    The temporary password comes back in the response body **once**.
-    There is no mail provider wired up in this codebase yet
-    (`send_email` is a registered stub with `implemented=False`), so
-    delivering it is currently the org admin's job. When email lands,
-    stop returning the field and send it instead.
+    Emails the person their sign-in details when SMTP is configured, and
+    reports the outcome as `email_status`. Delivery is best-effort: a mail
+    failure does NOT fail the request, because the account is already
+    created by then.
+
+    The password comes back in the response body **once**, whether or not
+    the email went out — mail bounces and spam filters exist.
 
     Promoting someone who already has an account (common — they probably
     attended a meeting first) reuses that account and leaves their
     password alone, so `temporary_password` comes back null.
     """
-    member, temporary_password = admin_service.create_admin(db, user, payload)
+    member, temporary_password, email = admin_service.create_admin(db, user, payload)
     return AdminCreateResponse(
         user=member,
         temporary_password=temporary_password,
-        email_delivered=False,
+        email_status=email.status if email else "skipped",
+        email_error=email.error if email else None,
     )
 
 
