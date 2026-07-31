@@ -170,8 +170,13 @@ def reset_password(
 ):
     """Issue a new temporary password for a member.
 
-    The password comes back in the body **once** — there is no mail
-    provider wired up, so passing it along is the caller's job.
+    Emails it to them when SMTP is configured, and reports the outcome as
+    `email_status`. Delivery is best-effort: a mail failure does NOT fail
+    the request, because the password has already been changed by then.
+
+    The password also comes back in the body **once**, whether or not the
+    email went out — mail bounces and spam filters exist, and the server
+    keeps only a hash.
 
     Two things happen that are worth telling the user about: the account
     goes back into forced-password-change, and every session that person
@@ -182,9 +187,15 @@ def reset_password(
     recreate the account, which discards the attendance links that give
     that person access to their own meeting history.
     """
-    member, temporary_password = admin_service.reset_password(db, user, user_id)
+    member, temporary_password, email = admin_service.reset_password(
+        db, user, user_id
+    )
     return PasswordResetResponse(
-        user=member, temporary_password=temporary_password, sessions_revoked=True
+        user=member,
+        temporary_password=temporary_password,
+        sessions_revoked=True,
+        email_status=email.status,
+        email_error=email.error,
     )
 
 

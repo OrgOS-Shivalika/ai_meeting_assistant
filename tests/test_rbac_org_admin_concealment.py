@@ -43,6 +43,33 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 
+# --------------------------------------------------------------------------
+# No outbound mail from a test run
+# --------------------------------------------------------------------------
+#
+# `create_member` sends an invite after committing, so once SMTP is
+# configured — which it now is — these cases would post real mail to the
+# `@example.com` addresses they invent. That domain is reserved and accepts
+# nothing, so every run would bounce back into the sender's own inbox, add
+# an SMTP round trip per case, and feed a stream of undeliverables to a
+# live account's reputation.
+#
+# Stubbed rather than unset-the-env, because settings are read at import
+# and a test that only passes with a particular `.env` is not a test. The
+# replacement returns what an unconfigured server would, so the callers
+# see the same `skipped` they were written against.
+def _install_mail_stub() -> None:
+    from app.services import mail_service
+
+    def _no_send(**kwargs) -> "mail_service.SendResult":
+        return mail_service.SendResult(sent=False, skipped=True)
+
+    mail_service.send_email = _no_send  # type: ignore[assignment]
+
+
+_install_mail_stub()
+
+
 results: List[Tuple[str, str, str, str]] = []
 
 
@@ -338,8 +365,8 @@ def test_category_admin_can_create_scoped_member():
     with _session() as db:
         actor = _user(db, "alice")
         # 4-tuple since the invite-email merge: (user, password, linked,
-        # email_result). The email is a no-op here — SMTP_HOST is unset in
-        # dev, so `mail_service` reports 'skipped' and sends nothing.
+        # email_result). No mail leaves the process: `_install_mail_stub`
+        # replaced the sender at import, so this reports 'skipped'.
         created, _pw, _linked, _mail = admin_service.create_member(
             db,
             actor,
@@ -427,8 +454,8 @@ def test_org_admin_may_create_unscoped():
 
     with _session() as db:
         # 4-tuple since the invite-email merge: (user, password, linked,
-        # email_result). The email is a no-op here — SMTP_HOST is unset in
-        # dev, so `mail_service` reports 'skipped' and sends nothing.
+        # email_result). No mail leaves the process: `_install_mail_stub`
+        # replaced the sender at import, so this reports 'skipped'.
         created, _pw, _linked, _mail = admin_service.create_member(
             db,
             _user(db, "owner"),

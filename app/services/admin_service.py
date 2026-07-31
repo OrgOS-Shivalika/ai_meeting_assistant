@@ -366,7 +366,7 @@ def create_admin(
         "Provisioned admin %s over %d categories, linked %d prior meetings (by %s)",
         user.email, len(categories), linked, actor.email,
     )
-    email_result = send_invite(db, user, temporary_password, invited_by=actor)
+    email_result = send_invite(user, temporary_password, invited_by=actor)
     return (
         get_member(db, actor.organization_id, user.id),
         temporary_password,
@@ -479,7 +479,7 @@ def create_member(
 
     # After the commit, never before: an invite for an account that failed
     # to save would send someone a password that doesn't work.
-    email_result = send_invite(db, user, payload.password, invited_by=actor)
+    email_result = send_invite(user, payload.password, invited_by=actor)
 
     return (
         get_member(db, actor.organization_id, user.id),
@@ -726,8 +726,43 @@ def _resolve_categories(
     return categories
 
 
+def send_password_reset(
+    user: User, password: str, *, reset_by: User
+) -> mail_service.SendResult:
+    """Email someone the temporary password an admin just issued them.
+
+    Same best-effort contract as :func:`send_invite` — the password is
+    already live by the time this runs, so a mail failure must not undo it
+    and the dialog still shows the value for manual sharing.
+
+    Worth having even though the admin can copy the password by hand: this
+    one is server-generated, so unlike the invite flow nobody has it
+    written down anywhere, and it is the message most likely to actually
+    need delivering.
+    """
+    org = user.organization
+    text_body, html_body = mail_templates.reset_bodies(
+        recipient_name=user.name,
+        email=user.email,
+        password=password,
+        organization_name=org.name if org else None,
+        reset_by_name=reset_by.name,
+    )
+    result = mail_service.send_email(
+        to=user.email,
+        subject=mail_templates.reset_subject(org.name if org else None),
+        text_body=text_body,
+        html_body=html_body,
+    )
+    logger.info(
+        "Password-reset email %s for %s (by %s)",
+        result.status, user.email, reset_by.email,
+    )
+    return result
+
+
 def send_invite(
-    db: Session, user: User, password: str, *, invited_by: User
+    user: User, password: str, *, invited_by: User
 ) -> mail_service.SendResult:
     """Email a newly created member their sign-in details.
 
@@ -912,12 +947,15 @@ def _category_option(category: Category, teams) -> dict:
 # --------------------------------------------------------------------------
 
 
-def reset_password(db: Session, actor: User, user_id: UUID) -> tuple[dict, str]:
+def reset_password(
+    db: Session, actor: User, user_id: UUID
+) -> tuple[dict, str, mail_service.SendResult]:
     """Issue a new temporary password for someone else's account.
 
-    Returns ``(serialized_user, temporary_password)``. The password is
-    returned only here — the server keeps a bcrypt hash, so this response
-    is the one and only chance to read it.
+    Returns ``(serialized_user, temporary_password, email_result)``. The
+    password is returned regardless of whether the email went out — the
+    server keeps a bcrypt hash, so this is the one and only chance to read
+    it, and mail bounces and spam filters exist.
 
     Exists because the alternative was worse. A provisioned password is
     shown exactly once, and without a re-issue path the only recovery for
@@ -955,7 +993,18 @@ def reset_password(db: Session, actor: User, user_id: UUID) -> tuple[dict, str]:
     target.password_set_at = datetime.now(timezone.utc)
     db.commit()
     logger.info("Reset password for %s by %s", target.email, actor.email)
-    return get_member(db, actor.organization_id, target.id), temporary_password
+
+    # After the commit, never before — same reasoning as the invite: mailing
+    # a password for a change that failed to save is worse than not mailing
+    # at all. Best-effort, so a mail failure leaves the reset standing and
+    # the dialog still shows the value.
+    email_result = send_password_reset(target, temporary_password, reset_by=actor)
+
+    return (
+        get_member(db, actor.organization_id, target.id),
+        temporary_password,
+        email_result,
+    )
 
 
 def change_password(

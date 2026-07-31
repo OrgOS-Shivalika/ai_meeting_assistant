@@ -154,6 +154,12 @@ class PasswordResetResponse(BaseModel):
     # and tokens issued before it no longer validate. Reported so the UI can
     # say so rather than leaving the admin to assume otherwise.
     sessions_revoked: bool = True
+    # Whether the new password was emailed to them. 'sent' | 'skipped' |
+    # 'failed'; 'skipped' just means no SMTP is configured. The admin needs
+    # this to know whether passing the password on by hand is still their
+    # job — a silently failed send otherwise reads as a delivered one.
+    email_status: str = "skipped"
+    email_error: Optional[str] = None
 
 
 class MemberDeleteResponse(BaseModel):

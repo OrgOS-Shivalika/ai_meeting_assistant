@@ -7,9 +7,11 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Mail,
 } from "lucide-react";
 import { membersApi, type CategoryRef, type CreateMemberResult } from "../api";
 import GrantPicker, { type GrantSelection } from "./GrantPicker";
+import IssuedCredential from "./IssuedCredential";
 import { ROLE_HINT, ROLE_LABEL, roleBadgeClass } from "../roles";
 import { usePermissions } from "../../auth/hooks/usePermissions";
 import type { AccessRole } from "../../auth/types";
@@ -36,9 +38,18 @@ export default function AddMemberModal({
 }: {
   categories: CategoryRef[];
   onClose: () => void;
+  /**
+   * Fired once the account exists, so the caller can refresh its list.
+   *
+   * Does NOT mean "close me". The modal stays up on a third step to show
+   * the password and whether the invite reached them — closing here would
+   * put the one unrecoverable value in the response behind whatever the
+   * admin clicked next. Dismissal is `onClose`, from the Done button.
+   */
   onCreated: (result: CreateMemberResult) => void;
 }) {
-  const [step, setStep] = useState<"form" | "review">("form");
+  const [step, setStep] = useState<"form" | "review" | "result">("form");
+  const [created, setCreated] = useState<CreateMemberResult | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AccessRole>("MEMBER");
@@ -114,6 +125,13 @@ export default function AddMemberModal({
         category_ids: grants.categoryIds,
         team_ids: grants.teamIds,
       });
+      // Hand over to the result step rather than closing. `onCreated` still
+      // fires so the list refreshes underneath, but the modal owns its own
+      // dismissal now — the password and the invite outcome are both in
+      // this response and neither can be fetched again.
+      setCreated(result);
+      setStep("result");
+      setSubmitting(false);
       onCreated(result);
     } catch (e: any) {
       setError(e?.message || "Could not create that member.");
@@ -123,6 +141,41 @@ export default function AddMemberModal({
       setSubmitting(false);
     }
   };
+
+  // Third step. Its own view rather than a branch inside the shell below,
+  // because it shares nothing with the form: no backdrop dismissal, no
+  // Escape, no Back — the reflexes that close a dialog are what would
+  // destroy the only copy of the password.
+  if (step === "result" && created) {
+    return (
+      <IssuedCredential
+        title="Member added"
+        email={created.user.email}
+        password={created.password}
+        emailStatus={created.email_status}
+        emailError={created.email_error}
+        sentDetail="They have been emailed their sign-in details. Keep the copy below until they confirm they are in — a wrong address is accepted by the mail server and only bounces later."
+        failedDetail="The account exists and the password below works. Send it over a channel you trust."
+        skippedDetail="No mail server is configured, so nothing was sent. Only a hash is stored, so nobody can look this up later — if it is lost, reset their password to issue another."
+        footer="They will be asked to choose their own password the first time they sign in. Until they do, this one works for signing in and nothing else."
+        extra={
+          created.linked_meetings > 0 ? (
+            <div className="rounded-lg border border-gray-200 px-3 py-2 mb-4">
+              <p className="text-[11px] text-slate-700">
+                Linked to{" "}
+                <strong className="font-semibold">
+                  {created.linked_meetings} meeting
+                  {created.linked_meetings === 1 ? "" : "s"}
+                </strong>{" "}
+                they had already attended — they can see those straight away.
+              </p>
+            </div>
+          ) : null
+        }
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <div
@@ -146,8 +199,8 @@ export default function AddMemberModal({
         </div>
         <p className="text-xs text-[#777681] mb-4">
           {step === "form"
-            ? "Creates an account in your organization with the role you choose."
-            : "Check these details, copy the password, then create the account."}
+            ? "Creates an account in your organization and emails them their sign-in details."
+            : "Check the address carefully — the invite is sent the moment you create the account."}
         </p>
 
         {error && (
@@ -376,17 +429,40 @@ export default function AddMemberModal({
               </div>
             )}
 
+            {/* What happens on "Create Member", stated before it happens —
+                the reset flow does the same on its confirm step. This panel
+                used to say sharing the password was the admin's job, which
+                stopped being true once invite email landed: it is sent
+                automatically, and telling someone to hand-deliver a
+                credential that is already in the recipient's inbox is how
+                passwords end up in chat logs for no reason. */}
+            <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-indigo-50 border border-indigo-200">
+              <Mail className="w-4 h-4 shrink-0 mt-0.5 text-indigo-700" />
+              <div>
+                <p className="text-xs font-semibold text-indigo-900">
+                  They'll be emailed their sign-in details
+                </p>
+                <p className="text-[11px] text-indigo-800 mt-0.5">
+                  The invite goes to{" "}
+                  <span className="font-medium">{email.trim()}</span> as soon as
+                  you create the account, and you'll be told whether it actually
+                  sent. They'll be asked to choose their own password the first
+                  time they sign in.
+                </p>
+              </div>
+            </div>
+
             <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-amber-50 border border-amber-200">
               <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
               <div>
                 <p className="text-xs font-semibold text-amber-900">
-                  Copy this password now
+                  Copy the password anyway
                 </p>
                 <p className="text-[11px] text-amber-800 mt-0.5">
-                  This is the only time it will be visible. It is stored as a
-                  one-way hash, so nobody — including you — can retrieve it
-                  later. Share it over a channel you trust; they will be asked
-                  to replace it when they first sign in.
+                  This is the only time it will be visible — it is stored as a
+                  one-way hash, so nobody, including you, can retrieve it later.
+                  It is your fallback for the case the email does not arrive,
+                  and for when no mail server is configured.
                 </p>
               </div>
             </div>

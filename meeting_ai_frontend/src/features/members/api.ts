@@ -74,10 +74,16 @@ export interface CreateMemberResult {
 
 export interface ResetPasswordResult {
   user: OrgMember;
-  /** Shown once. Unrecoverable afterwards. */
+  /**
+   * Shown once. Unrecoverable afterwards — returned even when the email
+   * was sent, because mail bounces and spam filters exist.
+   */
   temporary_password: string;
   /** Every session that user held is now refused. */
   sessions_revoked: boolean;
+  /** Whether the new password reached them, or is still yours to pass on. */
+  email_status: EmailStatus;
+  email_error: string | null;
 }
 
 export interface DeleteMemberResult {
@@ -143,6 +149,9 @@ export const membersApi = {
   /**
    * Issue a new temporary password. Returned once — the server keeps only
    * a bcrypt hash, so a missed value means running this again.
+   *
+   * Emailed to them when SMTP is configured; check `email_status` before
+   * telling the admin the job is done.
    *
    * Also ends every session that person had, and puts the account back
    * into forced-password-change.

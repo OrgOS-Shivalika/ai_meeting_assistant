@@ -583,6 +583,127 @@ def test_password_change_revokes_older_tokens():
     assert not _issued_before_password_change(stub(naive_past), now.timestamp())
 
 
+# ---------------------------------------------------------------------------
+# 6. Outbound mail
+# ---------------------------------------------------------------------------
+#
+# Nothing here sends. The transport is exercised with SMTP deconfigured or
+# with `_connect` sabotaged, and the templates are pure functions.
+#
+# The property that matters most is that `send_email` NEVER raises: it runs
+# after the commit that created the account or changed the password, so an
+# exception would surface as a 500 on an operation that already succeeded,
+# and the caller would lose the one-shot password in the process.
+
+
+def test_send_email_skips_when_unconfigured():
+    from app.config.settings import settings
+    from app.services import mail_service
+
+    original = settings.SMTP_HOST
+    settings.SMTP_HOST = ""
+    try:
+        assert not mail_service.is_configured()
+        result = mail_service.send_email(
+            to="nobody@example.com", subject="x", text_body="y"
+        )
+        assert result.skipped and not result.sent
+        assert result.status == "skipped", (
+            "an unconfigured mail server must read as 'skipped', not 'failed' "
+            "— it is an expected deployment state, not an error"
+        )
+    finally:
+        settings.SMTP_HOST = original
+
+
+def test_send_email_never_raises():
+    """A dead mail server must not 500 a request whose work already
+    committed."""
+    from app.config.settings import settings
+    from app.services import mail_service
+
+    original_host, original_from = settings.SMTP_HOST, settings.SMTP_FROM
+    original_connect = mail_service._connect
+    settings.SMTP_HOST, settings.SMTP_FROM = "smtp.invalid", "a@b.co"
+
+    def _boom():
+        raise OSError("connection refused")
+
+    mail_service._connect = _boom  # type: ignore[assignment]
+    try:
+        result = mail_service.send_email(
+            to="nobody@example.com", subject="x", text_body="y"
+        )
+        assert result.status == "failed", "a send failure must report, not raise"
+        assert result.error and "OSError" in result.error
+    finally:
+        mail_service._connect = original_connect  # type: ignore[assignment]
+        settings.SMTP_HOST, settings.SMTP_FROM = original_host, original_from
+
+
+def test_templates_escape_html():
+    """A display name reaches the HTML body, so it has to be escaped —
+    otherwise a member called `<script>` ships markup into an inbox."""
+    from app.services import mail_templates
+
+    hostile = '<script>alert("x")</script>'
+    for bodies in (
+        mail_templates.invite_bodies(
+            recipient_name=hostile, email="a@b.co", password="pw",
+            access_role="MEMBER", organization_name=hostile,
+            invited_by_name=hostile,
+        ),
+        mail_templates.reset_bodies(
+            recipient_name=hostile, email="a@b.co", password="pw",
+            organization_name=hostile, reset_by_name=hostile,
+        ),
+    ):
+        _text, html = bodies
+        assert "<script>" not in html, "unescaped markup reached the HTML body"
+        assert "&lt;script&gt;" in html
+
+
+def test_both_templates_carry_password_and_login_url():
+    from app.config.settings import settings
+    from app.services import mail_templates
+
+    login = f"{settings.APP_PUBLIC_URL.rstrip('/')}/login"
+    invite = mail_templates.invite_bodies(
+        recipient_name="Ada", email="ada@b.co", password="SECRET-PW",
+        access_role="MEMBER", organization_name="Acme", invited_by_name="Grace",
+    )
+    reset = mail_templates.reset_bodies(
+        recipient_name="Ada", email="ada@b.co", password="SECRET-PW",
+        organization_name="Acme", reset_by_name="Grace",
+    )
+    for label, (text, html) in (("invite", invite), ("reset", reset)):
+        for body_name, body in (("text", text), ("html", html)):
+            assert "SECRET-PW" in body, f"{label} {body_name} lost the password"
+            assert login in body, f"{label} {body_name} lost the sign-in link"
+
+    # The reset has to say the thing an invite never has to say.
+    assert "signed out" in reset[0].lower()
+
+
+def test_reset_password_mails_after_the_commit():
+    """Order matters both ways: mailing before the commit would send a
+    password for a change that might not save, and mailing at all is the
+    point — this is the one flow whose password is server-generated, so
+    nobody has it written down."""
+    import inspect
+
+    from app.services import admin_service
+
+    src = inspect.getsource(admin_service.reset_password).split('"""')[-1]
+    commit = src.find("db.commit()")
+    send = src.find("send_password_reset(")
+    assert send != -1, "reset_password no longer emails the new password"
+    assert commit != -1 and commit < send, (
+        "reset_password mails before committing — a failed save would send a "
+        "password that does not work"
+    )
+
+
 def main() -> None:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
