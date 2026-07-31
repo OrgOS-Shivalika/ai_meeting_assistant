@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Inbox,
   Network,
+  Search as SearchIcon,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -29,6 +30,13 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useEntities } from "../hooks/useEntities";
 import { useMeetingGraph } from "../hooks/useMeetingGraph";
 import type { EntityScopeType, EntityType } from "../types";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SearchInput } from "@/components/ui/input";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { accent } from "@/lib/vibrant";
+import { cn } from "@/lib/utils";
 
 const ENTITY_TYPES: EntityType[] = [
   "person",
@@ -145,55 +153,50 @@ export default function KnowledgeGraphPage() {
     const data = meetingGraph.data;
     return (
       <Layout>
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="p-2 bg-indigo-50 rounded-xl">
-              <Network className="w-5 h-5 text-indigo-600" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                Graph for one meeting
-              </h1>
-              <p className="text-sm text-slate-500">
+        <PageContainer width="default">
+          <PageHeader
+            eyebrow="Intelligence"
+            title="Graph for one meeting"
+            size="sm"
+            description={
+              <>
                 Entities and relationships surfaced by{" "}
                 <Link
                   to={`/meeting/${meetingFilter}`}
-                  className="text-indigo-600 hover:underline font-bold"
+                  className="font-semibold text-ink hover:underline"
                 >
                   meeting #{meetingFilter}
                 </Link>
                 .
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={clearMeetingFilter}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
-            >
-              <X className="w-3.5 h-3.5" />
-              Back to all entities
-            </button>
-          </div>
+              </>
+            }
+            actions={
+              <Button variant="outline" size="sm" onClick={clearMeetingFilter}>
+                <X />
+                All entities
+              </Button>
+            }
+          />
 
           {meetingGraph.loading && !data && (
             // Graph SVG placeholder + a couple of side panels.
-            <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <SkeletonCard className="h-80 lg:col-span-2" />
-              <div className="space-y-3">
-                <SkeletonCard className="h-32" />
-                <SkeletonCard className="h-32" />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <SkeletonCard className="h-80 rounded-lg lg:col-span-2" />
+              <div className="space-y-3.5">
+                <SkeletonCard className="h-32 rounded-lg" />
+                <SkeletonCard className="h-32 rounded-lg" />
               </div>
             </div>
           )}
           {meetingGraph.error && (
-            <div className="mt-8 flex items-center gap-3 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg border border-error/20 bg-error/8 px-4 py-3.5 text-[13px] font-medium text-error">
+              <AlertCircle className="size-4 shrink-0" />
               {meetingGraph.error}
             </div>
           )}
           {data && (
             <>
-              <div className="mt-6 flex items-center gap-3 flex-wrap text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              <div className="mb-5 flex flex-wrap items-center gap-3 font-mono text-xs text-muted-ink">
                 <span>Status: {data.graph_status}</span>
                 <span>· {data.entities.length} entities</span>
                 <span>· {data.relationships.length} relationships</span>
@@ -201,18 +204,15 @@ export default function KnowledgeGraphPage() {
               </div>
 
               {data.entities.length === 0 ? (
-                <div className="mt-8 text-center py-12 bg-white rounded-xl border-2 border-dashed border-slate-200">
-                  <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-600">
-                    No entities for this meeting yet
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Graph extraction is{" "}
-                    <span className="font-mono">{data.graph_status}</span>.
-                  </p>
-                </div>
+                <EmptyState
+                  icon={Inbox}
+                  color="var(--vb-ochre)"
+                  title="No entities for this meeting yet"
+                  description={`Graph extraction is ${data.graph_status}.`}
+                  className="border-dashed"
+                />
               ) : (
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {data.entities.map((e) => (
                     <EntityCard
                       key={e.id}
@@ -225,45 +225,43 @@ export default function KnowledgeGraphPage() {
 
               {data.relationships.length > 0 && (
                 <section className="mt-8">
-                  <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                    Relationships
-                  </h2>
-                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
+                  <h2 className="vb-label-caps mb-3">Relationships</h2>
+                  <Card variant="default" className="overflow-hidden">
                     {data.relationships.map((r) => (
                       <div
                         key={r.id}
-                        className="flex items-center gap-3 px-4 py-2.5 text-xs"
+                        className="flex items-center gap-3 border-b border-hairline-soft px-5 py-3 text-[13px] last:border-0"
                       >
                         <button
                           type="button"
                           onClick={() => handleSelectEntity(r.subject.id)}
-                          className="font-bold text-slate-700 hover:text-indigo-600 truncate"
+                          className="truncate font-medium text-body-strong hover:text-ink hover:underline"
                         >
                           {r.subject.name}
                         </button>
-                        <span className="font-black text-indigo-600 uppercase tracking-wider text-[10px]">
+                        <span className="shrink-0 font-mono text-[11px] text-pink">
                           {r.predicate.replace(/_/g, " ")} →
                         </span>
                         <button
                           type="button"
                           onClick={() => handleSelectEntity(r.object.id)}
-                          className="font-bold text-slate-700 hover:text-indigo-600 truncate"
+                          className="truncate font-medium text-body-strong hover:text-ink hover:underline"
                         >
                           {r.object.name}
                         </button>
                         {r.confidence_score != null && (
-                          <span className="ml-auto text-[10px] font-bold text-emerald-600 shrink-0">
+                          <span className="ml-auto shrink-0 font-mono text-[11px] text-success">
                             {Math.round(r.confidence_score * 100)}%
                           </span>
                         )}
                       </div>
                     ))}
-                  </div>
+                  </Card>
                 </section>
               )}
             </>
           )}
-        </div>
+        </PageContainer>
 
         <EntityDetailDrawer
           entityId={entityId}
@@ -276,24 +274,18 @@ export default function KnowledgeGraphPage() {
   // ---- default list view --------------------------------------------------
   return (
     <Layout>
-      <div className=" mx-auto px-4 py-6">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="p-2 bg-indigo-50 rounded-xl">
-            <Network className="w-5 h-5 text-indigo-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Knowledge Graph
-            </h1>
-            <p className="text-sm text-slate-500">
-              People, projects, topics, decisions, and commitments the agent has
-              learned about.
-            </p>
-          </div>
-        </div>
+      <PageContainer width="wide">
+        <PageHeader
+          eyebrow="Intelligence"
+          title="Knowledge graph"
+          description="Entities and relationships extracted across meetings — people, projects, topics, decisions and commitments."
+        />
 
         {/* Filter row */}
-        <div className="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center gap-3">
+        <Card
+          variant="default"
+          className="flex flex-wrap items-center gap-3 rounded-2xl p-5"
+        >
           <ScopePicker
             scope={scope}
             scopeId={scopeId}
@@ -304,78 +296,84 @@ export default function KnowledgeGraphPage() {
               setCategoryId(c);
             }}
           />
-          <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+          {/* Entity-type filter. Each type keeps its own hue so the pill
+              row doubles as the graph legend. */}
+          <div className="inline-flex flex-wrap items-center gap-0.5 rounded-full bg-surface-card p-[3px]">
             <button
               type="button"
               onClick={() => setEntityType(null)}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${
+              className={cn(
+                "rounded-full px-3.5 py-[7px] text-xs transition-colors",
                 entityType === null
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
+                  ? "bg-canvas font-semibold text-ink"
+                  : "font-medium text-muted-ink hover:text-ink",
+              )}
             >
               All
             </button>
-            {ENTITY_TYPES.map((t) => (
+            {ENTITY_TYPES.map((t, index) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setEntityType(t)}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-[7px] text-xs capitalize transition-colors",
                   entityType === t
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
+                    ? "bg-canvas font-semibold text-ink"
+                    : "font-medium text-muted-ink hover:text-ink",
+                )}
               >
+                <span
+                  className="size-1.5 rounded-full"
+                  style={{ background: accent(index) }}
+                />
                 {t}
               </button>
             ))}
           </div>
-          <input
-            type="text"
+          <SearchInput
+            icon={SearchIcon}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by name…"
             maxLength={200}
-            className="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+            wrapperClassName="flex-1 min-w-40"
+            className="h-10"
           />
-        </div>
+        </Card>
 
         {/* Body */}
         <div className="mt-6">
           {list.loading && list.items.length === 0 && (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+                <Skeleton key={i} className="h-11 w-full rounded-md" />
               ))}
             </div>
           )}
           {list.error && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg border border-error/20 bg-error/8 px-4 py-3.5 text-[13px] font-medium text-error">
+              <AlertCircle className="size-4 shrink-0" />
               {list.error}
             </div>
           )}
           {!list.loading && !list.error && list.items.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-slate-200">
-              <Network className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-600">
-                Nothing here yet
-              </p>
-              <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                Run a meeting through the agent and we'll start extracting
-                people, projects, and the decisions you make.
-              </p>
-            </div>
+            <EmptyState
+              icon={Network}
+              color="var(--vb-lavender)"
+              title="Nothing extracted yet"
+              description="Run a meeting through the agents and they'll start pulling out people, projects and the decisions you make."
+              className="border-dashed"
+            />
           )}
           {list.items.length > 0 && (
             <>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="vb-label-caps">
                   {list.total} entities · page {page} of {totalPages}
                 </span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {list.items.map((e) => (
                   <EntityCard
                     key={e.id}
@@ -384,33 +382,33 @@ export default function KnowledgeGraphPage() {
                   />
                 ))}
               </div>
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <button
-                  type="button"
+              <div className="mt-6 flex items-center justify-center gap-2.5">
+                <Button
+                  variant="ghost"
+                  size="xs"
                   disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft />
                   Prev
-                </button>
-                <span className="text-xs font-bold text-slate-500 tabular-nums">
+                </Button>
+                <span className="font-mono text-xs text-muted-ink">
                   {page} / {totalPages}
                 </span>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="xs"
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg"
                 >
                   Next
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+                  <ChevronRight />
+                </Button>
               </div>
             </>
           )}
         </div>
-      </div>
+      </PageContainer>
 
       <EntityDetailDrawer
         entityId={entityId}

@@ -3,6 +3,10 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Cpu, Package, Layers } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { templatesApi, type LinkSummary } from "../services/templatesApi";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { PageContainer } from "@/components/ui/page-header";
+import { accent, tint } from "@/lib/vibrant";
 
 /**
  * Phase 8F refactor — templates landing reduced to an install hub.
@@ -30,30 +34,44 @@ export default function TemplatesLandingPage() {
 
   return (
     <Layout>
-      <div className="px-8 py-8 max-w-5xl mx-auto">
-        <header className="mb-8">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-            Templates
-          </p>
-          <h1 className="text-2xl font-bold text-gray-900 mt-1">
-            Behavior templates
-          </h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            Templates distribute prebuilt AI behavior profiles into your
-            workspace. After installing, customize behavior in{" "}
-            <Link to="/agent-control" className="text-indigo-600 underline">
-              Agent Control
-            </Link>
-            .
-          </p>
-        </header>
+      <PageContainer width="default">
+        {/* Marketplace hero — one lavender feature card, 28px radius. */}
+        <div className="relative mb-5 overflow-hidden rounded-3xl bg-lavender p-11">
+          <div className="pointer-events-none absolute -top-10 -right-5 size-56 rounded-full bg-white/25" />
+          <div className="relative max-w-[560px]">
+            <p className="mb-3.5 text-xs font-semibold tracking-[1.5px] text-ink/70 uppercase">
+              Template marketplace
+            </p>
+            <h1 className="mb-3.5 font-display text-[40px] leading-[1.05] font-medium tracking-[-1.6px] text-ink">
+              Bootstrap your workspace in an afternoon.
+            </h1>
+            <p className="mb-6 text-[15px] leading-relaxed text-ink/80">
+              Install ready-made agent bundles — categories, prompt configs and
+              boards — tuned for how your team meets. Customize the behavior
+              afterwards in Agent Control.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild>
+                <Link to="/templates/browse">
+                  Browse templates
+                  <ArrowRight />
+                </Link>
+              </Button>
+              <Button variant="onColor" asChild>
+                <Link to="/templates/installed">Installed</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
 
-        <section className="grid grid-cols-3 gap-4 mb-8">
+        <h2 className="vb-title-lg mt-7 mb-4">Browse by use case</h2>
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <ActionCard
             icon={Package}
             title="Browse catalog"
-            description="See available bundles + behavior profiles. Install with one click."
+            description="Available bundles and behavior profiles. Install with one click."
             href="/templates/browse"
+            tone={0}
           />
           <ActionCard
             icon={Layers}
@@ -66,60 +84,70 @@ export default function TemplatesLandingPage() {
                 : "Templates installed in this workspace."
             }
             href="/templates/installed"
+            tone={1}
           />
           <ActionCard
             icon={Cpu}
-            title="Agent Control"
-            description="Customize the AI's behavior across categories + teams."
+            title="Agent control"
+            description="Tune the agents' behavior across categories and teams."
             href="/agent-control"
-            primary
+            tone={2}
           />
         </section>
 
         {summary && summary.total > 0 && (
-          <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">
-              Installed breakdown
-            </h2>
-            <ul className="space-y-1.5">
+          <Card variant="default" className="mt-5 rounded-xl p-6">
+            <h2 className="vb-title-md mb-3.5">Installed breakdown</h2>
+            <ul className="flex flex-col gap-2.5">
               {Object.entries(summary.by_source_template_kind).map(([k, v]) => (
-                <li key={k} className="flex justify-between text-sm">
-                  <span className="text-gray-700 capitalize">{k}</span>
-                  <span className="font-semibold text-gray-900">{v}</span>
+                <li
+                  key={k}
+                  className="flex justify-between border-b border-hairline-soft pb-2.5 text-[13px] last:border-0 last:pb-0"
+                >
+                  <span className="text-body capitalize">{k}</span>
+                  <span className="font-mono text-ink">{v}</span>
                 </li>
               ))}
             </ul>
-          </section>
+          </Card>
         )}
-      </div>
+      </PageContainer>
     </Layout>
   );
 }
 
 function ActionCard({
-  icon: Icon, title, description, href, primary = false,
+  icon: Icon,
+  title,
+  description,
+  href,
+  tone = 0,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
   href: string;
-  primary?: boolean;
+  /** Position in the accent cycle. */
+  tone?: number;
 }) {
+  const hue = accent(tone);
   return (
-    <Link
-      to={href}
-      className={`block rounded-xl border p-5 hover:shadow-sm transition ${
-        primary
-          ? "bg-indigo-50 border-indigo-200"
-          : "bg-white border-gray-200"
-      }`}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`w-5 h-5 ${primary ? "text-indigo-600" : "text-gray-500"}`} />
-        <h3 className="font-semibold text-gray-900">{title}</h3>
-        <ArrowRight className="w-4 h-4 text-gray-300 ml-auto" />
-      </div>
-      <p className="text-sm text-gray-600">{description}</p>
+    <Link to={href} className="group block h-full">
+      <Card variant="default" className="h-full rounded-xl p-6">
+        <span
+          className="mb-4 inline-flex size-10 items-center justify-center rounded-md"
+          style={{ background: tint(hue, 14), color: hue }}
+        >
+          <Icon className="size-[19px]" />
+        </span>
+        <div className="flex items-center gap-2">
+          <h3 className="vb-title-md">{title}</h3>
+          <ArrowRight className="ml-auto size-4 text-muted-soft transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+        </div>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-ink">
+          {description}
+        </p>
+      </Card>
     </Link>
   );
 }

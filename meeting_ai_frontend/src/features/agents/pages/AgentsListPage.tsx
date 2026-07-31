@@ -94,7 +94,7 @@ export default function AgentsListPage() {
               <Bot className="w-5 h-5 text-indigo-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
                 Agents
               </h1>
               <p className="text-sm text-slate-500">
@@ -127,7 +127,7 @@ export default function AgentsListPage() {
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-4 py-2 text-sm font-bold transition-colors ${
+              className={`px-4 py-2 text-sm font-semibold transition-colors ${
                 statusFilter === s
                   ? "text-indigo-600 border-b-2 border-indigo-600"
                   : "text-slate-500 hover:text-slate-700"
@@ -166,7 +166,7 @@ export default function AgentsListPage() {
             {agents.map((a) => (
               <li
                 key={a.id}
-                className="bg-white border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all"
+                className="bg-canvas border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-sm transition-all"
               >
                 <div className="flex items-center justify-between p-4">
                   <Link
@@ -178,22 +178,22 @@ export default function AgentsListPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-sm font-bold text-slate-900 truncate">
+                        <h3 className="text-sm font-semibold text-slate-900 truncate">
                           {a.display_name}
                         </h3>
                         <code className="text-[11px] text-slate-500 font-mono">
                           {a.slug}
                         </code>
-                        <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 rounded">
+                        <span className="px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 bg-indigo-50 rounded">
                           {AGENT_TYPE_LABELS[a.agent_type] || a.agent_type}
                         </span>
                         {a.status === "archived" && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-slate-100 rounded">
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 rounded">
                             archived
                           </span>
                         )}
                         {a.eval_gate_required && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 rounded">
+                          <span className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 rounded">
                             eval-gated
                           </span>
                         )}
@@ -287,12 +287,12 @@ function CreateAgentModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4"
+        className="bg-canvas rounded-2xl shadow-raised max-w-md w-full p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-slate-900">New agent</h2>
+        <h2 className="text-lg font-semibold text-slate-900">New agent</h2>
         <div>
-          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             Slug
           </label>
           <input
@@ -306,7 +306,7 @@ function CreateAgentModal({
           </p>
         </div>
         <div>
-          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             Display name
           </label>
           <input
@@ -317,13 +317,13 @@ function CreateAgentModal({
           />
         </div>
         <div>
-          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             Agent type
           </label>
           <select
             value={agentType}
             onChange={(e) => setAgentType(e.target.value)}
-            className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+            className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-canvas"
           >
             {types.map((t) => (
               <option key={t.agent_type} value={t.agent_type} disabled={t.reserved}>
@@ -334,7 +334,7 @@ function CreateAgentModal({
           </select>
         </div>
         <div>
-          <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
             Description
           </label>
           <textarea

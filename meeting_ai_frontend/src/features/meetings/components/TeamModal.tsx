@@ -100,12 +100,12 @@ export default function TeamModal({
         onClick={() => !saving && onClose()}
       />
 
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-canvas rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-gray-100">
           <div className="flex items-center gap-3 min-w-0">
             <div
-              className="p-2.5 rounded-xl shadow-md flex items-center justify-center shrink-0"
+              className="p-2.5 rounded-xl shadow-soft flex items-center justify-center shrink-0"
               style={{
                 backgroundColor: accent,
                 boxShadow: `0 4px 12px ${accent}30`,
@@ -114,10 +114,10 @@ export default function TeamModal({
               <Users className="w-4 h-4 text-white" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-slate-900 truncate">
+              <h2 className="text-lg font-semibold text-slate-900 truncate">
                 {isEditing ? "Edit Team" : "Add Team"}
               </h2>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 truncate">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mt-0.5 truncate">
                 in {category.name}
               </p>
             </div>
@@ -138,7 +138,7 @@ export default function TeamModal({
           <div>
             <label
               htmlFor="team-modal-name"
-              className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2"
+              className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-2"
             >
               Team name
             </label>
@@ -156,14 +156,14 @@ export default function TeamModal({
               placeholder="e.g. Frontend, Backend, Customer Success"
               maxLength={80}
               autoFocus
-              className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900 placeholder:text-slate-400"
+              className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900 placeholder:text-slate-400"
             />
           </div>
 
           <div>
             <label
               htmlFor="team-modal-desc"
-              className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2"
+              className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-2"
             >
               Description{" "}
               <span className="text-slate-300 font-normal normal-case ml-1">
@@ -176,12 +176,12 @@ export default function TeamModal({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What does this team do?"
               rows={2}
-              className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm text-slate-700 placeholder:text-slate-400 resize-none"
+              className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm text-slate-700 placeholder:text-slate-400 resize-none"
             />
           </div>
 
           {error && (
-            <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-bold rounded-lg">
+            <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-semibold rounded-lg">
               {error}
             </div>
           )}
@@ -193,7 +193,7 @@ export default function TeamModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="px-4 py-2 border-2 border-slate-100 text-slate-600 font-bold text-xs uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all disabled:opacity-50"
+            className="px-4 py-2 border-2 border-slate-100 text-slate-600 font-semibold text-xs uppercase tracking-wider rounded-lg hover:bg-slate-50 transition-all disabled:opacity-50"
           >
             Cancel
           </button>
@@ -201,7 +201,7 @@ export default function TeamModal({
             type="button"
             onClick={handleSave}
             disabled={saving || !name.trim()}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-md shadow-indigo-600/20 transition-all flex items-center gap-2"
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-xs uppercase tracking-wider rounded-lg shadow-soft shadow-indigo-600/20 transition-all flex items-center gap-2"
           >
             {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {isEditing ? "Save changes" : "Add team"}

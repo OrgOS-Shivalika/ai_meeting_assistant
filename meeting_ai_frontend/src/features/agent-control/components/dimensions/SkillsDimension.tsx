@@ -67,7 +67,7 @@ export default function SkillsDimension({
                 className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
                   isEnabled
                     ? "bg-indigo-50 border-indigo-200 shadow-sm"
-                    : "bg-white border-gray-100 hover:border-gray-200 opacity-60"
+                    : "bg-canvas border-gray-100 hover:border-gray-200 opacity-60"
                 }`}
               >
                 <div className={`p-2 rounded-lg mt-0.5 ${isEnabled ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-400"}`}>
@@ -75,7 +75,7 @@ export default function SkillsDimension({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${isEnabled ? "text-indigo-900" : "text-gray-500"}`}>
+                    <span className={`text-xs font-semibold ${isEnabled ? "text-indigo-900" : "text-gray-500"}`}>
                       {skill.label}
                     </span>
                     {isEnabled && <Check className="w-3 h-3 text-indigo-600" />}

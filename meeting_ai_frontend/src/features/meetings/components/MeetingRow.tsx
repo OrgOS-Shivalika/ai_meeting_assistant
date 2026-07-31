@@ -59,22 +59,18 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
     completed: {
       label: "Completed",
       badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-      dot: "bg-emerald-500",
     },
     failed: {
       label: "Failed",
       badge: "bg-red-50 text-red-700 ring-1 ring-red-200",
-      dot: "bg-red-500",
     },
     pending: {
       label: "Pending",
       badge: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-      dot: "bg-amber-500",
     },
     processing: {
       label: "Processing",
       badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200",
-      dot: "bg-indigo-500",
     },
   };
 
@@ -97,12 +93,12 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
         <td className="px-6 py-4">
           <div className="flex flex-col gap-0.5">
             <div className="flex justify-between gap-2">
-              <h3 className="text-sm font-bold text-slate-900 line-clamp-1 group-hover/row:text-indigo-600 transition-colors">
+              <h3 className="text-sm font-semibold text-slate-900 line-clamp-1 group-hover/row:text-indigo-600 transition-colors">
                 {meeting.title || "Untitled Meeting"}
               </h3>
               {meeting.category && (
                 <span
-                  className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border"
+                  className="shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border"
                   style={{
                     backgroundColor: `${meeting.category.color || "#4F46E5"}14`,
                     color: meeting.category.color || "#4F46E5",
@@ -125,8 +121,8 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
         {/* Date & Time */}
         <td className="px-6 py-4 whitespace-nowrap">
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold text-slate-700">{dateStr}</span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+            <span className="text-xs font-semibold text-slate-700">{dateStr}</span>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-tight">
               {createdDate.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
             </span>
           </div>
@@ -141,18 +137,18 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
                   <div
                     key={p.id}
                     title={p.name}
-                    className={`w-6 h-6 rounded-full ring-2 ring-white flex items-center justify-center text-[9px] font-bold text-white ${colorFor(p.name)}`}
+                    className={`w-6 h-6 rounded-full ring-2 ring-canvas flex items-center justify-center text-[9px] font-semibold text-white ${colorFor(p.name)}`}
                   >
                     {initialsOf(p.name)}
                   </div>
                 ))}
                 {meeting.participants.length > 4 && (
-                  <div className="w-6 h-6 rounded-full ring-2 ring-white bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-600">
+                  <div className="w-6 h-6 rounded-full ring-2 ring-canvas bg-slate-100 flex items-center justify-center text-[9px] font-semibold text-slate-600">
                     +{meeting.participants.length - 4}
                   </div>
                 )}
               </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight">
                 {meeting.participants.length}
               </span>
             </div>
@@ -164,14 +160,17 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
         {/* Status */}
         <td className="px-6 py-4 whitespace-nowrap">
           <div className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${status.dot} shadow-[0_0_6px_currentColor]`} />
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg ${status.badge}`}>
+            {/* One pill carries both signals: the tint and text colour are
+                the processing status (no dot — that repeated the word), and
+                the trailing sparkle is the AI-memory state, which keeps its
+                own colour so a failure still stands out inside the pill. */}
+            <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-lg ${status.badge}`}>
               {status.label}
+              <AIMemoryStatusDot
+                embeddingStatus={meeting.embedding_status}
+                graphStatus={meeting.graph_status}
+              />
             </span>
-            <AIMemoryStatusDot
-              embeddingStatus={meeting.embedding_status}
-              graphStatus={meeting.graph_status}
-            />
           </div>
         </td>
 
@@ -210,17 +209,17 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
               className="flex items-center gap-3 animate-in fade-in slide-in-from-left-4 duration-300"
               onClick={(e) => e.stopPropagation()}
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2">Quick Actions:</span>
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mr-2">Quick Actions:</span>
               <button
                 onClick={() => navigate(`/meeting/${meeting.id}`)}
-                className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 bg-white border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 rounded-lg transition-all text-slate-600 shadow-sm"
+                className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 bg-canvas border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 rounded-lg transition-all text-slate-600 shadow-sm"
               >
                 View Details
               </button>
               <button
                 onClick={handleCopyLink}
                 disabled={!meeting.meeting_url}
-                className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 bg-white border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 rounded-lg transition-all text-slate-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 bg-canvas border border-slate-200 hover:border-indigo-600 hover:text-indigo-600 rounded-lg transition-all text-slate-600 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {copied ? "Copied!" : "Copy Link"}
               </button>
@@ -228,7 +227,7 @@ export default function MeetingRow({ meeting, onDelete, isDeleting }: MeetingRow
                 <button
                   onClick={() => onDelete?.(meeting.id)}
                   disabled={isDeleting || !onDelete}
-                  className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isDeleting ? "Deleting…" : "Delete Meeting"}
                 </button>

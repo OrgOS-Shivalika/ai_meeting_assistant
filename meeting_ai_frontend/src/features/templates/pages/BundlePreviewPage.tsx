@@ -5,6 +5,11 @@ import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { templatesApi } from "../services/templatesApi";
 import type { BundlePreview, BundlePreviewItem } from "../services/templatesApi";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { IconChip } from "@/components/ui/icon-chip";
+import { BackLink, PageContainer } from "@/components/ui/page-header";
 
 // Only category + team in the new behavior-profile catalog; legacy
 // 'agent' items were filtered out on the backend.
@@ -62,101 +67,121 @@ export default function BundlePreviewPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="px-8 py-8 max-w-5xl mx-auto space-y-6">
+        <PageContainer width="narrow" className="space-y-6">
           <Skeleton className="h-4 w-32" />
-          <div className="flex items-start gap-4">
-            <Skeleton className="h-12 w-12 rounded-xl" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-6 w-72" />
-              <Skeleton className="h-4 w-96" />
+          <Skeleton className="h-40 w-full rounded-2xl" />
+          <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1fr_260px]">
+            <div className="space-y-2.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonCard key={i} className="h-18 rounded-md" />
+              ))}
             </div>
-            <Skeleton className="h-10 w-32" />
+            <SkeletonCard className="h-52 rounded-lg" />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <SkeletonCard key={i} className="h-20" />
-            ))}
-          </div>
-        </div>
+        </PageContainer>
       </Layout>
     );
   }
   if (error || !data) {
     return (
       <Layout>
-        <div className="p-8">
-          <Link to="/templates/browse" className="text-sm text-indigo-600">← Back</Link>
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
+        <PageContainer width="narrow">
+          <BackLink as={Link} to="/templates/browse">
+            Browse
+          </BackLink>
+          <div className="rounded-lg border border-error/20 bg-error/8 p-4 text-[13px] font-medium text-error">
             {error || "Bundle not found"}
           </div>
-        </div>
+        </PageContainer>
       </Layout>
     );
   }
 
   return (
     <Layout>
-      <div className="px-8 py-8 max-w-5xl mx-auto">
-        <Link to="/templates/browse" className="text-sm text-indigo-600 hover:underline">
-          ← Back to catalog
-        </Link>
+      <PageContainer width="narrow">
+        <BackLink as={Link} to="/templates/browse">
+          Browse
+        </BackLink>
 
-        <header className="flex items-start justify-between mt-3 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-              <Package className="w-6 h-6 text-indigo-600" />
-            </div>
+        {/* Header band — the bundle's own saturated card. */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-6 rounded-2xl bg-pink p-9 text-white">
+          <div className="flex items-center gap-[18px]">
+            <span className="inline-flex size-15 items-center justify-center rounded-[16px] bg-white/20">
+              <Package className="size-7" />
+            </span>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <h1 className="flex flex-wrap items-center gap-2.5 font-display text-[30px] font-medium tracking-[-1px]">
                 {data.display_name}
                 {data.is_recommended_on_signup && (
-                  <span className="flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                    <Sparkles className="w-3 h-3" /> Recommended
-                  </span>
+                  <Badge variant="onDark">
+                    <Sparkles className="size-2.5" />
+                    Recommended
+                  </Badge>
                 )}
               </h1>
-              <p className="text-sm text-gray-500">{data.slug}@{data.version}</p>
+              <p className="mt-1.5 text-sm opacity-85">{data.description}</p>
             </div>
           </div>
-          <button
-            onClick={handleInstall}
-            disabled={installing}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
-          >
-            {installing ? <Loader2 className="animate-spin w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+          <Button onClick={handleInstall} disabled={installing}>
+            {installing ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <CheckCircle2 />
+            )}
             {installing ? "Installing…" : "Install bundle"}
-          </button>
-        </header>
+          </Button>
+        </div>
 
         {installResult && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm">
+          <div className="mb-5 rounded-lg border border-success/25 bg-success/8 p-3.5 text-[13px] font-medium text-success">
             {installResult}
           </div>
         )}
 
-        <p className="text-gray-700 mb-6">{data.description}</p>
+        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_260px]">
+          {/* Contents */}
+          <div>
+            <h3 className="vb-title-md mb-3.5">What's included</h3>
+            <div className="flex flex-col gap-2.5">
+              {data.items.map((it) => (
+                <ItemRow key={`${it.item_type}:${it.item_slug}`} item={it} />
+              ))}
+            </div>
+          </div>
 
-        <section className="grid grid-cols-3 gap-3 mb-6">
-          <CountTile label="Teams" value={data.counts.team || 0} />
-          <CountTile label="Categories" value={data.counts.category || 0} />
-          {/* <CountTile label="Agents" value={data.counts.agent || 0} /> */}
-        </section>
-
-        <section className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {data.items.map((it) => (
-            <ItemRow key={`${it.item_type}:${it.item_slug}`} item={it} />
-          ))}
-        </section>
-      </div>
+          {/* Meta */}
+          <Card variant="default" className="p-5">
+            <h3 className="vb-title-sm mb-3.5">Details</h3>
+            <div className="flex flex-col gap-3 text-[13px]">
+              <MetaRow label="Teams" value={data.counts.team || 0} mono />
+              <MetaRow label="Categories" value={data.counts.category || 0} mono />
+              <MetaRow label="Items" value={data.items.length} mono />
+              <MetaRow label="Version" value={data.version} mono />
+              <MetaRow label="Slug" value={data.slug} mono />
+            </div>
+          </Card>
+        </div>
+      </PageContainer>
     </Layout>
   );
 }
 
-function CountTile({ label, value }: { label: string; value: number }) {
+function MetaRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string | number;
+  mono?: boolean;
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-ink">{label}</span>
+      <span className={mono ? "truncate font-mono text-ink" : "truncate text-ink"}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -166,27 +191,27 @@ function ItemRow({ item }: { item: BundlePreviewItem }) {
   const prof = item.profile;
   const displayName = (prof?.display_name as string) ?? item.item_slug;
   const description = prof?.description as string | null | undefined;
+  // Team vs. category get distinct hues so a long list stays scannable.
+  const hue = item.item_type === "team" ? "var(--vb-info)" : "var(--vb-pink)";
   return (
-    <div className="px-5 py-3 flex items-start gap-3">
-      <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-        <Icon className="w-4 h-4 text-gray-600" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-900">{displayName}</span>
-          <span className="text-xs text-gray-400">
-            {item.item_type} · {item.item_version || "latest"}
-          </span>
-          {!item.resolved && (
-            <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-              Unresolved
-            </span>
-          )}
+    <div className="flex items-center gap-3.5 rounded-md border border-hairline bg-canvas p-4">
+      <IconChip color={hue} className="size-[38px] rounded-[11px] [&_svg]:size-4">
+        <Icon />
+      </IconChip>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-ink">{displayName}</span>
+          {!item.resolved && <Badge variant="warning">Unresolved</Badge>}
         </div>
         {description && (
-          <p className="text-sm text-gray-600 line-clamp-2 mt-0.5">{description}</p>
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-ink">
+            {description}
+          </p>
         )}
       </div>
+      <Badge variant="secondary" className="shrink-0 capitalize">
+        {item.item_type} · {item.item_version || "latest"}
+      </Badge>
     </div>
   );
 }

@@ -310,10 +310,10 @@ function RuntimePicker({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+    <div className="bg-canvas rounded-2xl border border-gray-200 p-5">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-black uppercase tracking-wider text-gray-900">{label}</h3>
-        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${overridden ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-500"}`}>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-900">{label}</h3>
+        <span className={`text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${overridden ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-500"}`}>
           {overridden ? "Overridden" : "Inherited"}
         </span>
       </div>
@@ -321,7 +321,7 @@ function RuntimePicker({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+        className="w-full px-3 py-2 text-sm bg-canvas border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
       >
         {!value && <option value="">— Select —</option>}
         {options.map((o) => (
@@ -489,7 +489,7 @@ export default function BehaviorEditor({
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3 mb-1">
-              <div className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-[0.2em] shadow-sm border ${
+              <div className={`px-2.5 py-1 rounded-md text-[10px] font-semibold uppercase tracking-[0.2em] shadow-sm border ${
                 scope.type === 'workspace' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
                 scope.type === 'category' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
                 'bg-amber-50 text-amber-700 border-amber-100'
@@ -499,22 +499,22 @@ export default function BehaviorEditor({
               {loading && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-full border border-gray-100">
                   <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Syncing...</span>
+                  <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Syncing...</span>
                 </div>
               )}
               <button 
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-semibold uppercase tracking-wider transition-all ${
                   showAdvanced 
-                    ? "bg-gray-900 text-white border-gray-900 shadow-md" 
-                    : "bg-white text-gray-400 border-gray-200 hover:border-gray-400"
+                    ? "bg-gray-900 text-white border-gray-900 shadow-soft" 
+                    : "bg-canvas text-gray-400 border-gray-200 hover:border-gray-400"
                 }`}
               >
                 <Settings className="w-2.5 h-2.5" />
                 Advanced mode
               </button>
             </div>
-            <h1 className="text-4xl font-black text-gray-900 tracking-tight">
+            <h1 className="text-4xl font-semibold text-gray-900 tracking-tight">
               {scope.display_name}
             </h1>
             <div className="flex items-center gap-2 mt-2">
@@ -522,7 +522,7 @@ export default function BehaviorEditor({
                 Intent-Driven AI Runtime Control
               </p>
               <span className="text-gray-300">•</span>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
                 v2.0.0 (Hybrid Resolution)
               </p>
             </div>
@@ -532,7 +532,7 @@ export default function BehaviorEditor({
             <button
               onClick={handleResetScope}
               disabled={resetting}
-              className="px-5 py-2.5 text-xs font-black uppercase tracking-widest text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-200 inline-flex items-center gap-2 disabled:opacity-50"
+              className="px-5 py-2.5 text-xs font-semibold uppercase tracking-widest text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-200 inline-flex items-center gap-2 disabled:opacity-50"
             >
               {resetting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -544,7 +544,7 @@ export default function BehaviorEditor({
             <button
               onClick={handleSave}
               disabled={saving || !intent}
-              className="relative group overflow-hidden px-8 py-3 bg-gray-900 hover:bg-black rounded-xl shadow-xl shadow-gray-900/10 transition-all duration-300 disabled:opacity-50"
+              className="relative group overflow-hidden px-8 py-3 bg-gray-900 hover:bg-black rounded-xl shadow-raised shadow-gray-900/10 transition-all duration-300 disabled:opacity-50"
             >
               <div className="relative z-10 flex items-center gap-2">
                 {saving ? (
@@ -552,7 +552,7 @@ export default function BehaviorEditor({
                 ) : (
                   <Save className="w-4 h-4 text-white" />
                 )}
-                <span className="text-xs font-black uppercase tracking-[0.2em] text-white">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-white">
                   Update Runtime
                 </span>
               </div>
@@ -566,7 +566,7 @@ export default function BehaviorEditor({
         <div className="mb-16">
           <div className="flex items-center gap-4 mb-8">
             <div className="h-px flex-1 bg-gray-200" />
-            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-300">Simplified Intent Layer</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-gray-300">Simplified Intent Layer</span>
             <div className="h-px flex-1 bg-gray-200" />
           </div>
           <IntentEditor 
@@ -580,7 +580,7 @@ export default function BehaviorEditor({
             (no Advanced toggle gate). Intent is handled above. */}
         <div className="flex items-center gap-4 mb-12">
           <div className="h-px flex-1 bg-indigo-100" />
-          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-300">Runtime Controls</span>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-indigo-300">Runtime Controls</span>
           <div className="h-px flex-1 bg-indigo-100" />
         </div>
 
@@ -647,7 +647,7 @@ export default function BehaviorEditor({
           <div className="animate-in slide-in-from-bottom-10 duration-500">
             <div className="flex items-center gap-4 mb-12">
               <div className="h-px flex-1 bg-gray-200" />
-              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-300">Advanced</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.4em] text-gray-300">Advanced</span>
               <div className="h-px flex-1 bg-gray-200" />
             </div>
             <div className="space-y-6">
@@ -679,14 +679,14 @@ export default function BehaviorEditor({
           <div className="flex items-center gap-2">
             {resolved.trace.map((t, i) => (
               <Fragment key={i}>
-                <div className="px-3 py-1.5 rounded-lg bg-white border border-gray-100 shadow-sm text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+                <div className="px-3 py-1.5 rounded-lg bg-canvas border border-gray-100 shadow-sm text-[10px] font-semibold text-gray-400 uppercase tracking-tighter">
                   {t.layer.replace('_', ' ')}
                 </div>
-                {i < resolved.trace.length - 1 && <span className="text-gray-300 text-xs font-black">→</span>}
+                {i < resolved.trace.length - 1 && <span className="text-gray-300 text-xs font-semibold">→</span>}
               </Fragment>
             ))}
           </div>
-          <p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.3em] text-center">
+          <p className="text-[10px] text-gray-300 font-semibold uppercase tracking-[0.3em] text-center">
             Hierarchical Resolution Chain • Secure Metadata
           </p>
         </div>

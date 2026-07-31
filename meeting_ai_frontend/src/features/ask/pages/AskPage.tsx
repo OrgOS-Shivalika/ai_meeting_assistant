@@ -35,6 +35,7 @@ import MessageBubble from "../components/MessageBubble";
 import { useChatStream } from "../hooks/useChatStream";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { IconChip } from "@/components/ui/icon-chip";
 import { cn } from "@/lib/utils";
 import type {
   ChatTurn,
@@ -273,40 +274,45 @@ export default function AskPage() {
           onDelete={handleDelete}
         />
 
-        <div className="flex-1 flex flex-col bg-slate-50">
+        <div className="flex min-w-0 flex-1 flex-col bg-canvas">
           {/* Header */}
-          <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center gap-3">
-            <div className="w-8 h-8 bg-linear-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-slate-900">
-                {activeDetail?.title || "New chat"}
+          <div className="flex shrink-0 items-center gap-3 border-b border-hairline px-11 py-6">
+            <IconChip color="var(--vb-lavender)" strength={22}>
+              <Sparkles />
+            </IconChip>
+            <div className="min-w-0">
+              <h1 className="truncate font-display text-xl font-medium tracking-[-0.4px] text-ink">
+                {activeDetail?.title || "Ask AI"}
               </h1>
-              <p className="text-xs text-slate-500">
-                Ask anything about your meetings and documents
+              <p className="mt-0.5 text-xs text-muted-ink">
+                Answers grounded in every meeting and document.
               </p>
             </div>
           </div>
 
           {/* Chat stream */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-11 py-8">
             {allTurns.length === 0 ? (
-              <div className="max-w-2xl mx-auto text-center pt-8">
-                <Sparkles className="w-10 h-10 text-indigo-200 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-slate-800 mb-2">
-                  Ask your knowledge base
-                </h2>
-                <p className="text-sm text-slate-500 mb-6">
-                  Answers cite the meetings and documents they come from.
+              <div className="mx-auto max-w-2xl pt-8 text-center">
+                <IconChip
+                  size="xl"
+                  color="var(--vb-lavender)"
+                  strength={22}
+                  className="mx-auto mb-5"
+                >
+                  <Sparkles />
+                </IconChip>
+                <h2 className="vb-title-lg">Ask your knowledge base</h2>
+                <p className="mt-2.5 mb-6 text-sm text-muted-ink">
+                  Every answer cites the meetings and documents it came from.
                 </p>
-                <div className="grid grid-cols-2 gap-2 max-w-md mx-auto">
+                <div className="mx-auto grid max-w-md grid-cols-2 gap-2.5">
                   {STARTERS.map((s) => (
                     <Button
                       key={s}
                       variant="outline"
                       onClick={() => handleSend(s)}
-                      className="justify-start h-auto py-2 text-xs font-medium whitespace-normal text-left"
+                      className="h-auto justify-start py-2.5 text-left text-xs font-medium whitespace-normal"
                     >
                       {s}
                     </Button>
@@ -314,7 +320,7 @@ export default function AskPage() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-3xl mx-auto space-y-6">
+              <div className="mx-auto max-w-3xl space-y-6">
                 {allTurns.map((t) => (
                   <MessageBubble key={t.local_id} turn={t} />
                 ))}
@@ -323,24 +329,23 @@ export default function AskPage() {
           </div>
 
           {/* Composer */}
-          <div className="bg-white border-t border-slate-200 px-6 py-4">
-            <div className="max-w-3xl mx-auto">
+          <div className="shrink-0 px-11 pt-5 pb-7">
+            <div className="mx-auto max-w-3xl">
               {/* Scope + sources pills */}
-              <div className="flex flex-wrap items-center gap-3 mb-3">
-                <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-full bg-surface-card p-[3px]">
+                  <button
+                    type="button"
                     onClick={() => setScope("auto")}
                     className={cn(
-                      "h-7 px-3 text-[10px] font-bold uppercase tracking-wider",
+                      "rounded-full px-3.5 py-[7px] text-xs transition-colors",
                       scope === "auto"
-                        ? "bg-white text-indigo-600 shadow-sm hover:bg-white"
-                        : "text-slate-500 hover:text-slate-700",
+                        ? "bg-canvas font-semibold text-ink"
+                        : "font-medium text-muted-ink hover:text-ink",
                     )}
                   >
                     Auto
-                  </Button>
+                  </button>
                 </div>
                 <ScopePicker
                   scope={toPickerScope(scope)}
@@ -360,37 +365,36 @@ export default function AskPage() {
                   }}
                 />
                 <div className="flex-1" />
-                <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+                <div className="inline-flex rounded-full bg-surface-card p-[3px]">
                   {SOURCES_PILLS.map((p) => (
-                    <Button
+                    <button
                       key={p.value}
-                      variant="ghost"
-                      size="sm"
+                      type="button"
                       onClick={() => setSources(p.value)}
                       className={cn(
-                        "h-7 px-2.5 text-[10px] font-bold uppercase tracking-wider",
+                        "rounded-full px-3 py-[7px] text-xs transition-colors",
                         sources === p.value
-                          ? "bg-white text-indigo-600 shadow-sm hover:bg-white"
-                          : "text-slate-500 hover:text-slate-700",
+                          ? "bg-canvas font-semibold text-ink"
+                          : "font-medium text-muted-ink hover:text-ink",
                       )}
                     >
                       {p.label}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Input row */}
-              <div className="relative">
+              {/* Input row — hairline capsule with the ink send button inset. */}
+              <div className="relative rounded-lg border border-hairline bg-canvas p-2 pl-[18px] transition-colors focus-within:border-ink">
                 <Textarea
                   ref={inputRef}
                   rows={2}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask a question…"
+                  placeholder="Ask anything about your meetings…"
                   disabled={streaming}
-                  className="resize-none rounded-xl bg-slate-50 pr-14 py-3"
+                  className="min-h-14 resize-none border-0 bg-transparent px-0 py-1.5 pr-14 focus-visible:ring-0"
                 />
                 <Button
                   size="icon"
@@ -398,16 +402,12 @@ export default function AskPage() {
                   onClick={streaming ? abort : () => handleSend(query)}
                   disabled={!streaming && !query.trim()}
                   title={streaming ? "Stop generating" : "Send"}
-                  className="absolute bottom-3 right-3 h-9 w-9 rounded-lg"
+                  className="absolute right-2 bottom-2 size-10"
                 >
-                  {streaming ? (
-                    <Square className="w-4 h-4" />
-                  ) : (
-                    <ArrowUp className="w-4 h-4" />
-                  )}
+                  {streaming ? <Square /> : <ArrowUp />}
                 </Button>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+              <p className="mt-2 text-center text-[11px] text-muted-soft">
                 Enter to send · Shift+Enter for newline
               </p>
             </div>

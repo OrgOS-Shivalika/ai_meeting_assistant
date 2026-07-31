@@ -10,6 +10,21 @@ import {
   AlertCircle,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+} from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IconChip } from "@/components/ui/icon-chip";
+import { SearchInput } from "@/components/ui/input";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
+import { tint } from "@/lib/vibrant";
+import { cn } from "@/lib/utils";
 
 interface ReportMetric {
   label: string;
@@ -101,11 +116,12 @@ const MOCK_REPORTS: Report[] = [
   },
 ];
 
-const CATEGORY_COLORS: Record<string, string> = {
-  productivity: "bg-blue-50 text-blue-700 border-blue-200",
-  engagement: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  decisions: "bg-purple-50 text-purple-700 border-purple-200",
-  compliance: "bg-amber-50 text-amber-700 border-amber-200",
+/** One brand hue per report category — cycled, never repeated in a row. */
+const CATEGORY_HUE: Record<string, string> = {
+  productivity: "var(--vb-info)",
+  engagement: "var(--vb-success)",
+  decisions: "var(--vb-lavender)",
+  compliance: "var(--vb-ochre)",
 };
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -161,110 +177,118 @@ export default function ReportsPage() {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-2 py-4">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">Reports</h1>
-            <p className="text-xs text-[#777681] mt-0.5">
-              Generate and track insights about your meetings, team engagement, and organizational decisions.
-            </p>
-          </div>
-          <button
-            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm active:scale-95"
-          >
-            <BarChart3 className="w-4 h-4" />
-            Generate Report
-          </button>
-        </div>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Workspace"
+          title="Reports"
+          description="Meeting and task analytics across the org — engagement, decision velocity and follow-through."
+          actions={
+            <Button>
+              <BarChart3 />
+              Generate report
+            </Button>
+          }
+        />
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search reports..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none w-full"
-            />
-          </div>
-
-          <select
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row">
+          <SearchInput
+            icon={Search}
+            placeholder="Search reports…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            wrapperClassName="flex-1"
+            className="h-10"
+          />
+          <Select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value as any)}
-            className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none flex items-center gap-2"
+            className="h-10 sm:w-48"
           >
-            <option value="all">All Categories</option>
+            <option value="all">All categories</option>
             <option value="productivity">Productivity</option>
             <option value="engagement">Engagement</option>
             <option value="decisions">Decisions</option>
             <option value="compliance">Compliance</option>
-          </select>
-
-          <select
+          </Select>
+          <Select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+            className="h-10 sm:w-40"
           >
-            <option value="recent">Most Recent</option>
-            <option value="title">Title (A-Z)</option>
-          </select>
+            <option value="recent">Most recent</option>
+            <option value="title">Title (A–Z)</option>
+          </Select>
         </div>
 
-        {/* Reports Grid */}
+        {/* Reports grid */}
         {filtered.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
-            <div className="w-14 h-14 bg-indigo-50 rounded-md flex items-center justify-center mx-auto mb-3">
-              <BarChart3 className="w-7 h-7 text-indigo-500" />
-            </div>
-            <h3 className="text-lg font-bold text-[#0F1523] mb-1">No reports found</h3>
-            <p className="text-[#777681] max-w-xs mx-auto text-sm">
-              {search ? "Try adjusting your search or filters" : "Generate your first report to get started"}
-            </p>
-          </div>
+          <EmptyState
+            icon={BarChart3}
+            color="var(--vb-info)"
+            title="No reports found"
+            description={
+              search
+                ? "Try adjusting your search or filters."
+                : "Generate your first report to get started."
+            }
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-[18px] md:grid-cols-2 lg:grid-cols-3">
             {filtered.map((report) => {
               const Icon = CATEGORY_ICONS[report.category];
-              const categoryColor = CATEGORY_COLORS[report.category];
+              const hue = CATEGORY_HUE[report.category];
 
               return (
-                <div
+                <Card
                   key={report.id}
-                  className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
+                  variant="default"
+                  className="cursor-pointer overflow-hidden rounded-xl transition-colors hover:border-muted-soft"
                   onClick={() => setSelectedReport(report)}
                 >
-                  {/* Header */}
-                  <div className={`px-4 py-3 border-b border-gray-100 flex items-start justify-between ${categoryColor}`}>
-                    <div className="flex items-start gap-2 flex-1 min-w-0">
-                      <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <h3 className="font-bold text-sm truncate">{report.title}</h3>
-                        <p className="text-xs mt-0.5 opacity-75">{report.description}</p>
-                      </div>
+                  {/* Saturated band header — the one hue per card. */}
+                  <div
+                    className="flex h-24 items-center gap-3.5 px-6"
+                    style={{ background: tint(hue, 12) }}
+                  >
+                    <Icon className="size-7 shrink-0" style={{ color: hue }} />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="vb-title-md truncate text-[17px]">
+                        {report.title}
+                      </h3>
+                      <p className="mt-0.5 truncate text-xs text-muted-ink">
+                        {report.description}
+                      </p>
                     </div>
                   </div>
 
                   {/* Metrics */}
-                  <div className="p-4 space-y-3">
+                  <div className="space-y-3 p-5">
                     {report.metrics.slice(0, 2).map((metric, idx) => (
                       <div key={idx} className="flex items-center justify-between">
-                        <span className="text-xs text-[#777681] font-medium">{metric.label}</span>
+                        <span className="text-[13px] text-muted-ink">
+                          {metric.label}
+                        </span>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-[#0F1523]">{metric.value}</span>
+                          <span className="font-mono text-sm font-medium text-ink">
+                            {metric.value}
+                          </span>
                           {metric.change !== undefined && metric.change !== 0 && (
                             <span
-                              className={`text-xs font-semibold ${
+                              className={cn(
+                                "font-mono text-[11px] font-semibold",
                                 metric.trend === "up"
-                                  ? "text-emerald-600"
+                                  ? "text-success"
                                   : metric.trend === "down"
-                                  ? "text-red-600"
-                                  : "text-slate-500"
-                              }`}
+                                    ? "text-error"
+                                    : "text-muted-ink",
+                              )}
                             >
-                              {metric.trend === "up" ? "↑" : metric.trend === "down" ? "↓" : "→"}
+                              {metric.trend === "up"
+                                ? "↑"
+                                : metric.trend === "down"
+                                  ? "↓"
+                                  : "→"}
                               {Math.abs(metric.change)}%
                             </span>
                           )}
@@ -272,83 +296,95 @@ export default function ReportsPage() {
                       </div>
                     ))}
                     {report.metrics.length > 2 && (
-                      <p className="text-xs text-[#777681] italic pt-2 border-t border-gray-100">
+                      <p className="border-t border-hairline-soft pt-3 text-xs text-muted-soft">
                         +{report.metrics.length - 2} more metrics
                       </p>
                     )}
                   </div>
 
                   {/* Footer */}
-                  <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-[#777681]">
-                    <span>{report.dateRange}</span>
+                  <div className="flex items-center justify-between border-t border-hairline-soft bg-surface-soft px-5 py-3.5 text-xs text-muted-ink">
+                    <span className="font-mono">{report.dateRange}</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDownload(report);
                       }}
-                      className="p-1.5 hover:bg-white rounded transition-colors text-slate-400 hover:text-indigo-600"
+                      className="rounded-xs p-1.5 text-muted-soft transition-colors hover:bg-canvas hover:text-ink"
                       title="Download report"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="size-3.5" />
                     </button>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
         )}
-      </div>
+      </PageContainer>
 
-      {/* Report Detail Modal */}
-      {selectedReport && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className={`sticky top-0 ${CATEGORY_COLORS[selectedReport.category]} px-6 py-4 border-b border-gray-200 flex items-start justify-between`}>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold mb-1">{selectedReport.title}</h2>
-                <p className="text-sm opacity-75">{selectedReport.description}</p>
+      {/* Report detail */}
+      <Dialog
+        open={!!selectedReport}
+        onClose={() => setSelectedReport(null)}
+        size="lg"
+      >
+        {selectedReport && (
+          <>
+            <DialogHeader
+              title={selectedReport.title}
+              description={selectedReport.description}
+              onClose={() => setSelectedReport(null)}
+              icon={
+                <IconChip
+                  size="lg"
+                  color={CATEGORY_HUE[selectedReport.category]}
+                >
+                  {(() => {
+                    const Icon = CATEGORY_ICONS[selectedReport.category];
+                    return <Icon />;
+                  })()}
+                </IconChip>
+              }
+            />
+            <DialogBody className="space-y-6">
+              {/* Report meta */}
+              <div className="flex flex-wrap items-center gap-6 text-[13px] text-muted-ink">
+                <span className="inline-flex items-center gap-2">
+                  <Calendar className="size-4 text-muted-soft" />
+                  {selectedReport.dateRange}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <Clock className="size-4 text-muted-soft" />
+                  Generated{" "}
+                  {new Date(selectedReport.createdDate).toLocaleDateString()}
+                </span>
               </div>
-              <button
-                onClick={() => setSelectedReport(null)}
-                className="ml-4 text-lg font-bold opacity-50 hover:opacity-100"
-              >
-                ✕
-              </button>
-            </div>
 
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              {/* Report Meta */}
-              <div className="flex items-center gap-6 flex-wrap text-sm text-[#777681]">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  <span>{selectedReport.dateRange}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  <span>Generated {new Date(selectedReport.createdDate).toLocaleDateString()}</span>
-                </div>
-              </div>
-
-              {/* Metrics Grid */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold text-[#0F1523] uppercase tracking-wide">Metrics</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Metrics grid */}
+              <div className="space-y-3.5">
+                <h3 className="vb-label-caps">Metrics</h3>
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                   {selectedReport.metrics.map((metric, idx) => (
-                    <div key={idx} className="bg-slate-50 border border-gray-200 rounded-lg p-4">
-                      <p className="text-xs text-[#777681] font-semibold mb-2">{metric.label}</p>
-                      <div className="flex items-baseline gap-2">
-                        <p className="text-2xl font-bold text-[#0F1523]">{metric.value}</p>
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-hairline bg-surface-soft p-4"
+                    >
+                      <p className="text-xs text-muted-ink">{metric.label}</p>
+                      <div className="mt-2 flex items-baseline gap-2.5">
+                        <p className="font-mono text-2xl leading-none font-medium text-ink">
+                          {metric.value}
+                        </p>
                         {metric.change !== undefined && metric.change !== 0 && (
                           <span
-                            className={`text-sm font-semibold ${
+                            className={cn(
+                              "font-mono text-[13px] font-semibold",
                               metric.trend === "up"
-                                ? "text-emerald-600"
+                                ? "text-success"
                                 : metric.trend === "down"
-                                ? "text-red-600"
-                                : "text-slate-500"
-                            }`}
+                                  ? "text-error"
+                                  : "text-muted-ink",
+                            )}
                           >
                             {metric.trend === "up" && "↑"}
                             {metric.trend === "down" && "↓"}
@@ -361,27 +397,22 @@ export default function ReportsPage() {
                   ))}
                 </div>
               </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-4 border-t border-gray-200">
-                <button
-                  onClick={() => handleDownload(selectedReport)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors"
-                >
-                  <Download className="w-4 h-4" />
-                  Download
-                </button>
-                <button
-                  onClick={() => setSelectedReport(null)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 hover:bg-gray-50 text-slate-700 rounded-lg text-sm font-semibold transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setSelectedReport(null)}
+              >
+                Close
+              </Button>
+              <Button onClick={() => handleDownload(selectedReport)}>
+                <Download />
+                Download
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </Dialog>
     </Layout>
   );
 }

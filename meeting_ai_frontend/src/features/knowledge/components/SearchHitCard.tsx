@@ -37,7 +37,7 @@ export default function SearchHitCard({ hit }: SearchHitCardProps) {
   return (
     <Link
       to={`/meeting/${hit.meeting_id}`}
-      className="block bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all p-5 group"
+      className="block bg-canvas rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-soft hover:shadow-indigo-500/5 transition-all p-5 group"
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -49,14 +49,14 @@ export default function SearchHitCard({ hit }: SearchHitCardProps) {
                 style={{ width: barWidth }}
               />
             </div>
-            <span className="text-[10px] font-bold text-indigo-600 tabular-nums">
+            <span className="text-[10px] font-semibold text-indigo-600 tabular-nums">
               {simPct}%
             </span>
           </div>
           {/* Category / team chip */}
           {hit.category && (
             <span
-              className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border"
               style={{
                 backgroundColor: `${hit.category.color || "#4F46E5"}14`,
                 color: hit.category.color || "#4F46E5",
@@ -71,7 +71,7 @@ export default function SearchHitCard({ hit }: SearchHitCardProps) {
         <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors shrink-0" />
       </div>
 
-      <h3 className="text-sm font-bold text-slate-900 mb-1.5 truncate group-hover:text-indigo-600 transition-colors">
+      <h3 className="text-sm font-semibold text-slate-900 mb-1.5 truncate group-hover:text-indigo-600 transition-colors">
         {hit.meeting_title || "Untitled meeting"}
       </h3>
 

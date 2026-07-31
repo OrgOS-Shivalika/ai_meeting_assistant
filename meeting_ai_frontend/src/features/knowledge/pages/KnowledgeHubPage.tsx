@@ -29,6 +29,10 @@ import { SkeletonCard } from "../../../shared/components/Skeleton";
 import ScopePicker, { type PickerScope } from "../components/ScopePicker";
 import SearchHitCard from "../components/SearchHitCard";
 import { useSearch } from "../hooks/useSearch";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
 
 const DEFAULT_TOP_K = 10;
 const DEFAULT_MIN_SIM = 0.0;
@@ -94,27 +98,17 @@ export default function KnowledgeHubPage() {
 
   return (
     <Layout>
-      <div className=" mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-1">
-          <div className="p-2 bg-indigo-50 rounded-xl">
-            <Sparkles className="w-5 h-5 text-indigo-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Knowledge Hub
-            </h1>
-            <p className="text-sm text-slate-500">
-              Ask the agent anything — it searches every transcript chunk we've
-              embedded.
-            </p>
-          </div>
-        </div>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Intelligence"
+          title="Knowledge"
+          description="Documents and meeting memory the agents draw on to answer."
+        />
 
         {/* Search bar */}
-        <div className="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <Card variant="default" className="rounded-2xl p-5">
           <div className="relative">
-            <SearchIcon className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-soft" />
             <input
               type="text"
               value={query}
@@ -122,22 +116,22 @@ export default function KnowledgeHubPage() {
               placeholder="e.g. when does the vector memory feature ship?"
               autoFocus
               maxLength={500}
-              className="w-full pl-11 pr-10 py-3 rounded-xl border border-slate-200 bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none text-sm font-semibold text-slate-900 placeholder:text-slate-400"
+              className="h-12 w-full rounded-md border border-hairline bg-canvas pr-10 pl-11 text-sm font-medium text-ink outline-none transition-colors placeholder:text-muted-soft focus-visible:border-ink focus-visible:ring-3 focus-visible:ring-ink/12"
             />
             {query && (
               <button
                 onClick={() => setQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-100 text-slate-400"
+                className="absolute top-1/2 right-3 -translate-y-1/2 rounded-xs p-1 text-muted-soft hover:bg-surface-card hover:text-ink"
                 aria-label="Clear query"
                 type="button"
               >
-                <X className="w-4 h-4" />
+                <X className="size-4" />
               </button>
             )}
           </div>
 
           {/* Filter row */}
-          <div className="mt-4 flex flex-wrap items-center gap-4">
+          <div className="mt-4 flex flex-wrap items-center gap-5">
             <ScopePicker
               scope={scope}
               scopeId={scopeId}
@@ -149,10 +143,8 @@ export default function KnowledgeHubPage() {
               }}
             />
 
-            <div className="flex items-center gap-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Min similarity
-              </label>
+            <div className="flex items-center gap-2.5">
+              <label className="vb-label-caps">Min similarity</label>
               <input
                 type="range"
                 min={0}
@@ -160,17 +152,15 @@ export default function KnowledgeHubPage() {
                 step={0.05}
                 value={minSim}
                 onChange={(e) => setMinSim(Number(e.target.value))}
-                className="w-32 accent-indigo-600"
+                className="w-32 accent-ink"
               />
-              <span className="text-xs font-bold text-slate-600 tabular-nums w-10 text-right">
+              <span className="w-10 text-right font-mono text-xs text-body-strong">
                 {minSim.toFixed(2)}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Top K
-              </label>
+            <div className="flex items-center gap-2.5">
+              <label className="vb-label-caps">Top K</label>
               <input
                 type="number"
                 min={1}
@@ -180,17 +170,17 @@ export default function KnowledgeHubPage() {
                   const v = Number(e.target.value);
                   setTopK(Number.isFinite(v) ? Math.max(1, Math.min(100, v)) : DEFAULT_TOP_K);
                 }}
-                className="w-16 px-2 py-1 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                className="w-16 rounded-sm border border-hairline bg-canvas px-2.5 py-1.5 font-mono text-xs text-body-strong outline-none focus-visible:border-ink"
               />
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Results */}
-        <div className="mt-6 space-y-3">
+        <div className="mt-6 space-y-3.5">
           {needsScopeId && query.trim() && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-xs font-bold text-amber-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg border border-warning/25 bg-warning/8 px-4 py-3.5 text-[13px] font-medium text-warning">
+              <AlertCircle className="size-4 shrink-0" />
               Pick a {scope === "category" ? "meeting type" : "team"} to search
               inside.
             </div>
@@ -200,63 +190,61 @@ export default function KnowledgeHubPage() {
             // Hybrid: tiny status pill so users know it's searching,
             // plus result-card placeholders so the page doesn't shrink.
             <>
-              <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-500">
-                <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="flex items-center gap-2.5 rounded-lg border border-hairline bg-surface-soft px-4 py-3.5 text-[13px] font-medium text-muted-ink">
+                <Loader2 className="size-4 animate-spin" />
                 Searching…
               </div>
               {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonCard key={i} className="h-28" />
+                <SkeletonCard key={i} className="h-28 rounded-lg" />
               ))}
             </>
           )}
 
           {error && !loading && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl text-xs font-bold text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg border border-error/20 bg-error/8 px-4 py-3.5 text-[13px] font-medium text-error">
+              <AlertCircle className="size-4 shrink-0" />
               {error}
             </div>
           )}
 
           {!loading && !error && lastQuery && hits.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-xl border-2 border-dashed border-slate-200">
-              <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-600">No hits</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Try a broader query or drop the min-similarity threshold.
-              </p>
-            </div>
+            <EmptyState
+              icon={Inbox}
+              color="var(--vb-ochre)"
+              title="No hits"
+              description="Try a broader query, or drop the min-similarity threshold."
+              className="border-dashed"
+            />
           )}
 
           {!loading && !error && !lastQuery && (
-            <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-slate-200">
-              <Sparkles className="w-8 h-8 text-indigo-300 mx-auto mb-3" />
-              <p className="text-sm font-bold text-slate-600">
-                Start typing to search
-              </p>
-              <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                Results refresh automatically as you type. Use the scope
-                filter to narrow to a meeting type or team.
-              </p>
-              <Link
-                to="/"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 mt-4"
-              >
-                Or browse all meetings
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
+            <EmptyState
+              icon={Sparkles}
+              color="var(--vb-lavender)"
+              title="Start typing to search"
+              description="Results refresh as you type. Use the scope filter to narrow to a meeting type or team."
+              className="border-dashed"
+              action={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/">
+                    Browse all meetings
+                    <ArrowRight />
+                  </Link>
+                </Button>
+              }
+            />
           )}
 
           {!loading && hits.length > 0 && (
             <>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="vb-label-caps">
                   {hits.length} {hits.length === 1 ? "hit" : "hits"}
                 </span>
                 {embeddingModel && (
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-[11px] text-muted-soft">
                     via{" "}
-                    <span className="font-mono text-slate-500">
+                    <span className="font-mono text-muted-ink">
                       {embeddingModel}
                     </span>
                   </span>
@@ -268,7 +256,7 @@ export default function KnowledgeHubPage() {
             </>
           )}
         </div>
-      </div>
+      </PageContainer>
     </Layout>
   );
 }

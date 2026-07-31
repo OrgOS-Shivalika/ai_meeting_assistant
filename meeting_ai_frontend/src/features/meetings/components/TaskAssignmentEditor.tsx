@@ -107,13 +107,13 @@ export default function TaskAssignmentEditor({
   return (
     <div
       ref={rootRef}
-      className="bg-white border border-indigo-200 rounded-lg p-3 shadow-sm space-y-2"
+      className="bg-canvas border border-indigo-200 rounded-lg p-3 shadow-sm space-y-2"
       role="dialog"
       aria-label="Assign owner and due date"
     >
       {/* Header — close button */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">
           Assign
         </span>
         <button
@@ -145,7 +145,7 @@ export default function TaskAssignmentEditor({
                   setOwnerValue(v);
                 }
               }}
-              className="w-full appearance-none pl-2 pr-7 py-1.5 text-xs bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+              className="w-full appearance-none pl-2 pr-7 py-1.5 text-xs bg-canvas border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
             >
               <option value="">— Select participant —</option>
               <option value="__none__">No owner (unassigned)</option>
@@ -174,7 +174,7 @@ export default function TaskAssignmentEditor({
                 setOwnerMode("pick");
                 setOwnerValue("");
               }}
-              className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-1 text-slate-500 hover:bg-slate-100 rounded"
+              className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-1 text-slate-500 hover:bg-slate-100 rounded"
             >
               Pick
             </button>
@@ -202,7 +202,7 @@ export default function TaskAssignmentEditor({
           {dateValue && (
             <button
               onClick={() => setDateValue("")}
-              className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-1 text-slate-500 hover:bg-slate-100 rounded"
+              className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-1 text-slate-500 hover:bg-slate-100 rounded"
               title="Clear date"
             >
               Clear
@@ -216,14 +216,14 @@ export default function TaskAssignmentEditor({
         <button
           onClick={onCancel}
           disabled={saving}
-          className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 text-slate-600 hover:bg-slate-100 rounded disabled:opacity-50"
+          className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 text-slate-600 hover:bg-slate-100 rounded disabled:opacity-50"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+          className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save"}
         </button>

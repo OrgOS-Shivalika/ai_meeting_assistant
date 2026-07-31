@@ -82,8 +82,8 @@ export default function PlaygroundPanel({
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+      <div className="bg-canvas border border-slate-200 rounded-xl p-4">
+        <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
           Query
         </label>
         <textarea
@@ -130,13 +130,13 @@ export default function PlaygroundPanel({
       )}
 
       {result && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="bg-canvas border border-slate-200 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-600 uppercase tracking-wider">
+            <span className="font-semibold text-slate-600 uppercase tracking-wider">
               Result
             </span>
             <div className="flex items-center gap-2 text-slate-500">
-              <span className={`px-2 py-0.5 rounded font-bold ${
+              <span className={`px-2 py-0.5 rounded font-semibold ${
                 result.status === "completed"
                   ? "bg-emerald-50 text-emerald-700"
                   : result.status === "no_context"
@@ -159,7 +159,7 @@ export default function PlaygroundPanel({
           </div>
           {result.citations.length > 0 && (
             <div>
-              <p className="text-xs font-bold text-slate-600 mb-1">Citations</p>
+              <p className="text-xs font-semibold text-slate-600 mb-1">Citations</p>
               <ul className="text-xs space-y-1">
                 {result.citations.map((c) => (
                   <li key={c.index}>

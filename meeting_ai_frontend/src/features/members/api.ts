@@ -1,4 +1,5 @@
 import { apiClient } from "../../services/apiClient";
+import { withEncodedPasswords } from "../../services/passwordTransport";
 import type { AccessRole } from "../auth/types";
 
 export interface TeamOption {
@@ -85,7 +86,10 @@ export const membersApi = {
     apiClient("/admin/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      // Base64 in transit so the chosen password isn't legible in the
+      // network payload. The backend always decodes, then applies the
+      // 8..128 rule to the decoded value.
+      body: JSON.stringify(withEncodedPasswords(payload, ["password"])),
     }),
 
   /** Every category in the org — the option list for the grant picker. */

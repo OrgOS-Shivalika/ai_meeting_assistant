@@ -23,28 +23,16 @@ import { ROLE_LABEL, roleBadgeClass } from "../roles";
 import AddMemberModal from "../components/AddMemberModal";
 import GrantPicker, { type GrantSelection } from "../components/GrantPicker";
 import type { AccessRole } from "../../auth/types";
-
-const AVATAR_COLORS = [
-  "bg-indigo-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-rose-500",
-  "bg-violet-500",
-  "bg-pink-500",
-  "bg-cyan-500",
-  "bg-orange-500",
-];
-
-const colorFor = (name: string) => {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-};
-
-const initialsOf = (name: string) => {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
-};
+import { Avatar } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SearchInput } from "@/components/ui/input";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
+import { MetricCard } from "@/components/ui/stat-card";
+import { cn } from "@/lib/utils";
 
 const formatDate = (iso: string | null): string => {
   if (!iso) return "—";
@@ -146,25 +134,18 @@ export default function MembersPage() {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-2 py-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
-              Team Members
-            </h1>
-            <p className="text-xs text-[#777681] mt-0.5">
-              Everyone who has attended a meeting is a member automatically.
-              Grant admin access to let someone manage whole categories.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm active:scale-95"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add Member
-          </button>
-        </div>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Workspace"
+          title="Members"
+          description={`${counts.total} ${counts.total === 1 ? "person" : "people"} in this workspace. Attending a meeting makes someone a member automatically — grant admin access to let them manage whole categories.`}
+          actions={
+            <Button onClick={() => setShowCreateModal(true)}>
+              <UserPlus />
+              Invite
+            </Button>
+          }
+        />
 
         {issuedCredential && (
           <CredentialBanner
@@ -177,60 +158,66 @@ export default function MembersPage() {
         )}
 
         {error && (
-          <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-            <p className="text-xs text-red-700">{error}</p>
+          <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-error/20 bg-error/8 p-3.5">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-error" />
+            <p className="text-xs text-error">{error}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <StatCard label="Total People" value={counts.total} tone="text-[#0F1523]" />
-          <StatCard label="Org Admins" value={counts.orgAdmins} tone="text-purple-600" />
-          <StatCard label="Category Admins" value={counts.admins} tone="text-indigo-600" />
-          <StatCard label="Awaiting Password" value={counts.pending} tone="text-amber-600" />
+        {/* Quiet KPI row — a saturated tile per stat would shout here. */}
+        <div className="mb-6 grid grid-cols-2 gap-3.5 sm:grid-cols-4">
+          <MetricCard label="Total people" value={counts.total} />
+          <MetricCard
+            label="Org admins"
+            value={counts.orgAdmins}
+            valueColor="var(--vb-lavender)"
+          />
+          <MetricCard label="Category admins" value={counts.admins} />
+          <MetricCard
+            label="Awaiting password"
+            value={counts.pending}
+            valueColor={counts.pending > 0 ? "var(--vb-warning)" : undefined}
+          />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by name or email..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none w-full"
-            />
-          </div>
-          <select
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+          <SearchInput
+            icon={Search}
+            placeholder="Search by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            wrapperClassName="flex-1"
+            className="h-10"
+          />
+          <Select
             value={filterRole}
             onChange={(e) => setFilterRole(e.target.value as any)}
-            className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+            className="h-10 sm:w-44"
           >
-            <option value="all">All Roles</option>
-            <option value="ORG_ADMIN">Org Admin</option>
+            <option value="all">All roles</option>
+            <option value="ORG_ADMIN">Org admin</option>
             <option value="ADMIN">Admin</option>
             <option value="MEMBER">Member</option>
-          </select>
+          </Select>
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 bg-white rounded-lg border border-gray-200">
-            <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+          <div className="flex items-center justify-center rounded-lg border border-hairline bg-canvas py-16">
+            <Loader2 className="size-5 animate-spin text-muted-soft" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
-            <div className="w-14 h-14 bg-indigo-50 rounded-md flex items-center justify-center mx-auto mb-3">
-              <UsersIcon className="w-7 h-7 text-indigo-500" />
-            </div>
-            <h3 className="text-lg font-bold text-[#0F1523] mb-1">No members found</h3>
-            <p className="text-[#777681] max-w-xs mx-auto text-sm">
-              {search || filterRole !== "all"
-                ? "Try adjusting your search or filters"
-                : "People appear here once they attend a meeting"}
-            </p>
-          </div>
+          <EmptyState
+            icon={UsersIcon}
+            color="var(--vb-pink)"
+            title="No members found"
+            description={
+              search || filterRole !== "all"
+                ? "Try adjusting your search or filters."
+                : "People appear here once they attend a meeting."
+            }
+          />
         ) : (
-          <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
+          <Card variant="default" className="overflow-hidden">
             {filtered.map((member) => (
               <MemberRow
                 key={member.id}
@@ -252,9 +239,9 @@ export default function MembersPage() {
                 }
               />
             ))}
-          </div>
+          </Card>
         )}
-      </div>
+      </PageContainer>
 
       {showCreateModal && (
         <AddMemberModal
@@ -275,25 +262,6 @@ export default function MembersPage() {
         />
       )}
     </Layout>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: string;
-}) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">
-        {label}
-      </p>
-      <p className={`text-2xl font-bold mt-1 ${tone}`}>{value}</p>
-    </div>
   );
 }
 
@@ -349,7 +317,7 @@ function CredentialBanner({
             <p className="text-[11px] text-red-700 mt-1 font-mono">{emailError}</p>
           )}
           <div className="flex items-center gap-2 mt-2">
-            <code className="px-2 py-1 rounded bg-white border border-amber-300 text-sm font-mono text-amber-900 select-all">
+            <code className="px-2 py-1 rounded bg-canvas border border-amber-300 text-sm font-mono text-amber-900 select-all">
               {password}
             </code>
             <button
@@ -396,81 +364,81 @@ function MemberRow({
   const isOrgAdmin = member.access_role === "ORG_ADMIN";
 
   return (
-    <div className="p-4 hover:bg-gray-50 transition-colors">
+    <div className="border-b border-hairline-soft p-5 transition-colors last:border-0 hover:bg-surface-soft/60">
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4 flex-1 min-w-0">
-          <div
-            className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 ${colorFor(
-              member.name,
-            )}`}
-          >
-            {initialsOf(member.name)}
-          </div>
+        <div className="flex min-w-0 flex-1 items-center gap-3.5">
+          <Avatar name={member.name} />
 
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#0F1523]">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-ink">
               {member.name}
               {isSelf && (
-                <span className="ml-2 text-xs font-normal text-[#777681]">(you)</span>
+                <span className="ml-2 text-xs font-normal text-muted-ink">
+                  (you)
+                </span>
               )}
             </p>
-            <p className="text-xs text-[#777681] truncate">{member.email}</p>
+            <p className="truncate text-xs text-muted-ink">{member.email}</p>
           </div>
 
-          <div
-            className={`px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 ${roleBadgeClass(
-              member.access_role,
-            )}`}
-          >
-            {member.access_role !== "MEMBER" && (
-              <Shield className="w-3 h-3 inline mr-1" />
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-[9px] py-1 text-[11px] font-semibold",
+              roleBadgeClass(member.access_role),
             )}
+          >
+            {member.access_role !== "MEMBER" && <Shield className="size-3" />}
             {ROLE_LABEL[member.access_role]}
-          </div>
+          </span>
 
           {member.must_change_password && (
-            <div className="px-2 py-1 rounded text-xs font-bold uppercase tracking-wider shrink-0 bg-amber-50 text-amber-700 border border-amber-200">
+            <Badge variant="warning" className="shrink-0">
               Awaiting password
-            </div>
+            </Badge>
           )}
         </div>
 
-        <div className="flex items-center gap-4 ml-4 shrink-0">
-          <div className="hidden lg:flex items-center gap-3 text-xs text-[#777681]">
+        <div className="ml-4 flex shrink-0 items-center gap-4">
+          <div className="hidden items-center gap-3.5 text-xs text-muted-ink lg:flex">
             <div className="text-center">
-              <p className="font-bold text-[#0F1523]">{member.meeting_count}</p>
+              <p className="font-mono text-body-strong">{member.meeting_count}</p>
               <p className="text-[10px]">Meetings</p>
             </div>
-            <div className="w-px h-6 bg-gray-200" />
+            <div className="h-6 w-px bg-hairline" />
             <div className="text-center">
-              <p className="font-bold text-[#0F1523]">{formatDate(member.created_at)}</p>
+              <p className="font-mono text-body-strong">
+                {formatDate(member.created_at)}
+              </p>
               <p className="text-[10px]">Joined</p>
             </div>
           </div>
 
           {busy ? (
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+            <Loader2 className="size-4 animate-spin text-muted-soft" />
           ) : isOrgAdmin ? (
             // Org admins reach everything by definition, so there are no
             // per-category grants to edit. Demoting one is a role change,
             // not a grant change — out of scope for this row.
-            <span className="text-xs text-[#777681]">Full access</span>
+            <span className="text-xs text-muted-ink">Full access</span>
           ) : (
-            <div className="flex items-center gap-2">
-              <button
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => setEditing((v) => !v)}
-                className="px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
               >
                 {member.access_role === "ADMIN" ? "Edit categories" : "Make admin"}
-              </button>
+              </Button>
               {member.access_role === "ADMIN" && !isSelf && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="iconSm"
                   onClick={onRevoke}
-                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="hover:bg-error/10 hover:text-error"
                   title="Revoke admin access"
                 >
-                  <ShieldOff className="w-4 h-4" />
-                </button>
+                  <ShieldOff />
+                </Button>
               )}
             </div>
           )}
@@ -478,31 +446,27 @@ function MemberRow({
       </div>
 
       {member.access_role === "ADMIN" && !editing && (
-        <div className="flex flex-wrap items-center gap-1.5 mt-3 ml-14">
+        <div className="mt-3 ml-[50px] flex flex-wrap items-center gap-2">
           {member.managed_categories.map((c) => (
-            <span
-              key={`c-${c.id}`}
-              className="px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 border border-indigo-100"
-              title="Entire category"
-            >
+            <Badge key={`c-${c.id}`} variant="info" title="Entire category">
               {c.name}
-            </span>
+            </Badge>
           ))}
           {/* Team grants render as "Category › Team" so a narrow grant is
               never mistaken for control of the whole category. */}
           {member.managed_teams.map((t) => (
-            <span
+            <Badge
               key={`t-${t.id}`}
-              className="px-2 py-0.5 rounded text-xs bg-slate-50 text-slate-700 border border-slate-200"
+              variant="secondary"
               title={`Team only, inside ${t.category_name ?? "category"}`}
             >
               {t.category_name ? `${t.category_name} › ` : ""}
               {t.name}
-            </span>
+            </Badge>
           ))}
           {member.managed_categories.length === 0 &&
             member.managed_teams.length === 0 && (
-              <span className="text-xs text-amber-700">
+              <span className="text-xs text-warning">
                 No categories or teams assigned — this admin sees nothing.
               </span>
             )}
@@ -510,11 +474,9 @@ function MemberRow({
       )}
 
       {editing && (
-        <div className="mt-3 ml-14 p-3 bg-slate-50 rounded-lg border border-gray-200">
-          <p className="text-xs font-semibold text-[#777681] uppercase tracking-wide mb-1">
-            What they manage
-          </p>
-          <p className="text-[11px] text-[#777681] mb-2">
+        <div className="mt-3.5 ml-[50px] rounded-lg border border-hairline bg-surface-soft p-4">
+          <p className="vb-label-caps mb-1.5">What they manage</p>
+          <p className="mb-3 text-[11px] text-muted-ink">
             Tick a category for everything inside it, or expand it to grant
             individual teams instead.
           </p>
@@ -523,17 +485,19 @@ function MemberRow({
             value={selected}
             onChange={setSelected}
           />
-          <div className="flex items-center gap-2 mt-3">
-            <button
+          <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+            <Button
+              size="xs"
               onClick={() => {
                 onGrant(selected);
                 setEditing(false);
               }}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors"
             >
               Save
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => {
                 setSelected({
                   categoryIds: member.managed_categories.map((c) => c.id),
@@ -541,13 +505,12 @@ function MemberRow({
                 });
                 setEditing(false);
               }}
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-white transition-colors"
             >
               Cancel
-            </button>
+            </Button>
             {selected.categoryIds.length === 0 &&
               selected.teamIds.length === 0 && (
-                <span className="text-[11px] text-amber-700">
+                <span className="text-[11px] text-warning">
                   Saving with nothing ticked leaves them able to see nothing.
                 </span>
               )}

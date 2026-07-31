@@ -94,7 +94,7 @@ export default function GrantPicker({
         return (
           <div
             key={category.id}
-            className="rounded-lg border border-gray-200 bg-white overflow-hidden"
+            className="rounded-lg border border-gray-200 bg-canvas overflow-hidden"
           >
             <div className="flex items-center gap-2 px-2 py-1.5">
               <button
@@ -103,7 +103,7 @@ export default function GrantPicker({
                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border transition-colors ${
                   wholeSelected
                     ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-slate-700 border-gray-200 hover:border-indigo-300"
+                    : "bg-canvas text-slate-700 border-gray-200 hover:border-indigo-300"
                 }`}
               >
                 {wholeSelected && <Check className="w-3 h-3" />}
@@ -155,7 +155,7 @@ export default function GrantPicker({
                       className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
                         on
                           ? "bg-indigo-100 text-indigo-800 border-indigo-300"
-                          : "bg-white text-slate-600 border-gray-200 hover:border-indigo-300"
+                          : "bg-canvas text-slate-600 border-gray-200 hover:border-indigo-300"
                       }`}
                     >
                       {on && <Check className="w-2.5 h-2.5" />}

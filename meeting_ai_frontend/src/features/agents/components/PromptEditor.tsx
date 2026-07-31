@@ -77,7 +77,7 @@ export default function PromptEditor({
         return (
           <div
             key={key}
-            className={`bg-white border rounded-xl overflow-hidden ${
+            className={`bg-canvas border rounded-xl overflow-hidden ${
               isReq && empty
                 ? "border-amber-200"
                 : "border-slate-200"
@@ -94,11 +94,11 @@ export default function PromptEditor({
                 ) : (
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 )}
-                <span className="text-sm font-bold text-slate-900">
+                <span className="text-sm font-semibold text-slate-900">
                   {SECTION_LABELS[key]}
                 </span>
                 {isReq && (
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 rounded">
+                  <span className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 rounded">
                     required
                   </span>
                 )}

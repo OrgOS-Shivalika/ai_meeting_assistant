@@ -19,13 +19,19 @@ import {
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Field as UiField } from "@/components/ui/label";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { Select as UiSelect } from "@/components/ui/select";
+import { SettingRow, Switch } from "@/components/ui/switch";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Small inline primitives — kept in-file since only settings uses them.
 // ---------------------------------------------------------------------------
+/** Thin wrapper so the section bodies keep their `onChange` signature. */
 function Toggle({
   checked,
   onChange,
@@ -36,24 +42,7 @@ function Toggle({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-        checked ? "bg-indigo-600" : "bg-slate-300",
-      )}
-    >
-      <span
-        className={cn(
-          "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-          checked ? "translate-x-4" : "translate-x-0.5",
-        )}
-      />
-    </button>
+    <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
   );
 }
 
@@ -67,15 +56,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <div className="text-[13px] font-medium text-slate-900">{title}</div>
-        {description && (
-          <div className="text-xs text-slate-500 mt-0.5">{description}</div>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
+    <SettingRow title={title} description={description} control={children} />
   );
 }
 
@@ -89,13 +70,9 @@ function Field({
   hint?: string;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-slate-700">
-        {label}
-      </label>
+    <UiField label={label} hint={hint}>
       {children}
-      {hint && <p className="text-[11px] text-slate-500">{hint}</p>}
-    </div>
+    </UiField>
   );
 }
 
@@ -111,18 +88,17 @@ function Section({
   return (
     <section>
       <header className="mb-5">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">
-          {title}
-        </h2>
-        <p className="text-sm text-slate-500 mt-1">{description}</p>
+        <h2 className="vb-title-lg">{title}</h2>
+        <p className="mt-1.5 text-sm text-muted-ink">{description}</p>
       </header>
-      <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+      <Card variant="default" className="rounded-lg px-[26px] py-2">
         {children}
-      </div>
+      </Card>
     </section>
   );
 }
 
+/** Local `Select` keeps the `options` prop the section bodies already pass. */
 function Select({
   value,
   onChange,
@@ -133,17 +109,17 @@ function Select({
   options: { value: string; label: string }[];
 }) {
   return (
-    <select
+    <UiSelect
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 rounded-md border border-slate-200 bg-white px-2.5 text-[13px] text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+      className="h-10 w-auto min-w-40"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
       ))}
-    </select>
+    </UiSelect>
   );
 }
 
@@ -170,50 +146,45 @@ export default function SettingsPage() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto px-8 py-10">
-        <header className="mb-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
-            Configure
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Settings
-          </h1>
-          <p className="text-sm text-slate-500 mt-2">
-            Manage your profile, workspace, AI defaults, and integrations.
-          </p>
-        </header>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Workspace"
+          title="Settings"
+          description="Manage your profile, workspace, agent defaults and integrations."
+        />
 
-        <div className="grid grid-cols-[220px_1fr] gap-10">
-          {/* Section nav */}
-          <nav className="sticky top-6 self-start space-y-0.5">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[220px_1fr]">
+          {/* Section nav — same active treatment as the app sidebar. */}
+          <nav className="flex flex-row gap-0.5 self-start overflow-x-auto lg:sticky lg:top-6 lg:flex-col">
             {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActive(id)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-2.5 h-8 rounded-md text-[13px] font-medium transition-colors group",
+                  "group flex h-[38px] w-full shrink-0 items-center gap-[11px] rounded-[10px] px-3 text-[13.5px] transition-colors",
                   active === id
-                    ? "bg-slate-100 text-slate-900 font-semibold"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-50",
+                    ? "bg-surface-card font-semibold text-ink"
+                    : "font-medium text-muted-ink hover:bg-surface-soft hover:text-ink",
                 )}
               >
                 <Icon
                   className={cn(
-                    "w-4 h-4 shrink-0",
-                    active === id ? "text-indigo-600" : "text-slate-400",
+                    "size-[17px] shrink-0",
+                    active === id ? "text-ink" : "text-muted-soft",
                   )}
-                  strokeWidth={active === id ? 2.25 : 2}
                 />
-                <span className="flex-1 text-left">{label}</span>
+                <span className="flex-1 text-left whitespace-nowrap">
+                  {label}
+                </span>
                 {active === id && (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronRight className="hidden size-3.5 text-muted-soft lg:block" />
                 )}
               </button>
             ))}
           </nav>
 
           {/* Section content */}
-          <div>
+          <div className="min-w-0">
             {active === "profile" && <ProfileSection />}
             {active === "workspace" && <WorkspaceSection />}
             {active === "ai" && <AISection />}
@@ -223,7 +194,7 @@ export default function SettingsPage() {
             {active === "billing" && <BillingSection />}
           </div>
         </div>
-      </div>
+      </PageContainer>
     </Layout>
   );
 }
@@ -248,46 +219,48 @@ function ProfileSection() {
       title="Profile"
       description="How you appear across meetings and your workspace."
     >
-      <div className="p-5 flex items-center gap-4">
+      <div className="flex items-center gap-[18px] py-5">
+        {/* Rounded-square avatar in brand pink — the DS never uses a
+            cool gradient for identity. */}
         {user?.google_profile_picture ? (
           <img
             src={user.google_profile_picture}
             alt={user.name}
-            className="w-16 h-16 rounded-full object-cover ring-2 ring-slate-200"
+            className="size-16 rounded-[18px] object-cover"
           />
         ) : (
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center text-lg font-semibold shadow-sm">
+          <span className="inline-flex size-16 items-center justify-center rounded-[18px] bg-pink font-display text-2xl font-semibold text-white">
             {initials}
-          </div>
+          </span>
         )}
         <div className="flex-1">
           <div className="flex gap-2">
             <Button variant="outline" size="sm">
-              Upload photo
+              Change photo
             </Button>
             <Button variant="ghost" size="sm">
               Remove
             </Button>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">
+          <p className="mt-2 text-[11px] text-muted-ink">
             PNG or JPG, up to 2 MB.
           </p>
         </div>
       </div>
 
-      <div className="p-5 grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 border-t border-hairline-soft py-5 sm:grid-cols-2">
         <Field label="Full name">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="h-9"
+            className="h-10"
           />
         </Field>
         <Field label="Email" hint="Contact support to change your email.">
           <Input
             value={user?.email || ""}
             readOnly
-            className="h-9 bg-slate-50"
+            className="h-10 bg-surface-soft"
           />
         </Field>
         <Field label="Timezone">
@@ -304,15 +277,15 @@ function ProfileSection() {
           />
         </Field>
         <Field label="Role">
-          <div className="h-9 flex items-center">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-indigo-50 text-indigo-700 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider">
+          <div className="flex h-10 items-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-lavender/22 px-[9px] py-1 text-[11px] font-semibold text-purple-700">
               Org Admin
             </span>
           </div>
         </Field>
       </div>
 
-      <div className="p-4 flex items-center justify-end gap-2 bg-slate-50/60">
+      <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
         <Button variant="ghost" size="sm">
           Cancel
         </Button>
@@ -339,16 +312,16 @@ function WorkspaceSection() {
         title="Workspace"
         description="Details that apply to everyone in your organization."
       >
-        <div className="p-5 grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 border-t border-hairline-soft py-5 sm:grid-cols-2">
           <Field label="Workspace name">
             <Input
               value={orgName}
               onChange={(e) => setOrgName(e.target.value)}
-              className="h-9"
+              className="h-10"
             />
           </Field>
           <Field label="Slug" hint="Used in shared meeting links.">
-            <Input value="acme" readOnly className="h-9 bg-slate-50" />
+            <Input value="acme" readOnly className="h-10 bg-surface-soft" />
           </Field>
           <Field label="Region" hint="Where meeting data is stored.">
             <Select
@@ -377,7 +350,7 @@ function WorkspaceSection() {
             />
           </Field>
         </div>
-        <div className="p-4 flex items-center justify-end gap-2 bg-slate-50/60">
+        <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
           <Button variant="ghost" size="sm">
             Cancel
           </Button>
@@ -387,19 +360,19 @@ function WorkspaceSection() {
 
       <section className="mt-8">
         <header className="mb-5">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-900">
+          <h2 className="vb-title-lg">
             Danger zone
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-muted-ink mt-1">
             Irreversible actions. Proceed with care.
           </p>
         </header>
         <div className="rounded-lg border border-red-200 bg-red-50/40 p-5 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-slate-900">
+            <div className="text-sm font-semibold text-ink">
               Delete this workspace
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-muted-ink mt-1">
               This permanently removes all meetings, transcripts, and members.
             </p>
           </div>
@@ -433,7 +406,7 @@ function AISection() {
       title="AI & Automation"
       description="Tune what OrgOS extracts and how it behaves during a call."
     >
-      <div className="p-5 grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 border-t border-hairline-soft py-5 sm:grid-cols-2">
         <Field label="Default agent">
           <Select
             value={defaultAgent}
@@ -499,7 +472,7 @@ function AISection() {
         </Row>
       </div>
 
-      <div className="p-4 flex items-center justify-end gap-2 bg-slate-50/60">
+      <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
         <Button size="sm">Save preferences</Button>
       </div>
     </Section>
@@ -556,24 +529,24 @@ function IntegrationsSection() {
     >
       {INTEGRATIONS.map(({ id, name, description, icon: Icon, connected, locked }) => (
         <div key={id} className="p-5 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-            <Icon className="w-5 h-5 text-slate-700" />
+          <div className="inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-card">
+            <Icon className="size-5 text-body-strong" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">{name}</h3>
+              <h3 className="text-sm font-semibold text-ink">{name}</h3>
               {connected && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-success/12 px-2 py-0.5 text-[10px] font-semibold text-success">
                   <Check className="w-2.5 h-2.5" strokeWidth={3} />
                   Connected
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+            <p className="text-xs text-muted-ink mt-0.5">{description}</p>
           </div>
           <div className="shrink-0">
             {locked ? (
-              <span className="text-[11px] text-slate-400">System</span>
+              <span className="text-[11px] text-muted-soft">System</span>
             ) : connected ? (
               <Button variant="outline" size="sm">
                 Manage
@@ -702,16 +675,16 @@ function SecuritySection() {
       >
         <div className="p-5 grid gap-4">
           <Field label="Current password">
-            <Input type="password" placeholder="••••••••" className="h-9" />
+            <Input type="password" placeholder="••••••••" className="h-10" />
           </Field>
           <Field label="New password">
-            <Input type="password" placeholder="At least 8 characters" className="h-9" />
+            <Input type="password" placeholder="At least 8 characters" className="h-10" />
           </Field>
           <Field label="Confirm new password">
-            <Input type="password" placeholder="Repeat new password" className="h-9" />
+            <Input type="password" placeholder="Repeat new password" className="h-10" />
           </Field>
         </div>
-        <div className="p-4 flex items-center justify-end gap-2 bg-slate-50/60">
+        <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
           <Button size="sm">Update password</Button>
         </div>
       </Section>
@@ -741,16 +714,16 @@ function SecuritySection() {
             <div key={i} className="p-5 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-900">
+                  <span className="text-sm font-medium text-ink">
                     {s.device}
                   </span>
                   {s.current && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+                    <span className="rounded-full bg-success/12 px-2 py-0.5 text-[10px] font-semibold text-success">
                       This device
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-muted-ink mt-0.5">
                   {s.location} · {s.lastActive}
                 </p>
               </div>
@@ -761,7 +734,7 @@ function SecuritySection() {
               )}
             </div>
           ))}
-          <div className="p-4 flex justify-end bg-slate-50/60">
+          <div className="-mx-[26px] mt-2 flex justify-end border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
             <Button variant="outline" size="sm">
               Sign out of all other sessions
             </Button>
@@ -791,16 +764,16 @@ function UsageBar({
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-medium text-slate-700">{label}</span>
-        <span className="text-xs text-slate-500 tabular-nums">
+        <span className="text-xs font-medium text-body-strong">{label}</span>
+        <span className="text-xs text-muted-ink tabular-nums">
           {used.toLocaleString()} / {total.toLocaleString()} {unit}
         </span>
       </div>
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+      <div className="h-2 overflow-hidden rounded-full bg-surface-card">
         <div
           className={cn(
             "h-full rounded-full transition-all",
-            near ? "bg-amber-500" : "bg-indigo-600",
+            near ? "bg-warning" : "bg-ink",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -819,14 +792,14 @@ function BillingSection() {
         <div className="p-5 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-lg font-semibold text-slate-900">
+              <h3 className="vb-title-md text-[19px]">
                 Pro Team
               </h3>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 rounded px-1.5 py-0.5">
+              <span className="rounded-full bg-info/12 px-2 py-0.5 text-[10px] font-semibold text-info">
                 Current
               </span>
             </div>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted-ink">
               $49 / seat / month · billed monthly
             </p>
           </div>
@@ -864,14 +837,14 @@ function BillingSection() {
         >
           <div className="p-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-7 rounded bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center">
+              <div className="inline-flex h-7 w-10 items-center justify-center rounded-xs bg-ink font-mono text-[10px] font-semibold text-on-ink">
                 VISA
               </div>
               <div>
-                <div className="text-sm font-medium text-slate-900">
+                <div className="text-sm font-medium text-ink">
                   •••• •••• •••• 4242
                 </div>
-                <div className="text-xs text-slate-500">Expires 12 / 2026</div>
+                <div className="text-xs text-muted-ink">Expires 12 / 2026</div>
               </div>
             </div>
             <Button variant="outline" size="sm">
@@ -880,10 +853,10 @@ function BillingSection() {
           </div>
           <div className="p-5 flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium text-slate-900">
+              <div className="text-sm font-medium text-ink">
                 Billing history
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-muted-ink mt-0.5">
                 Download past invoices and receipts.
               </p>
             </div>

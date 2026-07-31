@@ -131,7 +131,7 @@ export default function ScheduleMeetingForm({
   const noCategories = categories.length === 0;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-6 overflow-hidden">
+    <div className="bg-canvas border border-slate-200 rounded-xl shadow-sm mb-6 overflow-hidden">
       {/* Toggle bar */}
       <button
         type="button"
@@ -143,7 +143,7 @@ export default function ScheduleMeetingForm({
             <CalendarPlus className="w-5 h-5 text-indigo-600" />
           </div>
           <div className="text-left min-w-0">
-            <h2 className="text-sm font-bold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900">
               Schedule a meeting
             </h2>
             <p className="text-xs text-slate-500 truncate">
@@ -166,7 +166,7 @@ export default function ScheduleMeetingForm({
         >
           {/* Title */}
           <div className="md:col-span-7">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Title
             </label>
             <input
@@ -175,13 +175,13 @@ export default function ScheduleMeetingForm({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Weekly engineering sync"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
             />
           </div>
 
           {/* Date/Time */}
           <div className="md:col-span-5">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Calendar className="w-3 h-3" />
               When
             </label>
@@ -191,13 +191,13 @@ export default function ScheduleMeetingForm({
               min={nowLocalISO()}
               value={scheduledAt}
               onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
             />
           </div>
 
           {/* Category */}
           <div className="md:col-span-4">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Tag className="w-3 h-3" />
               Meeting type
             </label>
@@ -209,7 +209,7 @@ export default function ScheduleMeetingForm({
                 setTeamId(null);
               }}
               disabled={noCategories}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="">Choose a meeting type…</option>
               {categories.map((c) => (
@@ -227,7 +227,7 @@ export default function ScheduleMeetingForm({
 
           {/* Team */}
           <div className="md:col-span-4">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Users className="w-3 h-3" />
               Team
             </label>
@@ -237,7 +237,7 @@ export default function ScheduleMeetingForm({
                 setTeamId(e.target.value ? Number(e.target.value) : null)
               }
               disabled={!selectedCategory || availableTeams.length === 0}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm disabled:bg-slate-50 disabled:text-slate-400"
             >
               <option value="">
                 {!selectedCategory
@@ -256,7 +256,7 @@ export default function ScheduleMeetingForm({
 
           {/* Duration */}
           <div className="md:col-span-2">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
               Duration
             </label>
@@ -267,7 +267,7 @@ export default function ScheduleMeetingForm({
                 step={5}
                 value={duration}
                 onChange={(e) => setDuration(e.target.value)}
-                className="w-full px-3 py-2.5 pr-10 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+                className="w-full px-3 py-2.5 pr-10 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
                 min
@@ -277,13 +277,13 @@ export default function ScheduleMeetingForm({
 
           {/* Platform */}
           <div className="md:col-span-2">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Platform
             </label>
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
             >
               {PLATFORMS.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -295,7 +295,7 @@ export default function ScheduleMeetingForm({
 
           {/* Meeting URL */}
           <div className="md:col-span-12">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <LinkIcon className="w-3 h-3" />
               Meeting URL{" "}
               <span className="text-slate-400 font-normal normal-case ml-1">
@@ -307,13 +307,13 @@ export default function ScheduleMeetingForm({
               value={meetingUrl}
               onChange={(e) => setMeetingUrl(e.target.value)}
               placeholder="meet.google.com/abc-defg-hij"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
             />
           </div>
 
           {/* Attendees */}
           <div className="md:col-span-12">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Mail className="w-3 h-3" />
               Attendees{" "}
               <span className="text-slate-400 font-normal normal-case ml-1">
@@ -325,13 +325,13 @@ export default function ScheduleMeetingForm({
               value={attendees}
               onChange={(e) => setAttendees(e.target.value)}
               placeholder="alice@acme.com, bob@acme.com"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
             />
           </div>
 
           {/* Description */}
           <div className="md:col-span-12">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
               Notes{" "}
               <span className="text-slate-400 font-normal normal-case ml-1">
                 (optional — sent in the calendar invite)
@@ -342,7 +342,7 @@ export default function ScheduleMeetingForm({
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               placeholder="Agenda, prep links, anything attendees should see in the invite."
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm resize-y"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-canvas focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm resize-y"
             />
           </div>
 
@@ -350,7 +350,7 @@ export default function ScheduleMeetingForm({
           <div className="md:col-span-12 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-indigo-50/40 border border-indigo-100">
             <label
               htmlFor="add-to-calendar"
-              className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer"
+              className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer"
             >
               <CalendarCheck className="w-4 h-4 text-indigo-600" />
               Add to my Google Calendar
@@ -370,7 +370,7 @@ export default function ScheduleMeetingForm({
 
           {/* Error */}
           {error && (
-            <div className="md:col-span-12 px-3 py-2 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold rounded-lg">
+            <div className="md:col-span-12 px-3 py-2 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-semibold rounded-lg">
               {error}
             </div>
           )}
@@ -383,14 +383,14 @@ export default function ScheduleMeetingForm({
                 reset();
                 setOpen(false);
               }}
-              className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-bold transition-all"
+              className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-semibold transition-all"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-300 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-300 text-white rounded-lg text-sm font-semibold shadow-soft shadow-indigo-600/20 transition-all active:scale-[0.98]"
             >
               {submitting ? (
                 <>

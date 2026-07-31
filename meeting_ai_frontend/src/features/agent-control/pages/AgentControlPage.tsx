@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "../../../services/apiClient";
 import { cn } from "@/lib/utils";
 import { Bot, Briefcase, Save, RotateCcw, FileText, ExternalLink } from "lucide-react";
+import Layout from "../../../shared/components/Layout";
 import ContinuumControlPanel from "../components/ContinuumControlPanel";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
 
 /**
  * Control Panel — lists every agents_v2 row in the caller's org grouped
@@ -321,57 +325,70 @@ export default function AgentControlPage() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#fafafa] overflow-hidden">
-      {/* Left rail */}
-      <aside className="w-72 border-r border-slate-200 bg-white overflow-y-auto">
-        <div className="px-4 py-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-indigo-600" />
-            <h2 className="text-sm font-semibold text-slate-900">Control Panel</h2>
+    // h-full, not h-screen: this sits inside Layout's content column, which
+    // is already exactly the viewport height. h-screen here would add a
+    // second full-height box inside it and produce nested scrollbars.
+    <Layout>
+      <div className="flex h-full w-full overflow-hidden bg-canvas">
+        {/* Left rail — scrolls on its own so it stays put while the detail
+            pane scrolls independently. */}
+        <aside className="w-72 shrink-0 overflow-y-auto border-r border-hairline bg-canvas">
+        <div className="border-b border-hairline px-4 py-5">
+          <div className="flex items-center gap-2.5">
+            <IconChip
+              size="sm"
+              color="var(--vb-lavender)"
+              strength={22}
+              className="rounded-[9px]"
+            >
+              <Bot />
+            </IconChip>
+            <h2 className="vb-title-sm">Agents</h2>
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
+          <p className="mt-1.5 text-[11px] text-muted-ink">
             {agents.length} agent{agents.length === 1 ? "" : "s"} in this org
           </p>
         </div>
         {/* Pinned — always visible regardless of agents_v2 list state */}
-        <div className="py-2 border-b border-slate-100">
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Continuum Core
-          </div>
+        <div className="border-b border-hairline py-3">
+          <div className="vb-label-caps px-4 pb-2">Continuum Core</div>
           <button
             onClick={() => {
               setContinuumSelected(true);
               setSelectedId(null);
             }}
             className={cn(
-              "w-full text-left px-3 py-2 text-[13px] flex items-center gap-2",
+              // Same active treatment as the app sidebar: cream fill plus
+              // a coloured rail on the left edge.
+              "relative flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[13px] transition-colors",
               continuumSelected
-                ? "bg-emerald-50 text-emerald-900 font-medium border-l-2 border-emerald-600"
-                : "text-slate-700 hover:bg-slate-50 border-l-2 border-transparent",
+                ? "bg-surface-card font-semibold text-ink"
+                : "text-body hover:bg-surface-soft",
             )}
           >
-            <Briefcase className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>
-              <span className="block">Continuum Meeting Agent</span>
-              <span className="block text-[10.5px] text-slate-500 mt-0.5">
-                Client boards · prompt · token budget
+            {continuumSelected && (
+              <span className="absolute top-1.5 bottom-1.5 left-0 w-[3px] rounded-r-[3px] bg-success" />
+            )}
+            <Briefcase className="size-4 shrink-0 text-success" />
+            <span className="min-w-0">
+              <span className="block truncate">Continuum meeting agent</span>
+              <span className="mt-0.5 block text-[11px] text-muted-ink">
+                Client boards · prompt · budget
               </span>
             </span>
           </button>
         </div>
         {loading ? (
-          <div className="p-4 text-xs text-slate-400">Loading…</div>
+          <div className="p-4 text-xs text-muted-soft">Loading…</div>
         ) : agents.length === 0 ? (
-          <div className="p-4 text-xs text-slate-500">
-            No agents_v2 rows for this org yet.
+          <div className="p-4 text-xs text-muted-ink">
+            No agents provisioned for this org yet.
           </div>
         ) : (
-          <div className="py-2">
+          <div className="py-3">
             {grouped.map(([cat, items]) => (
-              <div key={cat} className="mb-2">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  {cat}
-                </div>
+              <div key={cat} className="mb-3">
+                <div className="vb-label-caps px-4 pb-2">{cat}</div>
                 {items.map((a) => (
                   <button
                     key={a.id}
@@ -380,22 +397,25 @@ export default function AgentControlPage() {
                       setSelectedId(a.id);
                     }}
                     className={cn(
-                      "w-full text-left px-3 py-2 text-[13px] flex items-center justify-between",
+                      "relative flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-[13px] transition-colors",
                       selectedId === a.id
-                        ? "bg-indigo-50 text-indigo-900 font-medium border-l-2 border-indigo-600"
-                        : "text-slate-700 hover:bg-slate-50 border-l-2 border-transparent",
+                        ? "bg-surface-card font-semibold text-ink"
+                        : "text-body hover:bg-surface-soft",
                     )}
                   >
-                    <span className="truncate">
-                      <span className="block">{a.name}</span>
-                      <span className="block text-[10.5px] text-slate-500 mt-0.5">
+                    {selectedId === a.id && (
+                      <span className="absolute top-1.5 bottom-1.5 left-0 w-[3px] rounded-r-[3px] bg-pink" />
+                    )}
+                    <span className="min-w-0 truncate">
+                      <span className="block truncate">{a.name}</span>
+                      <span className="mt-0.5 block text-[11px] text-muted-ink">
                         {a.team_name ? `Team: ${a.team_name}` : "Category-scoped"}
                       </span>
                     </span>
                     {a.status !== "active" && (
-                      <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">
+                      <Badge variant="secondary" size="sm">
                         {a.status}
-                      </span>
+                      </Badge>
                     )}
                   </button>
                 ))}
@@ -403,65 +423,59 @@ export default function AgentControlPage() {
             ))}
           </div>
         )}
-      </aside>
+        </aside>
 
-      {/* Detail pane */}
-      <main className="flex-1 overflow-y-auto">
+        {/* Detail pane */}
+        <main className="min-w-0 flex-1 overflow-y-auto">
         {continuumSelected ? (
           <ContinuumControlPanel />
         ) : !detail || detailLoading ? (
-          <div className="p-8 text-sm text-slate-400">
+          <div className="p-11 text-sm text-muted-soft">
             {detailLoading ? "Loading agent…" : "Select an agent"}
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto p-8 space-y-8">
-            <header className="flex items-start justify-between gap-4">
-              <div>
+          <div className="mx-auto max-w-3xl space-y-8 px-11 pt-9 pb-18">
+            <header className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="vb-eyebrow mb-2">Intelligence</p>
                 <input
                   value={detail.name}
                   onChange={(e) => patch({ name: e.target.value })}
-                  className="text-xl font-semibold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-600 focus:outline-none w-full"
+                  className="w-full border-b border-transparent bg-transparent font-display text-[26px] font-medium tracking-[-0.8px] text-ink outline-none hover:border-hairline focus:border-ink"
                 />
-                <p className="text-xs text-slate-500 mt-1 font-mono">
+                <p className="mt-2 font-mono text-xs text-muted-ink">
                   {detail.slug} · id={detail.id}
                   {detail.team_name && ` · team ${detail.team_name}`}
                   {detail.category_name && ` · ${detail.category_name}`}
                 </p>
               </div>
-              <button
+              <Button
                 onClick={save}
                 disabled={saving}
-                className={cn(
-                  "flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition",
-                  saving
-                    ? "bg-slate-400"
-                    : savedFlash
-                      ? "bg-emerald-600"
-                      : "bg-indigo-600 hover:bg-indigo-700",
-                )}
+                className={cn(savedFlash && "bg-success hover:bg-success")}
               >
-                <Save className="w-3.5 h-3.5" />
+                <Save />
                 {saving ? "Saving…" : savedFlash ? "Saved" : "Save"}
-              </button>
+              </Button>
             </header>
 
             {error && (
-              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              <div className="rounded-lg border border-error/20 bg-error/8 px-4 py-3 text-[13px] font-medium text-error">
                 {error}
               </div>
             )}
 
             {/* Tab strip */}
-            <div className="border-b border-slate-200 flex gap-1">
+            <div className="flex gap-6 border-b border-hairline">
               {(["config", "prompts", "reports"] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className={cn(
-                    "px-4 py-2 text-sm font-medium transition -mb-px border-b-2",
+                    "-mb-px border-b-2 px-0.5 py-2.5 text-sm transition-colors",
                     tab === t
-                      ? "border-indigo-600 text-indigo-700"
-                      : "border-transparent text-slate-500 hover:text-slate-800",
+                      ? "border-ink font-semibold text-ink"
+                      : "border-transparent font-medium text-muted-ink hover:text-body-strong",
                   )}
                 >
                   {t === "config" ? "Config" : t === "prompts" ? "Prompts" : "Reports"}
@@ -502,8 +516,9 @@ export default function AgentControlPage() {
             )}
           </div>
         )}
-      </main>
-    </div>
+        </main>
+      </div>
+    </Layout>
   );
 }
 
@@ -789,7 +804,7 @@ function PromptPanel({
               agent's shipped <code>{activeKey}</code> file.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-hairline-soft">
               {versions.map((v) => (
                 <li key={v.id} className="py-2.5 flex items-center gap-3">
                   <span className="font-mono text-sm text-slate-800 w-10">v{v.version}</span>
@@ -1030,7 +1045,7 @@ function CatalogCheckboxList({
       {catalog.length === 0 ? (
         <p className="text-[11px] text-slate-500 italic">{emptyHint}</p>
       ) : (
-        <ul className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-64 overflow-y-auto">
+        <ul className="border border-slate-200 rounded-md divide-y divide-hairline-soft max-h-64 overflow-y-auto">
           {catalog.map((c) => {
             const isOn = selected.includes(c.id);
             return (
@@ -1091,7 +1106,7 @@ function CatalogCheckboxList({
 }
 
 const inputCls =
-  "w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
+  "w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md bg-canvas focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 
 function Section({
   title,
@@ -1103,7 +1118,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-white border border-slate-200 rounded-lg p-5">
+    <section className="bg-canvas border border-slate-200 rounded-lg p-5">
       <header className="mb-4">
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
         {subtitle && (
