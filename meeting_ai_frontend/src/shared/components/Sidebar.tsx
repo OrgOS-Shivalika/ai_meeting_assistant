@@ -59,7 +59,7 @@ const NAV: NavSection[] = [
       { path: "/ask", label: "Ask AI", icon: Sparkles },
       { path: "/knowledge-hub", label: "Knowledge", icon: BookOpen },
       { path: "/knowledge-graph", label: "Graph", icon: Network },
-      { path: "/agent-control", label: "Agents", icon: Bot },
+      { path: "/agent-control", label: "Control Panel", icon: Bot },
     ],
   },
   {
