@@ -204,6 +204,31 @@ def search(
     conversation_id=None, agent_id=None,
     window: str = "short_term", limit: int = 10, threshold: float = 0.3,
 ) -> list[MemFact]:
+    # An empty query is a SUPPORTED contract, not a caller mistake:
+    # `MemoryAccess.search` documents "if query is empty: rank by
+    # last_referenced_at descending", and both agent orchestrators use it
+    # that way to mean "the recent facts for this scope, no particular
+    # question". mem0 does not accept it — the managed API raises
+    # `ValueError: Invalid query: cannot be empty or whitespace-only`.
+    #
+    # That raise was swallowed by the `except Exception` around every
+    # memory wire-in, so under MEMORY_BACKEND=mem0 BOTH agent paths
+    # silently received zero prior facts on every meeting while the facts
+    # sat there perfectly retrievable.
+    #
+    # Honour the contract by routing to the unranked scope fetch — the
+    # same call `MemoryAccess.get_recent` already makes for mem0.
+    #
+    # ponytail: get_all's ordering is mem0's own, not an explicit
+    # last_referenced_at sort. That matches what get_recent already
+    # relies on; sort here if the ordering ever proves wrong (needs the
+    # managed store's timestamp field name confirmed first).
+    if not (query or "").strip():
+        return get_all(
+            org_id=org_id, category_id=category_id,
+            team_id=team_id, agent_id=agent_id, limit=limit,
+        )
+
     uid = _require_org(org_id)
     fetch = max(limit * 3, 20)   # over-fetch, then metadata post-filter to `limit`
     # BOTH managed + OSS scope search via `filters` — the managed API

@@ -43,11 +43,33 @@ try:
         # `openai` module whose ChatCompletions call auto-emits Generations.
         from langfuse.openai import openai as _lf_openai
 
+        _LANGFUSE_HOST = settings.LANGFUSE_HOST or "https://cloud.langfuse.com"
+
         _LANGFUSE_CLIENT = Langfuse(
             public_key=settings.LANGFUSE_PUBLIC_KEY,
             secret_key=settings.LANGFUSE_SECRET_KEY,
-            host=settings.LANGFUSE_HOST or "https://cloud.langfuse.com",
+            host=_LANGFUSE_HOST,
         )
+
+        # The @observe decorators and the `langfuse.openai` wrapper do NOT
+        # use the client above — they hold their own singleton built from
+        # os.environ, where it looks for LANGFUSE_HOST specifically.
+        #
+        # settings.py accepts LANGFUSE_BASE_URL as an alias, so a .env that
+        # only sets that name left this singleton on its default of
+        # cloud.langfuse.com while the explicit client pointed at the
+        # self-hosted server. Traces silently went to Langfuse Cloud, were
+        # rejected by keys that don't exist there, and got dropped — no
+        # error anywhere, because the SDK swallows ingestion failures.
+        #
+        # Configuring it explicitly makes the host a property of the code
+        # rather than of which env var name happened to be used.
+        _lf_ctx.configure(
+            public_key=settings.LANGFUSE_PUBLIC_KEY,
+            secret_key=settings.LANGFUSE_SECRET_KEY,
+            host=_LANGFUSE_HOST,
+        )
+
         _LANGFUSE_ENABLED = True
         # print + logger.info — print survives log-level suppression in
         # Celery workers where third-party loggers may be filtered above INFO.

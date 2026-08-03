@@ -73,6 +73,74 @@ services:
       echo 'MinIO bucket bootstrapped';
       "
 
+  # Self-hosted Langfuse (LLM tracing). Replaces cloud.langfuse.com so
+  # prompts + completions never leave this host.
+  #
+  # Pinned to the `2` major tag deliberately: the Python SDK is pinned to
+  # `langfuse>=2.60,<3` in requirements.txt, and a v2 server needs ONLY
+  # Postgres. The v3 server additionally requires ClickHouse + Redis +
+  # blob storage — real infra for no benefit until the SDK pin moves.
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: meeting-ai-langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      # Its own DATABASE, on the Postgres server we already run. Langfuse
+      # manages this schema with its own migrations — keeping it out of
+      # `meeting_ai` means it can never collide with alembic.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/langfuse
+      # Must match the URL you open in the browser, or login redirects break.
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT}
+      # 32-byte hex. Encrypts stored integration credentials at rest.
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      # Same data-residency stance as MEM0_TELEMETRY=false.
+      TELEMETRY_ENABLED: "false"
+      # Nothing here should phone home for release checks either.
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      # Headless init — creates the org, project, login user AND pins the
+      # API keys on first boot, so there is no "open the UI and paste keys
+      # back into .env" step and a rebuilt volume comes back identical.
+      # Ignored once those rows exist, so it is safe to leave in place.
+      LANGFUSE_INIT_ORG_ID: smoothops
+      LANGFUSE_INIT_ORG_NAME: SmoothOps
+      LANGFUSE_INIT_PROJECT_ID: agentic-meeting-assistant
+      LANGFUSE_INIT_PROJECT_NAME: Agentic Meeting Assistant
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    depends_on:
+      langfuse-db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # One-shot: create the `langfuse` database if it isn't there.
+  #
+  # This exists because a `/docker-entrypoint-initdb.d` script only runs
+  # against a FRESH volume, and postgres_data is already initialized —
+  # so the usual trick would silently do nothing here. Same idempotent
+  # one-shot pattern as minio-init above. Reuses the pgvector image so
+  # there's no extra pull.
+  langfuse-db-init:
+    image: pgvector/pgvector:pg16
+    container_name: meeting-ai-langfuse-db-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # Idempotent via `|| true`, not a SELECT-then-branch: a folded YAML
+    # scalar mangles pipes and escaped quotes (the first version died on
+    # `/bin/sh: Syntax error: "|" unexpected`). Re-running just re-raises
+    # "database already exists", which is the same swallow-the-error trick
+    # minio-init uses above.
+    entrypoint: >
+      /bin/sh -c "psql -h postgres -U ${POSTGRES_USER:-postgres} -d postgres -c 'CREATE DATABASE langfuse' || true; echo 'langfuse database ready'"
+
   worker:
     build:
       context: .
@@ -89,6 +157,11 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
       USE_CELERY: "true"
+      # The worker is INSIDE the compose network, so localhost is itself.
+      # settings.py reads LANGFUSE_HOST before falling back to
+      # LANGFUSE_BASE_URL, so setting this here beats the .env value the
+      # host-run FastAPI process uses — no second variable needed.
+      LANGFUSE_HOST: http://langfuse:3000
     volumes:
       - ./:/app
     depends_on:
