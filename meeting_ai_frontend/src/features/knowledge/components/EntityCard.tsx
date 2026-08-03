@@ -42,7 +42,7 @@ export default function EntityCard({ entity, onSelect }: EntityCardProps) {
     <button
       type="button"
       onClick={() => onSelect(entity.id)}
-      className="text-left bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all p-4 group"
+      className="text-left bg-canvas rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-soft hover:shadow-indigo-500/5 transition-all p-4 group"
     >
       <div className="flex items-start justify-between gap-3 mb-2">
         <div
@@ -50,7 +50,7 @@ export default function EntityCard({ entity, onSelect }: EntityCardProps) {
         >
           {meta.icon}
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
           v{entity.knowledge_version}
           {conf != null && (
             <>
@@ -61,17 +61,17 @@ export default function EntityCard({ entity, onSelect }: EntityCardProps) {
         </div>
       </div>
 
-      <h3 className="text-sm font-bold text-slate-900 truncate group-hover:text-indigo-600 transition-colors">
+      <h3 className="text-sm font-semibold text-slate-900 truncate group-hover:text-indigo-600 transition-colors">
         {entity.name}
       </h3>
 
       <div className="mt-1 flex items-center gap-2 flex-wrap">
         <span
-          className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${meta.bg} ${meta.fg} ring-1 ${meta.ring}`}
+          className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${meta.bg} ${meta.fg} ring-1 ${meta.ring}`}
         >
           {meta.label}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+        <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
           {SCOPE_LABEL[entity.scope_type] ?? entity.scope_type}
           {entity.scope_id != null ? ` · ${entity.scope_id}` : ""}
         </span>

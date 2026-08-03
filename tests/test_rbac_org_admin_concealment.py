@@ -70,6 +70,15 @@ def _install_mail_stub() -> None:
 _install_mail_stub()
 
 
+# `MemberCreateRequest` takes the password base64-encoded — the browser
+# encodes it in `services/passwordTransport.ts` so it isn't legible in the
+# request body, and the model rejects anything that isn't valid base64.
+# These tests drive the service directly, so they have to encode too.
+def _b64(plain: str) -> str:
+    import base64
+    return base64.b64encode(plain.encode("utf-8")).decode("ascii")
+
+
 results: List[Tuple[str, str, str, str]] = []
 
 
@@ -372,7 +381,7 @@ def test_category_admin_can_create_scoped_member():
             actor,
             MemberCreateRequest(
                 email=f"fresh-{uuid.uuid4()}@example.com",
-                password="a-long-enough-password",
+                password=_b64("a-long-enough-password"),
                 access_role="MEMBER",
                 category_ids=[_STATE["alpha_id"]],
             ),
@@ -408,7 +417,7 @@ def test_category_admin_cannot_create_out_of_scope():
                 actor,
                 MemberCreateRequest(
                     email=email,
-                    password="a-long-enough-password",
+                    password=_b64("a-long-enough-password"),
                     access_role="MEMBER",
                     category_ids=[beta_id],
                 ),
@@ -437,7 +446,7 @@ def test_category_admin_must_scope_new_member():
                 _user(db, "alice"),
                 MemberCreateRequest(
                     email=f"nowhere-{uuid.uuid4()}@example.com",
-                    password="a-long-enough-password",
+                    password=_b64("a-long-enough-password"),
                     access_role="MEMBER",
                 ),
             )
@@ -461,7 +470,7 @@ def test_org_admin_may_create_unscoped():
             _user(db, "owner"),
             MemberCreateRequest(
                 email=f"unscoped-{uuid.uuid4()}@example.com",
-                password="a-long-enough-password",
+                password=_b64("a-long-enough-password"),
                 access_role="MEMBER",
             ),
         )

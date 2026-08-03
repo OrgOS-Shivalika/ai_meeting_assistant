@@ -124,23 +124,23 @@ export default function AgentDetailPage() {
         {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight truncate">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight truncate">
               {profile.display_name}
             </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <code className="text-xs text-slate-500 font-mono">
                 {profile.slug}
               </code>
-              <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 bg-indigo-50 rounded">
+              <span className="px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 bg-indigo-50 rounded">
                 {profile.agent_type}
               </span>
               {profile.status === "archived" && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-slate-100 rounded">
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 rounded">
                   archived
                 </span>
               )}
               {profile.eval_gate_required && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 rounded">
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 rounded">
                   eval-gated · ≥{(profile.eval_min_score ?? 0.8).toFixed(2)}
                 </span>
               )}
@@ -165,7 +165,7 @@ export default function AgentDetailPage() {
             <button
               key={k}
               onClick={() => setTab(k as Tab)}
-              className={`px-4 py-2 text-sm font-bold transition-colors whitespace-nowrap ${
+              className={`px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap ${
                 tab === k
                   ? "text-indigo-600 border-b-2 border-indigo-600"
                   : "text-slate-500 hover:text-slate-700"
@@ -261,7 +261,7 @@ function OverviewTab({
           <ul className="text-sm space-y-1">
             {configs.map((c) => (
               <li key={c.id} className="flex items-center gap-2">
-                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-100 rounded">
+                <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-slate-100 rounded">
                   {c.scope_type}
                   {c.scope_id !== null && ` · ${c.scope_id}`}
                 </span>
@@ -336,7 +336,7 @@ function ScopesTab({
             onChange={(e) =>
               setScopeType(e.target.value as "organization" | "category" | "team")
             }
-            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-canvas"
           >
             <option value="organization">organization</option>
             <option value="category">category</option>
@@ -371,9 +371,9 @@ function ScopesTab({
         {configs.map((c) => (
           <div
             key={c.id}
-            className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3"
+            className="bg-canvas border border-slate-200 rounded-xl p-3 flex items-center gap-3"
           >
-            <span className="px-2 py-0.5 text-xs font-bold bg-slate-100 rounded">
+            <span className="px-2 py-0.5 text-xs font-semibold bg-slate-100 rounded">
               {c.scope_type}
               {c.scope_id !== null && ` · ${c.scope_id}`}
             </span>
@@ -506,11 +506,11 @@ function EditorTab({
           ) : latest ? (
             <>
               Latest version:{" "}
-              <span className="font-bold text-slate-900">
+              <span className="font-semibold text-slate-900">
                 v{latest.version_number}
               </span>{" "}
               ·{" "}
-              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-600">
+              <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-600">
                 {latest.state}
               </span>
             </>
@@ -618,8 +618,8 @@ function Card({
   wide?: boolean;
 }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-xl p-4 space-y-2 ${wide ? "md:col-span-2" : ""}`}>
-      <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+    <div className={`bg-canvas border border-slate-200 rounded-xl p-4 space-y-2 ${wide ? "md:col-span-2" : ""}`}>
+      <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
         {title}
       </h3>
       <div className="space-y-1">{children}</div>

@@ -1,9 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Cpu } from "lucide-react";
+import { Cpu, Package, Plus } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { templatesApi, type WorkspaceLink } from "../services/templatesApi";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BackLink, PageContainer, PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /**
  * Phase 8F refactor — simple list of installed template links.
@@ -32,78 +43,85 @@ export default function TemplatesInstalledPage() {
 
   return (
     <Layout>
-      <div className="px-8 py-8 max-w-6xl mx-auto">
-        <header className="mb-4">
-          <Link to="/templates" className="text-sm text-indigo-600 hover:underline">
-            ← Back to Templates
-          </Link>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2">
-            Installed templates
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Templates pinned in this workspace. Edit AI behavior per
-            scope in{" "}
-            <Link to="/agent-control" className="text-indigo-600 inline-flex items-center gap-1">
-              <Cpu className="w-3.5 h-3.5" /> Agent Control
-            </Link>
-            .
-          </p>
-        </header>
+      <PageContainer width="narrow">
+        <BackLink as={Link} to="/templates">
+          Marketplace
+        </BackLink>
+        <PageHeader
+          title="Installed templates"
+          size="sm"
+          description={
+            <>
+              {links.length} bundle{links.length === 1 ? "" : "s"} active in this
+              workspace. Tune the behavior per scope in{" "}
+              <Link
+                to="/agent-control"
+                className="inline-flex items-center gap-1 font-semibold text-ink hover:underline"
+              >
+                <Cpu className="size-3.5" /> Agent control
+              </Link>
+              .
+            </>
+          }
+          actions={
+            <Button asChild>
+              <Link to="/templates/browse">
+                <Plus />
+                Add bundle
+              </Link>
+            </Button>
+          }
+        />
 
         {loading ? (
-          <SkeletonCard className="h-64" />
+          <SkeletonCard className="h-64 rounded-lg" />
         ) : error ? (
-          <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
+          <div className="rounded-lg border border-error/20 bg-error/8 p-4 text-[13px] font-medium text-error">
             {error}
           </div>
         ) : links.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">
-            No templates installed yet.{" "}
-            <Link to="/templates/browse" className="text-indigo-600 underline">
-              Browse the catalog
-            </Link>
-          </div>
+          <EmptyState
+            icon={Package}
+            color="var(--vb-lavender)"
+            title="Nothing installed yet"
+            description="Install a bundle and it seeds categories, prompt configs and boards in one click."
+            action={
+              <Button asChild>
+                <Link to="/templates/browse">Browse the catalog</Link>
+              </Button>
+            }
+          />
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Template
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Scope kind
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Version
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Provisioned
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {links.map((l) => (
-                  <tr key={l.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      {l.source_template_slug}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 capitalize">
-                      {l.source_template_kind}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 font-mono text-xs">
-                      {l.source_template_version}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {new Date(l.provisioned_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Template</TableHead>
+                <TableHead>Scope kind</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Provisioned</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {links.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell className="font-medium text-ink">
+                    {l.source_template_slug}
+                  </TableCell>
+                  <TableCell className="text-body capitalize">
+                    {l.source_template_kind}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-ink">
+                    {l.source_template_version}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-ink">
+                    {new Date(l.provisioned_at).toLocaleDateString()}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </PageContainer>
     </Layout>
   );
 }

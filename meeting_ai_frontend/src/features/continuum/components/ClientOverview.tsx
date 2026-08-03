@@ -188,7 +188,7 @@ export default function ClientOverview({ board }: { board: AnyRec | null }) {
               return (
                 <li key={i} className="flex gap-2.5 text-xs">
                   <div className="flex shrink-0 flex-col items-center">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-50 text-[10px] font-bold text-indigo-600">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-50 text-[10px] font-semibold text-indigo-600">
                       {pick(m, "meeting_number") ?? summaries.length - i}
                     </span>
                     {i < summaries.length - 1 && (
@@ -292,7 +292,7 @@ export default function ClientOverview({ board }: { board: AnyRec | null }) {
               <li key={i} className="text-xs text-slate-700">
                 {(pick(q, "id") ?? "").includes("GATE") ||
                 /gate/i.test(pick(q, "tags") ?? "") ? (
-                  <span className="mr-1 rounded bg-indigo-50 px-1 py-0.5 text-[9px] font-bold text-indigo-600">
+                  <span className="mr-1 rounded bg-indigo-50 px-1 py-0.5 text-[9px] font-semibold text-indigo-600">
                     GATE
                   </span>
                 ) : null}

@@ -1,18 +1,4 @@
-// Phase 14 — Summary tab for a board (child of BoardLayout).
-//
-// Receives `board` via the layout's outlet context so switching to/from
-// the Board tab doesn't refetch or remount Layout/sidebar.
-//
-// Sections:
-//   - Tile row              (5 KPI cards)
-//   - Status donut          (one segment per column)
-//   - Priority donut        (high/medium/low)
-//   - Status overview bar   (100% stacked horizontal)
-//   - Top assignees         (proportional bars)
-//   - Due-date buckets      (proportional bars)
-//   - Activity trend        (14-day created/completed sparkline)
-//   - Team / Category bars  (when present)
-//   - Action lists          (overdue + due today)
+
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -26,6 +12,8 @@ import {
 import { useBoardOutletContext } from "./BoardLayout";
 import { DonutChart, StackedBarChart, TrendChart } from "../components/charts";
 import type { BoardDetail, BoardTaskSummary } from "../types";
+import { IconChip } from "@/components/ui/icon-chip";
+import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Aggregation helpers
@@ -202,9 +190,9 @@ export default function BoardSummaryPage() {
     stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
 
   return (
-    <div className="overflow-y-auto pb-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+    <div className="vb-no-scrollbar overflow-y-auto px-9 pt-6 pb-18">
       {/* Tile row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+      <div className="mb-5 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
         <Tile icon={Inbox} label="Total tasks" value={stats.total} tint="slate" />
         <Tile
           icon={CheckCircle2}
@@ -233,7 +221,7 @@ export default function BoardSummaryPage() {
       </div>
 
       {/* Charts grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+      <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="By status">
           <DonutChart
             segments={stats.statusSegments}
@@ -366,35 +354,32 @@ export default function BoardSummaryPage() {
 // Visual primitives
 // ---------------------------------------------------------------------------
 
-const TINT_BG: Record<string, string> = {
-  slate: "bg-slate-50",
-  indigo: "bg-indigo-50",
-  amber: "bg-amber-50",
-  emerald: "bg-emerald-50",
-  rose: "bg-rose-50",
-  cyan: "bg-cyan-50",
-  violet: "bg-violet-50",
-  pink: "bg-pink-50",
+/**
+ * The chart tints, resolved onto the vibrant palette. Keys keep their
+ * original Tailwind-ish names so every call site stays untouched; the
+ * values are now brand tokens, so a "rose" series reads as brand pink
+ * rather than a stray cool hue.
+ */
+const TINT_HEX: Record<string, string> = {
+  slate: "var(--vb-muted-soft)",
+  indigo: "var(--vb-info)",
+  amber: "var(--vb-warning)",
+  emerald: "var(--vb-success)",
+  rose: "var(--vb-error)",
+  cyan: "var(--vb-mint)",
+  violet: "var(--vb-lavender)",
+  pink: "var(--vb-pink)",
 };
+
 const TINT_FG: Record<string, string> = {
-  slate: "text-slate-600",
-  indigo: "text-indigo-600",
-  amber: "text-amber-600",
-  emerald: "text-emerald-600",
-  rose: "text-rose-600",
-  cyan: "text-cyan-600",
-  violet: "text-violet-600",
-  pink: "text-pink-600",
-};
-const TINT_BAR: Record<string, string> = {
-  slate: "bg-slate-400",
-  indigo: "bg-indigo-500",
-  amber: "bg-amber-500",
-  emerald: "bg-emerald-500",
-  rose: "bg-rose-500",
-  cyan: "bg-cyan-500",
-  violet: "bg-violet-500",
-  pink: "bg-pink-500",
+  slate: "text-muted-ink",
+  indigo: "text-info",
+  amber: "text-warning",
+  emerald: "text-success",
+  rose: "text-error",
+  cyan: "text-mint",
+  violet: "text-purple-700",
+  pink: "text-pink",
 };
 
 function Tile({
@@ -409,17 +394,15 @@ function Tile({
   tint?: string;
 }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-3 flex items-center gap-3">
-      <div
-        className={`w-9 h-9 rounded-md flex items-center justify-center ${TINT_BG[tint]} ${TINT_FG[tint]}`}
-      >
-        <Icon className="w-4 h-4" />
-      </div>
+    <div className="flex items-center gap-3.5 rounded-lg border border-hairline bg-canvas p-4">
+      <IconChip color={TINT_HEX[tint] || TINT_HEX.slate} size="sm">
+        <Icon />
+      </IconChip>
       <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">
-          {label}
+        <p className="vb-label-caps truncate">{label}</p>
+        <p className="mt-1 font-mono text-lg leading-none font-medium text-ink">
+          {value}
         </p>
-        <p className="text-lg font-black text-slate-900 leading-tight">{value}</p>
       </div>
     </div>
   );
@@ -437,25 +420,21 @@ function Panel({
   className?: string;
 }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-lg ${className}`}>
-      <div className="px-4 py-2.5 border-b border-slate-100 flex items-baseline justify-between gap-2">
-        <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
-          {title}
-        </h3>
-        {subtitle && (
-          <span className="text-[10px] text-slate-400 italic">{subtitle}</span>
-        )}
+    <div
+      className={`rounded-lg border border-hairline bg-canvas ${className}`}
+    >
+      <div className="flex items-baseline justify-between gap-2 px-5 py-4">
+        <h3 className="vb-title-sm">{title}</h3>
+        {subtitle && <span className="text-[11px] text-muted-soft">{subtitle}</span>}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="px-5 pb-5">{children}</div>
     </div>
   );
 }
 
 function EmptyHint({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] italic text-slate-400 text-center py-3">
-      {children}
-    </p>
+    <p className="py-3 text-center text-[11px] text-muted-soft">{children}</p>
   );
 }
 
@@ -473,24 +452,22 @@ function BreakdownBars({
       {items.map((it) => {
         const pctOfMax = (it.count / max) * 100;
         const pctOfTotal = total > 0 ? Math.round((it.count / total) * 100) : 0;
-        const bar = TINT_BAR[it.tint] || TINT_BAR.slate;
+        const bar = TINT_HEX[it.tint] || TINT_HEX.slate;
         return (
           <li key={it.label} className="text-[11px]">
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="font-semibold text-slate-700 truncate max-w-60">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="max-w-60 truncate font-medium text-body-strong">
                 {it.label}
               </span>
-              <span className="font-bold text-slate-500 shrink-0">
+              <span className="shrink-0 font-mono text-muted-ink">
                 {it.count}
-                <span className="text-slate-400 font-medium ml-1">
-                  ({pctOfTotal}%)
-                </span>
+                <span className="ml-1 text-muted-soft">({pctOfTotal}%)</span>
               </span>
             </div>
-            <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface-card">
               <div
-                className={`h-full rounded-full ${bar}`}
-                style={{ width: `${pctOfMax}%` }}
+                className="h-full rounded-full"
+                style={{ width: `${pctOfMax}%`, background: bar }}
               />
             </div>
           </li>
@@ -510,32 +487,38 @@ function CompactTaskList({
   accent: string;
 }) {
   return (
-    <ul className="divide-y divide-slate-100 -m-4">
+    <ul className="-mx-5 -mb-5">
       {tasks.map((t) => {
         const formatted = formatDate(t.due_date);
         return (
           <li key={t.id}>
             <Link
               to={`/board/${boardId}?task=${t.id}`}
-              className="flex items-center gap-2 px-4 py-2 text-xs hover:bg-slate-50"
+              className="flex items-center gap-2.5 border-t border-hairline-soft px-5 py-2.5 text-xs transition-colors hover:bg-surface-soft/60"
             >
               <Calendar
-                className={`w-3 h-3 shrink-0 ${TINT_FG[accent] || TINT_FG.slate}`}
+                className={cn(
+                  "size-3 shrink-0",
+                  TINT_FG[accent] || TINT_FG.slate,
+                )}
               />
-              <span className="flex-1 min-w-0 truncate font-medium text-slate-700">
+              <span className="min-w-0 flex-1 truncate font-medium text-body-strong">
                 {t.task}
               </span>
               {t.owner ? (
-                <span className="text-[10px] font-bold text-slate-500 shrink-0">
+                <span className="shrink-0 text-[11px] text-muted-ink">
                   {t.owner}
                 </span>
               ) : (
-                <span className="text-[10px] font-bold italic text-amber-700 shrink-0">
+                <span className="shrink-0 text-[11px] font-semibold text-warning">
                   Unassigned
                 </span>
               )}
               <span
-                className={`text-[10px] font-black uppercase tracking-tighter ${TINT_FG[accent] || TINT_FG.slate}`}
+                className={cn(
+                  "shrink-0 font-mono text-[11px]",
+                  TINT_FG[accent] || TINT_FG.slate,
+                )}
               >
                 {formatted}
               </span>

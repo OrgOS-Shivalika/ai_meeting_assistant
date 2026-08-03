@@ -2,16 +2,21 @@ import { apiClient } from "./apiClient";
 import { clearCurrentUser } from "../features/auth/hooks/useCurrentUser";
 import { setAuthFlag, clearAuthFlag, hasAuthFlag } from "./authFlag";
 import { PUBLIC_PREFIX } from "./config";
+import { withEncodedPasswords } from "./passwordTransport";
 
 export const authService = {
   async login(credentials: any) {
     clearCurrentUser();
     // Login is unauthenticated → PUBLIC_PREFIX. apiClient sees the prefix
     // and won't prepend API_PREFIX.
+    //
+    // The password goes over the wire base64-encoded so it isn't legible
+    // in the DevTools payload pane; the backend always decodes it, so this
+    // wrapper is not optional.
     const data = await apiClient(`${PUBLIC_PREFIX}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify(withEncodedPasswords(credentials, ["password"])),
     });
     // The backend set an HttpOnly `access_token` cookie on this response —
     // JS can't (and shouldn't) read it. We only record a local flag so the
@@ -24,7 +29,7 @@ export const authService = {
     return apiClient(`${PUBLIC_PREFIX}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(userData),
+      body: JSON.stringify(withEncodedPasswords(userData, ["password"])),
     });
   },
 

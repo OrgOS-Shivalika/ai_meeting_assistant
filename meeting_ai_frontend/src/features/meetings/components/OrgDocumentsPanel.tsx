@@ -225,7 +225,7 @@ export default function OrgDocumentsPanel() {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
           All Documents ({docs.length})
         </label>
         <div className="relative">
@@ -233,7 +233,7 @@ export default function OrgDocumentsPanel() {
             type="button"
             onClick={handleUploadClick}
             disabled={uploading}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
           >
             {uploading ? (
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -245,9 +245,9 @@ export default function OrgDocumentsPanel() {
           </button>
 
           {pickerOpen && (
-            <div className="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-72 overflow-y-auto">
+            <div className="absolute right-0 mt-1 w-56 bg-canvas border border-slate-200 rounded-lg shadow-soft z-20 max-h-72 overflow-y-auto">
               <div className="px-3 py-2 border-b border-slate-100">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
                   Upload to category
                 </p>
               </div>
@@ -272,7 +272,7 @@ export default function OrgDocumentsPanel() {
               )}
               <button
                 onClick={() => setPickerOpen(false)}
-                className="w-full px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:bg-slate-50"
+                className="w-full px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -313,7 +313,7 @@ export default function OrgDocumentsPanel() {
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <Link
                     to={`/meeting-types?type=${doc.category.id}`}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-indigo-600 transition-colors"
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors"
                     title={`Go to ${doc.category.name}`}
                   >
                     <span
@@ -330,7 +330,7 @@ export default function OrgDocumentsPanel() {
                 const badge = pipelineBadge(doc);
                 return (
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${BADGE_STYLES[badge]}`}
+                    className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${BADGE_STYLES[badge]}`}
                     title={doc.error_message || undefined}
                   >
                     {BADGE_LABELS[badge]}
@@ -362,7 +362,7 @@ export default function OrgDocumentsPanel() {
       )}
 
       {error && (
-        <p className="mt-2 text-[11px] font-bold text-red-600">{error}</p>
+        <p className="mt-2 text-[11px] font-semibold text-red-600">{error}</p>
       )}
     </div>
   );

@@ -158,10 +158,10 @@ function StatCard({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
+    <div className="bg-canvas border border-hairline rounded-lg p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-center gap-2 mb-2">
         {Icon && <Icon className="w-4 h-4 text-gray-400" />}
-        <p className="text-xs text-[#777681] font-semibold uppercase tracking-wide">
+        <p className="text-xs text-muted-ink font-semibold uppercase tracking-wide">
           {label}
         </p>
       </div>
@@ -178,7 +178,7 @@ function EmptyState({
   onClearFilters: () => void;
 }) {
   return (
-    <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
+    <div className="text-center py-16 bg-canvas rounded-lg border border-hairline">
       <div className="w-14 h-14 bg-indigo-50 rounded-md flex items-center justify-center mx-auto mb-3">
         {hasFilters ? (
           <Search className="w-7 h-7 text-indigo-400" />
@@ -186,10 +186,10 @@ function EmptyState({
           <UsersIcon className="w-7 h-7 text-indigo-500" />
         )}
       </div>
-      <h3 className="text-lg font-bold text-[#0F1523] mb-1">
+      <h3 className="text-lg font-bold text-body-strong mb-1">
         {hasFilters ? "No matching members" : "No members yet"}
       </h3>
-      <p className="text-[#777681] max-w-xs mx-auto text-sm mb-4">
+      <p className="text-muted-ink max-w-xs mx-auto text-sm mb-4">
         {hasFilters
           ? "Try adjusting your search or filters to find what you're looking for"
           : "People appear here once they attend a meeting or are added manually"}
@@ -257,11 +257,11 @@ function MemberRow({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-[#0F1523] truncate">
+              <p className="text-sm font-semibold text-body-strong truncate">
                 {member.name}
               </p>
               {isSelf && (
-                <span className="text-[11px] font-normal text-[#777681] bg-gray-100 px-1.5 py-0.5 rounded">
+                <span className="text-[11px] font-normal text-muted-ink bg-gray-100 px-1.5 py-0.5 rounded">
                   You
                 </span>
               )}
@@ -272,7 +272,7 @@ function MemberRow({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-[#777681]">
+            <div className="flex items-center gap-2 text-xs text-muted-ink">
               <Mail className="w-3 h-3 shrink-0" />
               <span className="truncate">{member.email}</span>
             </div>
@@ -315,14 +315,14 @@ function MemberRow({
           )}
 
           {/* Stats - Hidden on mobile */}
-          <div className="hidden lg:flex items-center gap-3 text-xs text-[#777681]">
+          <div className="hidden lg:flex items-center gap-3 text-xs text-muted-ink">
             <div className="text-center" title="Meetings attended">
-              <p className="font-bold text-[#0F1523]">{member.meeting_count}</p>
+              <p className="font-bold text-body-strong">{member.meeting_count}</p>
               <p className="text-[10px]">Meetings</p>
             </div>
             <div className="w-px h-6 bg-gray-200" />
             <div className="text-center" title="Member since">
-              <p className="font-bold text-[#0F1523]">{formatDate(member.created_at)}</p>
+              <p className="font-bold text-body-strong">{formatDate(member.created_at)}</p>
               <p className="text-[10px]">Joined</p>
             </div>
           </div>
@@ -346,7 +346,7 @@ function MemberRow({
                   </button>
                 )}
                 {isOrgAdmin && (
-                  <span className="text-xs text-[#777681] mr-1" title={ROLE_HINT.ORG_ADMIN}>
+                  <span className="text-xs text-muted-ink mr-1" title={ROLE_HINT.ORG_ADMIN}>
                     Full access
                   </span>
                 )}
@@ -388,7 +388,7 @@ function MemberRow({
                       className="fixed inset-0 z-10"
                       onClick={() => setShowMobileActions(false)}
                     />
-                    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                    <div className="absolute right-0 top-full mt-1 z-20 bg-canvas border border-hairline rounded-lg shadow-lg py-1 min-w-40">
                       {!isOrgAdmin && (
                         <button
                           onClick={() => {
@@ -435,7 +435,7 @@ function MemberRow({
       </div>
 
       {/* Mobile: Role + status below main row */}
-      <div className="sm:hidden mt-2 ml-[52px] space-y-2">
+      <div className="sm:hidden mt-2 ml-13 space-y-2">
         <div className="flex items-center gap-2">
           {isSelf ? (
             <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${roleBadgeClass(member.access_role)}`}>
@@ -459,7 +459,7 @@ function MemberRow({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-[#777681]">
+        <div className="flex items-center gap-3 text-[11px] text-muted-ink">
           <span>
             <Activity className="w-3 h-3 inline mr-1" />
             {member.meeting_count} meetings
@@ -473,8 +473,8 @@ function MemberRow({
 
       {/* Scope chips - Both desktop and mobile */}
       {!isOrgAdmin && (hasScope || member.access_role === "ADMIN" || stranded) && (
-        <div className="flex flex-wrap items-center gap-1.5 mt-2 ml-[52px]">
-          <span className="text-[11px] text-[#777681] mr-0.5">
+        <div className="flex flex-wrap items-center gap-1.5 mt-2 ml-13">
+          <span className="text-[11px] text-muted-ink mr-0.5">
             {member.access_role === "ADMIN" ? "Manages" : "Can see"}
           </span>
           {member.managed_categories.map((c) => (
@@ -706,10 +706,10 @@ export default function MembersPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
+            <h1 className="text-2xl font-bold text-body-strong tracking-tight">
               Team Members
             </h1>
-            <p className="text-sm text-[#777681] mt-1 max-w-2xl">
+            <p className="text-sm text-muted-ink mt-1 max-w-2xl">
               Manage who has access to what. People are added automatically when they attend meetings.
               {!isOrgAdmin && " You're viewing members within your managed categories."}
             </p>
@@ -727,16 +727,16 @@ export default function MembersPage() {
         {/* Error Banner */}
         {error && (
           <div
-            className="flex items-start gap-2.5 p-4 mb-4 rounded-lg bg-red-50 border border-red-200"
+            className="flex items-start gap-2.5 p-4 mb-4 rounded-lg bg-error/8 border border-error/20"
             role="alert"
           >
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-error" />
             <div className="flex-1">
-              <p className="text-sm text-red-700">{error}</p>
+              <p className="text-sm text-error">{error}</p>
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-xs font-semibold text-red-600 hover:text-red-800 shrink-0"
+              className="text-xs font-semibold text-error hover:opacity-80 shrink-0"
               aria-label="Dismiss error"
             >
               Dismiss
@@ -771,7 +771,7 @@ export default function MembersPage() {
           <StatCard
             label="Total Members"
             value={counts.total}
-            tone="text-[#0F1523]"
+            tone="text-body-strong"
             icon={UsersIcon}
           />
           {isOrgAdmin && (
@@ -805,7 +805,7 @@ export default function MembersPage() {
               placeholder="Search by name or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 pr-10 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none w-full placeholder:text-gray-400"
+              className="pl-10 pr-10 py-2.5 text-sm bg-canvas border border-hairline rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none w-full placeholder:text-gray-400"
               aria-label="Search members"
             />
             {search && (
@@ -823,7 +823,7 @@ export default function MembersPage() {
             <select
               value={filterRole}
               onChange={(e) => setFilterRole(e.target.value as "all" | AccessRole)}
-              className="px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none cursor-pointer"
+              className="px-3 py-2.5 text-sm bg-canvas border border-hairline rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none cursor-pointer"
               aria-label="Filter by role"
             >
               <option value="all">All Roles</option>
@@ -836,7 +836,7 @@ export default function MembersPage() {
 
         {/* Active filters indicator */}
         {hasActiveFilters && (
-          <div className="flex items-center gap-2 mb-4 text-xs text-[#777681]">
+          <div className="flex items-center gap-2 mb-4 text-xs text-muted-ink">
             <span>
               Showing {filtered.length} of {members.length} members
             </span>
@@ -851,7 +851,7 @@ export default function MembersPage() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-16 bg-white rounded-lg border border-gray-200">
+          <div className="flex items-center justify-center py-16 bg-canvas rounded-lg border border-hairline">
             <div className="text-center">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">Loading members...</p>
@@ -864,7 +864,7 @@ export default function MembersPage() {
           />
         ) : (
           <div
-            className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden"
+            className="bg-canvas border border-hairline rounded-lg divide-y divide-hairline-soft overflow-hidden"
             role="table"
             aria-label="Team members list"
             onKeyDown={handleKeyDown}

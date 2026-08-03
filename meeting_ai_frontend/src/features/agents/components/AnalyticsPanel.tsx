@@ -54,14 +54,14 @@ export default function AnalyticsPanel({ profileId }: { profileId: string }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
           Window
         </span>
         {[7, 30, 90].map((d) => (
           <button
             key={d}
             onClick={() => setDays(d)}
-            className={`px-3 py-1 text-xs font-bold rounded ${
+            className={`px-3 py-1 text-xs font-semibold rounded ${
               days === d
                 ? "bg-indigo-600 text-white"
                 : "text-slate-600 hover:bg-slate-100"
@@ -144,9 +144,9 @@ export default function AnalyticsPanel({ profileId }: { profileId: string }) {
           </div>
 
           {/* Per-version table */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="bg-canvas border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-200">
-              <h3 className="text-sm font-bold text-slate-900">
+              <h3 className="text-sm font-semibold text-slate-900">
                 Per-version performance
               </h3>
               <p className="text-[11px] text-slate-500">
@@ -161,13 +161,13 @@ export default function AnalyticsPanel({ profileId }: { profileId: string }) {
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <th className="px-3 py-2 text-left font-bold">Version</th>
-                    <th className="px-3 py-2 text-left font-bold">Model</th>
-                    <th className="px-3 py-2 text-right font-bold">Runs</th>
-                    <th className="px-3 py-2 text-right font-bold">No-ctx</th>
-                    <th className="px-3 py-2 text-right font-bold">p95 ms</th>
-                    <th className="px-3 py-2 text-right font-bold">Cite avg</th>
-                    <th className="px-3 py-2 text-right font-bold">Cost $</th>
+                    <th className="px-3 py-2 text-left font-semibold">Version</th>
+                    <th className="px-3 py-2 text-left font-semibold">Model</th>
+                    <th className="px-3 py-2 text-right font-semibold">Runs</th>
+                    <th className="px-3 py-2 text-right font-semibold">No-ctx</th>
+                    <th className="px-3 py-2 text-right font-semibold">p95 ms</th>
+                    <th className="px-3 py-2 text-right font-semibold">Cite avg</th>
+                    <th className="px-3 py-2 text-right font-semibold">Cost $</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -234,13 +234,13 @@ function MetricCard({
       className={`p-3 rounded-xl border ${
         tone === "warn"
           ? "bg-amber-50 border-amber-200"
-          : "bg-white border-slate-200"
+          : "bg-canvas border-slate-200"
       }`}
     >
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
         {label}
       </p>
-      <p className="text-xl font-bold text-slate-900 font-mono mt-1">{value}</p>
+      <p className="text-xl font-semibold text-slate-900 font-mono mt-1">{value}</p>
     </div>
   );
 }

@@ -1,9 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 import { apiClient } from "../../../services/apiClient";
+import { withEncodedPasswords } from "../../../services/passwordTransport";
 import { clearCurrentUser } from "../hooks/useCurrentUser";
-import AuthShell, { VbButton, VbLabel, VbTextInput } from "../components/AuthShell";
+import AuthShell, { AuthError, PasswordInput } from "../components/AuthShell";
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/label";
 
 /**
  * Set a new password.
@@ -34,10 +37,18 @@ export default function ChangePasswordPage() {
       await apiClient("/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          current_password: currentPassword,
-          new_password: newPassword,
-        }),
+        // Both passwords are base64-encoded in transit; the backend always
+        // decodes, then checks the 8-character floor against the decoded
+        // value.
+        body: JSON.stringify(
+          withEncodedPasswords(
+            {
+              current_password: currentPassword,
+              new_password: newPassword,
+            },
+            ["current_password", "new_password"],
+          ),
+        ),
       });
       // `must_change_password` just flipped, so the cached /auth/me is
       // stale — drop it or the app keeps redirecting back here.
@@ -57,90 +68,60 @@ export default function ChangePasswordPage() {
       subheading="Choose a password only you know before continuing."
       variant="login"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4.5">
-        {error && (
-          <div
-            className="flex items-start gap-2.5 p-3 rounded-md"
-            style={{
-              background: "color-mix(in srgb, var(--vb-error) 8%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--vb-error) 25%, transparent)",
-            }}
-          >
-            <AlertCircle
-              className="w-4 h-4 shrink-0 mt-0.5"
-              style={{ color: "var(--vb-error)" }}
-            />
-            <p className="text-xs leading-relaxed" style={{ color: "var(--vb-error)" }}>
-              {error}
-            </p>
-          </div>
-        )}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-[18px]">
+        {error && <AuthError>{error}</AuthError>}
 
-        <div className="flex flex-col gap-1.5">
-          <VbLabel htmlFor="current-password">Current password</VbLabel>
-          <VbTextInput
+        <Field label="Current password" htmlFor="current-password">
+          <PasswordInput
             id="current-password"
-            type="password"
             autoComplete="current-password"
             value={currentPassword}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCurrentPassword(e.target.value)
-            }
+            onChange={(e) => setCurrentPassword(e.target.value)}
             placeholder="The password you signed in with"
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-1.5">
-          <VbLabel htmlFor="new-password">New password</VbLabel>
-          <VbTextInput
+        <Field
+          label="New password"
+          htmlFor="new-password"
+          error={tooShort ? "Must be at least 8 characters." : undefined}
+        >
+          <PasswordInput
             id="new-password"
-            type="password"
             autoComplete="new-password"
             value={newPassword}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setNewPassword(e.target.value)
-            }
+            onChange={(e) => setNewPassword(e.target.value)}
             placeholder="At least 8 characters"
           />
-          {tooShort && (
-            <p className="text-xs" style={{ color: "var(--vb-error)" }}>
-              Must be at least 8 characters.
-            </p>
-          )}
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-1.5">
-          <VbLabel htmlFor="confirm-password">Confirm new password</VbLabel>
-          <VbTextInput
+        <Field
+          label="Confirm new password"
+          htmlFor="confirm-password"
+          error={mismatch ? "Passwords don't match." : undefined}
+        >
+          <PasswordInput
             id="confirm-password"
-            type="password"
             autoComplete="new-password"
             value={confirmPassword}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setConfirmPassword(e.target.value)
-            }
+            onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Type it again"
           />
-          {mismatch && (
-            <p className="text-xs" style={{ color: "var(--vb-error)" }}>
-              Passwords don't match.
-            </p>
-          )}
-        </div>
+        </Field>
 
-        <VbButton type="submit" disabled={!canSubmit}>
+        <Button type="submit" disabled={!canSubmit} className="w-full">
           {isLoading ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="animate-spin" />
               Saving
             </>
           ) : (
             <>
               Set password
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight />
             </>
           )}
-        </VbButton>
+        </Button>
       </form>
     </AuthShell>
   );

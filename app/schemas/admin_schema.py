@@ -1,11 +1,12 @@
 """Schemas for organization member + admin management."""
 from datetime import datetime
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.utils.admin_enums import AccessRole
+from app.utils.password_transport import EncodedPasswordModel
 
 
 class CategoryRef(BaseModel):
@@ -73,7 +74,7 @@ class AdminCreateResponse(BaseModel):
     email_error: Optional[str] = None
 
 
-class MemberCreateRequest(BaseModel):
+class MemberCreateRequest(EncodedPasswordModel):
     """Add a user to the caller's organization with a chosen role.
 
     The org admin sets the password here and passes it to the person out
@@ -82,7 +83,16 @@ class MemberCreateRequest(BaseModel):
     secret is a delivery mechanism, not the person's real password.
     """
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    # Base64 on the wire, so the real 8..128 rule lives in `_password_rules`
+    # and is checked after decoding. Declaring it here instead would measure
+    # the envelope: a legitimate 128-character password encodes to 172
+    # characters and would be rejected as too long.
+    password: str = Field(max_length=1024)
+
+    _password_fields: ClassVar[tuple[str, ...]] = ("password",)
+    _password_rules: ClassVar[dict[str, tuple[int, int]]] = {
+        "password": (8, 128),
+    }
     # Typed as the enum so an unknown role is rejected by validation with a
     # 422 listing the valid values, instead of reaching the service and
     # coming back as a hand-written 400.
@@ -179,6 +189,16 @@ class MemberDeleteResponse(BaseModel):
     meetings_detached: int = 0
 
 
-class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str = Field(min_length=8, max_length=128)
+class PasswordChangeRequest(EncodedPasswordModel):
+    current_password: str = Field(max_length=1024)
+    # Base64 on the wire; the 8..128 rule is enforced against the decoded
+    # value via `_password_rules`, not against its longer envelope.
+    new_password: str = Field(max_length=1024)
+
+    _password_fields: ClassVar[tuple[str, ...]] = (
+        "current_password",
+        "new_password",
+    )
+    _password_rules: ClassVar[dict[str, tuple[int, int]]] = {
+        "new_password": (8, 128),
+    }

@@ -65,18 +65,18 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300" onClick={onClose} />
 
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in slide-in-from-bottom-8 duration-500 relative">
+      <div className="bg-canvas rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in slide-in-from-bottom-8 duration-500 relative">
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl rounded-full -mr-16 -mt-16" />
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-blue-500/5 blur-3xl rounded-full -ml-16 -mb-16" />
 
         <div className="px-8 pt-8 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-600/20">
+            <div className="p-3 bg-indigo-600 rounded-2xl shadow-soft shadow-indigo-600/20">
               <Video className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-900">Join Meeting</h2>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Automated Intelligence</p>
+              <h2 className="text-xl font-semibold text-slate-900">Join Meeting</h2>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mt-0.5">Automated Intelligence</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
@@ -87,10 +87,10 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
         <form onSubmit={handleSubmit} className="p-8">
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
-              <label htmlFor="meeting-url" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+              <label htmlFor="meeting-url" className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 Meeting URL
               </label>
-              <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
                 <Globe className="w-2.5 h-2.5" />
                 Live
               </div>
@@ -100,14 +100,14 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
               type="url"
               required
               placeholder="meet.google.com/abc-defg-hij"
-              className="w-full pl-4 pr-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900 placeholder:text-slate-400"
+              className="w-full pl-4 pr-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900 placeholder:text-slate-400"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
           </div>
 
           <div className="mb-5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">
               Category {categories.length === 0 && <span className="text-slate-300 font-normal normal-case ml-1">(optional — create one in the sidebar)</span>}
             </label>
             <select
@@ -117,7 +117,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
                 setCategoryId(value);
                 setTeamId(null);
               }}
-              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900"
+              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900"
             >
               <option value="">No category</option>
               {categories.map((c) => (
@@ -130,7 +130,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
 
           {availableTeams.length > 0 && (
             <div className="mb-5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">
                 Team
               </label>
               <select
@@ -138,7 +138,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
                 onChange={(e) =>
                   setTeamId(e.target.value ? Number(e.target.value) : null)
                 }
-                className="w-full px-4 py-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900"
+                className="w-full px-4 py-3 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm font-semibold text-slate-900"
               >
                 <option value="">No team</option>
                 {availableTeams.map((t) => (
@@ -155,7 +155,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
           </p>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-xs font-bold rounded-2xl flex items-center gap-3 animate-in shake duration-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-xs font-semibold rounded-2xl flex items-center gap-3 animate-in shake duration-300">
               <div className="w-6 h-6 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
                 <span className="text-red-600">!</span>
               </div>
@@ -167,14 +167,14 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-6 py-4 border-2 border-slate-100 text-slate-600 font-bold text-xs uppercase tracking-widest rounded-2xl hover:bg-slate-50 transition-all active:scale-[0.98]"
+              className="flex-1 px-6 py-4 border-2 border-slate-100 text-slate-600 font-semibold text-xs uppercase tracking-widest rounded-2xl hover:bg-slate-50 transition-all active:scale-[0.98]"
             >
               Back
             </button>
             <button
               type="submit"
               disabled={loading || !url}
-              className="flex-1 px-6 py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-indigo-600/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 group"
+              className="flex-1 px-6 py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-xs uppercase tracking-widest rounded-2xl shadow-raised shadow-indigo-600/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 group"
             >
               {loading ? (
                 <>

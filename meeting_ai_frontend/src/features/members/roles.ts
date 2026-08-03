@@ -20,13 +20,18 @@ export const ROLE_HINT: Record<AccessRole, string> = {
   ORG_ADMIN: "The whole organization",
 };
 
+/**
+ * Pill classes per role. Privilege reads as colour temperature: org admin
+ * in lavender (the AI/authority hue), category admin in info blue, plain
+ * members on the quiet cream surface.
+ */
 export const roleBadgeClass = (role: AccessRole) => {
   switch (role) {
     case "ORG_ADMIN":
-      return "bg-purple-50 text-purple-700 border border-purple-200";
+      return "bg-lavender/22 text-purple-700";
     case "ADMIN":
-      return "bg-indigo-50 text-indigo-700 border border-indigo-200";
+      return "bg-info/12 text-info";
     default:
-      return "bg-slate-50 text-slate-700 border border-slate-200";
+      return "bg-surface-card text-muted-ink";
   }
 };

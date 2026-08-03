@@ -6,40 +6,364 @@
 
 @import "tailwindcss";
 
-/* Appu / Vibrant design tokens — foundation layer only. Imported for
-   future component work; no existing screen references these yet, so
-   no visual change ships today. Font-family vars are locally prefixed
-   `--vb-font-*` to avoid clashing with Tailwind's --font-sans (see
-   ./styles/vibrant-tokens/typography.css). */
+/* Appu / Vibrant design tokens — the raw `--vb-*` layer. Mapped onto
+   Tailwind + shadcn semantics in the `@theme` block below, so utilities
+   and components resolve to the same cream palette. */
 @import "./styles/vibrant-tokens/colors.css";
 @import "./styles/vibrant-tokens/typography.css";
 @import "./styles/vibrant-tokens/spacing.css";
 @import "./styles/vibrant-tokens/radius.css";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* ---------------------------------------------------------------
+     Type — Hanken Grotesk for display + UI, JetBrains Mono for data.
+     `font-display` stays a separate utility so headline and body roles
+     remain distinguishable (mixing them is a system violation).
+     --------------------------------------------------------------- */
+  --font-sans: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* shadcn tokens — indigo-tinted to match existing UI */
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #6366f1;
-  --color-primary: #4f46e5;
+  /* ---------------------------------------------------------------
+     Warm ramp. The app was written against Tailwind's cool slate/gray
+     scales; remapping them here moves every surface onto the cream
+     canvas at once instead of leaving screens half-migrated. Surfaces
+     step warmer, never cooler.
+     --------------------------------------------------------------- */
+  --color-slate-50: #faf5e8;
+  --color-slate-100: #f5f0e0;
+  --color-slate-200: #e5e5e5;
+  --color-slate-300: #d8d3c3;
+  --color-slate-400: #9a9a9a;
+  --color-slate-500: #6a6a6a;
+  --color-slate-600: #3a3a3a;
+  --color-slate-700: #2a2a2a;
+  --color-slate-800: #1a1a1a;
+  --color-slate-900: #0a0a0a;
+  --color-slate-950: #000000;
+
+  --color-gray-50: #faf5e8;
+  --color-gray-100: #f5f0e0;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d8d3c3;
+  --color-gray-400: #9a9a9a;
+  --color-gray-500: #6a6a6a;
+  --color-gray-600: #3a3a3a;
+  --color-gray-700: #2a2a2a;
+  --color-gray-800: #1a1a1a;
+  --color-gray-900: #0a0a0a;
+  --color-gray-950: #000000;
+
+  --color-zinc-50: #faf5e8;
+  --color-zinc-100: #f5f0e0;
+  --color-zinc-200: #e5e5e5;
+  --color-zinc-300: #d8d3c3;
+  --color-zinc-400: #9a9a9a;
+  --color-zinc-500: #6a6a6a;
+  --color-zinc-600: #3a3a3a;
+  --color-zinc-700: #2a2a2a;
+  --color-zinc-800: #1a1a1a;
+  --color-zinc-900: #0a0a0a;
+
+  --color-neutral-50: #faf5e8;
+  --color-neutral-100: #f5f0e0;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d8d3c3;
+  --color-neutral-400: #9a9a9a;
+  --color-neutral-500: #6a6a6a;
+  --color-neutral-600: #3a3a3a;
+  --color-neutral-700: #2a2a2a;
+  --color-neutral-800: #1a1a1a;
+  --color-neutral-900: #0a0a0a;
+
+  /* Indigo was the old accent. The DS puts primary action on near-black
+     ink, so indigo's mid/dark steps become the ink ramp and its light
+     steps become warm cream tints. */
+  --color-indigo-50: #f5f0e0;
+  --color-indigo-100: #ebe6d6;
+  --color-indigo-200: #d8d3c3;
+  --color-indigo-300: #9a9a9a;
+  --color-indigo-400: #4a4a4a;
+  --color-indigo-500: #1f1f1f;
+  --color-indigo-600: #0a0a0a;
+  --color-indigo-700: #1f1f1f;
+  --color-indigo-800: #0a1a1a;
+  --color-indigo-900: #0a0a0a;
+
+  /* Semantic hues, retuned onto the vibrant tokens. */
+  --color-blue-50: #eef4fd;
+  --color-blue-100: #dce8fa;
+  --color-blue-200: #bcd2f4;
+  --color-blue-500: #2a6fdb;
+  --color-blue-600: #2a6fdb;
+  --color-blue-700: #1f5ab5;
+
+  --color-emerald-50: #e9fbf0;
+  --color-emerald-100: #d3f7e1;
+  --color-emerald-200: #a8efc3;
+  --color-emerald-500: #22c55e;
+  --color-emerald-600: #1ba750;
+  --color-emerald-700: #158a42;
+
+  --color-green-50: #e9fbf0;
+  --color-green-100: #d3f7e1;
+  --color-green-500: #22c55e;
+  --color-green-600: #1ba750;
+  --color-green-700: #158a42;
+
+  --color-amber-50: #fef6e7;
+  --color-amber-100: #fdedcf;
+  --color-amber-200: #fbdb9f;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d98806;
+  --color-amber-700: #b57105;
+
+  --color-yellow-50: #fef6e7;
+  --color-yellow-100: #fdedcf;
+  --color-yellow-500: #f59e0b;
+  --color-yellow-600: #d98806;
+
+  --color-orange-50: #fff4ec;
+  --color-orange-100: #ffe6d5;
+  --color-orange-500: #ffb084;
+  --color-orange-600: #ff8f52;
+
+  --color-red-50: #fdeeee;
+  --color-red-100: #fbdcdc;
+  --color-red-200: #f7baba;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2f2f;
+  --color-red-700: #b92525;
+
+  --color-rose-50: #fff0f5;
+  --color-rose-100: #ffdde8;
+  --color-rose-500: #ff4d8b;
+  --color-rose-600: #f02d72;
+
+  --color-purple-50: #f4f1fd;
+  --color-purple-100: #e9e3fb;
+  --color-purple-200: #d5c9f6;
+  --color-purple-500: #b8a4ed;
+  --color-purple-600: #9b81e4;
+  --color-purple-700: #7f61d9;
+
+  --color-violet-50: #f4f1fd;
+  --color-violet-100: #e9e3fb;
+  --color-violet-500: #b8a4ed;
+  --color-violet-600: #9b81e4;
+
+  /* ---------------------------------------------------------------
+     Brand palette as first-class utilities: bg-ink, text-pink,
+     bg-canvas, border-hairline, bg-surface-dark, …
+     Cycle the saturated hues across a page; never repeat in a row.
+     Pink = outbound/speed · teal = featured · lavender = AI/ML ·
+     peach = warmth · ochre = community.
+     --------------------------------------------------------------- */
+  --color-ink: #0a0a0a;
+  --color-ink-active: #1f1f1f;
+  --color-on-ink: #ffffff;
+  --color-on-ink-soft: #a0a0a0;
+  --color-body: #3a3a3a;
+  --color-body-strong: #1a1a1a;
+  --color-muted-ink: #6a6a6a;
+  --color-muted-soft: #9a9a9a;
+
+  --color-canvas: #fffaf0;
+  --color-surface-soft: #faf5e8;
+  --color-surface-card: #f5f0e0;
+  --color-surface-strong: #ebe6d6;
+  --color-surface-dark: #0a1a1a;
+  --color-surface-dark-elev: #1a2a2a;
+
+  --color-hairline: #e5e5e5;
+  --color-hairline-soft: #f0f0f0;
+
+  --color-pink: #ff4d8b;
+  --color-teal: #1a3a3a;
+  --color-lavender: #b8a4ed;
+  --color-peach: #ffb084;
+  --color-ochre: #e8b94a;
+  --color-mint: #a4d4c5;
+  --color-coral: #ff6b5a;
+
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #2a6fdb;
+
+  /* ---------------------------------------------------------------
+     shadcn semantic tokens, resolved onto the cream palette.
+     --------------------------------------------------------------- */
+  --color-background: #fffaf0;
+  --color-foreground: #3a3a3a;
+  --color-card: #fffaf0;
+  --color-card-foreground: #0a0a0a;
+  --color-popover: #fffaf0;
+  --color-popover-foreground: #0a0a0a;
+  --color-muted: #f5f0e0;
+  --color-muted-foreground: #6a6a6a;
+  --color-border: #e5e5e5;
+  --color-input: #e5e5e5;
+  --color-ring: #0a0a0a;
+  --color-primary: #0a0a0a;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #0f172a;
-  --color-accent: #eef2ff;
-  --color-accent-foreground: #4338ca;
+  --color-secondary: #f5f0e0;
+  --color-secondary-foreground: #0a0a0a;
+  --color-accent: #f5f0e0;
+  --color-accent-foreground: #0a0a0a;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
-  --radius: 0.5rem;
+
+  /* Generous radii, matched to the rounded display face:
+     6/8 small · 12 buttons + inputs · 16 content cards · 24 feature cards */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 28px;
+
+  /* Elevation is restrained — depth comes from color contrast, not shadow. */
+  --shadow-soft: 0 1px 2px rgba(10, 10, 10, 0.04), 0 4px 16px rgba(10, 10, 10, 0.05);
+  --shadow-raised: 0 2px 4px rgba(10, 10, 10, 0.05), 0 12px 32px rgba(10, 10, 10, 0.08);
 }
 
 @layer base {
+  html {
+    background: var(--vb-canvas);
+  }
+
   body {
-    @apply font-sans antialiased bg-slate-50/50 text-slate-900;
+    @apply font-sans antialiased bg-canvas text-body;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Display type is never bolder than 500 — the rounded face carries the
+     warmth without weight — and takes negative tracking at large sizes. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+  }
+
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+  }
+
+  ::placeholder {
+    color: var(--vb-muted-soft);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--vb-pink) 22%, white);
+    color: var(--vb-ink);
+  }
+
+  /* Cream-tinted scrollbars so overflow areas stay in the warm ramp. */
+  * {
+    scrollbar-color: var(--vb-surface-strong) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--vb-surface-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #d8d3c3;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Eyebrow — the tiny uppercase label above a display headline. One of
+     only two places UPPERCASE is allowed (the other is table headers). */
+  .vb-eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--vb-pink);
+  }
+
+  .vb-label-caps {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--vb-muted-soft);
+  }
+
+  /* Display headline sizes, with the tracking this face needs. */
+  .vb-display-md {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 40px;
+    letter-spacing: -1.4px;
+    line-height: 1.05;
+    color: var(--vb-ink);
+  }
+
+  .vb-display-sm {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 32px;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    color: var(--vb-ink);
+  }
+
+  .vb-title-lg {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 24px;
+    letter-spacing: -0.5px;
+    color: var(--vb-ink);
+  }
+
+  .vb-title-md {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 18px;
+    letter-spacing: -0.3px;
+    color: var(--vb-ink);
+  }
+
+  .vb-title-sm {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 16px;
+    letter-spacing: -0.2px;
+    color: var(--vb-ink);
+  }
+
+  /* Hides scrollbars on horizontal rails (Meetings cards, Board columns). */
+  .vb-no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .vb-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Dotted-grid field behind the knowledge-graph canvas. */
+  .vb-dot-grid {
+    background-image: radial-gradient(circle at 1px 1px, var(--vb-hairline) 1px, transparent 0);
+    background-size: 26px 26px;
   }
 }

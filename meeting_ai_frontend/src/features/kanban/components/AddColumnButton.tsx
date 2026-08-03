@@ -1,16 +1,4 @@
-// Phase 14 — inline "Add column" affordance at the right edge of the
-// board. Two states:
-//
-//   1. Collapsed (default): a plain "+ Add column" button
-//   2. Expanded            : a name input + status dropdown + Save/Cancel
-//
-// On save it POSTs to /boards/{id}/columns and asks the parent to
-// refresh so the new column shows up at the end of the row.
-//
-// The status dropdown sets `bound_status` — when a card is dragged
-// INTO this column, its task.status will auto-flip to this value
-// (server-side via the K2 move endpoint). Optional; "No status
-// binding" leaves the card's status untouched on drop.
+
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { createColumn } from "../api";
@@ -88,7 +76,7 @@ export default function AddColumnButton({ boardId, onAdded }: Props) {
       <div className="shrink-0 w-72 flex items-start pt-2">
         <button
           onClick={() => setOpen(true)}
-          className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-indigo-600 px-2 py-1.5 flex items-center gap-1.5 transition-colors"
+          className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-indigo-600 px-2 py-1.5 flex items-center gap-1.5 transition-colors"
         >
           <Plus className="w-3 h-3" />
           Add column
@@ -99,9 +87,9 @@ export default function AddColumnButton({ boardId, onAdded }: Props) {
 
   return (
     <div className="shrink-0 w-72">
-      <div className="bg-white border border-indigo-200 rounded-lg p-3 shadow-sm space-y-2">
+      <div className="bg-canvas border border-indigo-200 rounded-lg p-3 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">
             New column
           </span>
           <button
@@ -167,7 +155,7 @@ export default function AddColumnButton({ boardId, onAdded }: Props) {
           <select
             value={boundStatus}
             onChange={(e) => setBoundStatus(e.target.value as TaskStatus | "")}
-            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+            className="w-full px-2 py-1.5 text-xs bg-canvas border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
           >
             {STATUS_OPTIONS.map((s) => (
               <option key={s.key} value={s.key}>
@@ -189,14 +177,14 @@ export default function AddColumnButton({ boardId, onAdded }: Props) {
           <button
             onClick={close}
             disabled={saving}
-            className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 text-slate-500 hover:bg-slate-100 rounded disabled:opacity-50"
+            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 text-slate-500 hover:bg-slate-100 rounded disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !name.trim()}
-            className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
           >
             {saving ? "Adding…" : "Add column"}
           </button>

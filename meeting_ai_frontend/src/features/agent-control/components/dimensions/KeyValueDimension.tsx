@@ -143,7 +143,7 @@ function renderControl(
         <select
           value={(value as string) ?? ""}
           onChange={(e) => setValue(e.target.value || null)}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white"
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-canvas"
         >
           <option value="">(inherited / unset)</option>
           {(field.options || []).map((o) => (
@@ -191,10 +191,10 @@ function renderControl(
                     key={s}
                     type="button"
                     onClick={() => toggle(s)}
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 transition-colors ${
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ring-1 transition-colors ${
                       active
                         ? "bg-indigo-600 text-white ring-indigo-700"
-                        : "bg-white text-gray-600 ring-gray-200 hover:ring-gray-400"
+                        : "bg-canvas text-gray-600 ring-gray-200 hover:ring-gray-400"
                     }`}
                     title={active ? "Remove" : "Add"}
                   >

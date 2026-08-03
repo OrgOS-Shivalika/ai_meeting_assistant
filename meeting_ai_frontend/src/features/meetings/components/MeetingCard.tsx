@@ -4,6 +4,7 @@ import { MoreVertical, Calendar, Users, ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import MeetingSourceIcon from "./MeetingSourceIcon";
 import AIMemoryStatusDot from "./AIMemoryStatusDot";
+import { Logo, isBrandName } from "@/components/ui/logo";
 import { usePermissions } from "../../auth/hooks/usePermissions";
 
 // Avatars cycle through the vibrant feature palette rather than tailwind
@@ -98,7 +99,19 @@ export default function MeetingCard({
   // Category chip color — derive a soft background from the category's own
   // color (or fall back to lavender for uncategorized).
   const catColor = meeting.category?.color || "var(--vb-lavender)";
-  const catChipBg = `color-mix(in srgb, ${catColor} 12%, white)`;
+  // The category hue lives in the FILL, never in the label. Tinted text on a
+  // tint of the same hue can't reach a readable contrast ratio — a pale
+  // lavender label on a lavender chip stays illegible however much chroma is
+  // added. This is why brand and non-brand chips share one text colour.
+  //
+  // Ink measures ~15:1 on a 38% fill and ~11:1 even on the most saturated hue
+  // in the palette (pink), so the fill can carry real colour at no cost to
+  // legibility — hence a level well above a conventional pastel tint.
+  const catChipBg = `color-mix(in srgb, ${catColor} 38%, white)`;
+  // The imagine.bo category is the one that carries the brand mark, and its
+  // name is set in ink beside it — the gradient mark already supplies the
+  // colour, so tinted text next to it read as a third competing hue.
+  const isBrandCategory = isBrandName(meeting.category?.name);
 
   return (
     <div
@@ -127,13 +140,27 @@ export default function MeetingCard({
               padding: "4px 9px",
               borderRadius: 9999,
               marginBottom: 12,
-              color: catColor,
+              color: "var(--vb-ink)",
               background: catChipBg,
+              // Fill only — the label is ink, which has no chroma to push.
+              // Skipped on the brand chip so the mark's gradient stays exact.
+              filter: isBrandCategory ? undefined : "saturate(1.7)",
             }}
           >
+            {/* Only the imagine.bo category carries the mark — every other
+                category keeps its plain name. Decorative (alt=""), since the
+                name beside it already says which category this is. */}
+            {isBrandCategory && (
+              <Logo
+                variant="mark"
+                alt=""
+                className="h-[11px]"
+                style={{ marginRight: 5 }}
+              />
+            )}
             {meeting.category.name}
             {meeting.team && (
-              <span style={{ opacity: 0.65, marginLeft: 4 }}>· {meeting.team.name}</span>
+              <span style={{ opacity: 0.8, marginLeft: 4 }}>· {meeting.team.name}</span>
             )}
           </span>
         )}
@@ -210,32 +237,28 @@ export default function MeetingCard({
           }}
         >
           <div className="flex items-center" style={{ gap: 8 }}>
+            {/* One pill carries both signals: the tint and text colour are
+                the processing status (no dot — that repeated the word), and
+                the trailing sparkle is the AI-memory state, which keeps its
+                own colour so a failure still stands out inside the pill. */}
             <span
               className="inline-flex items-center"
               style={{
-                gap: 6,
+                gap: 5,
                 fontSize: 11,
                 fontWeight: 600,
-                padding: "4px 9px",
+                padding: "4px 10px",
                 borderRadius: 9999,
                 color: status.color,
                 background: status.bg,
               }}
             >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: status.color,
-                }}
-              />
               {status.label}
+              <AIMemoryStatusDot
+                embeddingStatus={meeting.embedding_status}
+                graphStatus={meeting.graph_status}
+              />
             </span>
-            <AIMemoryStatusDot
-              embeddingStatus={meeting.embedding_status}
-              graphStatus={meeting.graph_status}
-            />
             {meeting.participants && meeting.participants.length > 0 && (
               <div className="flex items-center" style={{ gap: 4 }}>
                 <Users

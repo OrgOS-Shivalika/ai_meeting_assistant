@@ -1,15 +1,18 @@
-// Phase 14 K3 — /boards landing page.
-//
-// Lists boards in the user's org. Default board pinned to the top.
-// Each card is a clickable tile that routes to /board/:id. A "+ New Board"
-// affordance opens an inline modal for board creation.
+
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Briefcase, LayoutGrid, Plus, Sparkles } from "lucide-react";
+import { ArrowUpRight, Briefcase, LayoutGrid, Plus, Sparkles } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { createBoard, fetchBoards } from "../api";
 import type { BoardSummary } from "../types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { IconChip } from "@/components/ui/icon-chip";
+import { Input } from "@/components/ui/input";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { accent } from "@/lib/vibrant";
 
 export default function BoardListPage() {
   const navigate = useNavigate();
@@ -53,35 +56,25 @@ export default function BoardListPage() {
 
   return (
     <Layout>
-      <div className="px-2 py-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h1 className="text-2xl font-bold text-[#0F1523] tracking-tight">
-              Boards
-            </h1>
-            <p className="text-xs text-[#777681] mt-0.5">
-              Kanban-style task management. Meeting-extracted tasks land on
-              the default board automatically.
-            </p>
-          </div>
-          <button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            New Board
-          </button>
-        </div>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Overview"
+          title="Boards"
+          description="Track meeting outcomes as work moves across your team. Extracted tasks land on the default board automatically."
+          actions={
+            <Button onClick={() => setCreating(true)}>
+              <Plus />
+              New board
+            </Button>
+          }
+        />
 
-        {/* Inline create modal */}
+        {/* Inline create form */}
         {creating && (
-          <div className="mb-5 p-4 bg-white border border-indigo-200 rounded-lg shadow-sm">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mb-2">
-              Create board
-            </div>
-            <div className="flex items-center gap-2">
-              <input
+          <Card variant="default" className="mb-5 rounded-xl p-5">
+            <div className="vb-label-caps mb-2.5">Create board</div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Input
                 autoFocus
                 type="text"
                 value={newName}
@@ -94,130 +87,135 @@ export default function BoardListPage() {
                   }
                 }}
                 placeholder="Board name (e.g. Q3 Roadmap)"
-                className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+                className="h-10 min-w-56 flex-1"
               />
-              <button
+              <Button
+                size="sm"
                 onClick={handleCreate}
                 disabled={submitting || !newName.trim()}
-                className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
               >
                 {submitting ? "Creating…" : "Create"}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setCreating(false);
                   setNewName("");
                 }}
-                className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
-            <p className="text-[10px] text-slate-400 italic mt-2">
-              The new board will be seeded with To Do, In Progress, In Review, Done columns.
+            <p className="mt-2.5 text-[11px] text-muted-soft">
+              Seeded with To Do, In Progress, In Review and Done columns.
             </p>
-          </div>
+          </Card>
         )}
 
         {/* List */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <SkeletonCard key={i} className="h-40" />
+              <SkeletonCard key={i} className="h-44 rounded-xl" />
             ))}
           </div>
         ) : error ? (
-          <div className="text-center py-12 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 font-medium">
+          <div className="rounded-lg border border-error/20 bg-error/8 py-12 text-center text-[13px] font-medium text-error">
             {error}
           </div>
         ) : (
           // Continuum Core is pinned and always present, so the grid
           // renders even with zero task boards (the old empty-state
           // branch hid the pinned card for fresh accounts).
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
             {/* Continuum Core — pinned special board. Clients across the
                 6 engagement stages, not tasks; lives in its own tables. */}
-            <Link
-              to="/board/continuum"
-              className="group block bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center">
-                    <Briefcase className="w-4 h-4 text-emerald-600" />
-                  </div>
-                  <h3 className="font-bold text-sm text-slate-900 leading-snug">
-                    Continuum Core
-                  </h3>
-                </div>
-                <span
-                  title="Client engagements tracked by the Continuum agent"
-                  className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                >
-                  <Sparkles className="w-2.5 h-2.5" />
-                  Clients
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 line-clamp-2 mb-3">
-                Client deals across the 6 engagement stages — boards update
-                automatically from recorded meetings.
-              </p>
-              <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                <span>Discovery → Delivery</span>
-                <span className="ml-auto text-[10px] uppercase tracking-wider text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                  Open →
-                </span>
-              </div>
-            </Link>
-            {boards.map((b) => (
-              <Link
-                key={b.id}
-                to={`/board/${b.id}`}
-                className="group block bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-              >
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-md bg-indigo-50 flex items-center justify-center">
-                      <LayoutGrid className="w-4 h-4 text-indigo-600" />
+            <Link to="/board/continuum" className="group">
+              <Card variant="default" className="h-full rounded-xl p-6">
+                <div className="mb-[18px] flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <IconChip size="lg" color="var(--vb-success)">
+                      <Briefcase />
+                    </IconChip>
+                    <div className="min-w-0">
+                      <h3 className="vb-title-md truncate">Continuum Core</h3>
+                      <p className="mt-0.5 text-xs text-muted-ink">
+                        Discovery → Delivery
+                      </p>
                     </div>
-                    <h3 className="font-bold text-sm text-slate-900 leading-snug">
-                      {b.name}
-                    </h3>
                   </div>
-                  {b.is_default && (
-                    <span
-                      title="Auto-extracted tasks land on this board by default"
-                      className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-                    >
-                      <Sparkles className="w-2.5 h-2.5" />
-                      Default
-                    </span>
+                  <Badge
+                    variant="success"
+                    title="Client engagements tracked by the Continuum agent"
+                  >
+                    <Sparkles className="size-2.5" />
+                    Clients
+                  </Badge>
+                </div>
+                <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-muted-ink">
+                  Client deals across the six engagement stages — the board
+                  updates itself from recorded meetings.
+                </p>
+                <div className="flex items-center justify-between border-t border-hairline-soft pt-4 text-xs text-muted-ink">
+                  <span>6 stages</span>
+                  <span className="inline-flex items-center gap-1 font-medium opacity-0 transition-opacity group-hover:opacity-100">
+                    Open
+                    <ArrowUpRight className="size-3" />
+                  </span>
+                </div>
+              </Card>
+            </Link>
+
+            {boards.map((b, index) => (
+              <Link key={b.id} to={`/board/${b.id}`} className="group">
+                <Card variant="default" className="h-full rounded-xl p-6">
+                  <div className="mb-[18px] flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <IconChip size="lg" color={accent(index)}>
+                        <LayoutGrid />
+                      </IconChip>
+                      <div className="min-w-0">
+                        <h3 className="vb-title-md truncate">{b.name}</h3>
+                        <p className="mt-0.5 text-xs text-muted-ink">
+                          {b.column_count}{" "}
+                          {b.column_count === 1 ? "column" : "columns"}
+                        </p>
+                      </div>
+                    </div>
+                    {b.is_default && (
+                      <Badge
+                        variant="warning"
+                        title="Auto-extracted tasks land on this board by default"
+                      >
+                        <Sparkles className="size-2.5" />
+                        Default
+                      </Badge>
+                    )}
+                  </div>
+                  {b.description && (
+                    <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-muted-ink">
+                      {b.description}
+                    </p>
                   )}
-                </div>
-                {b.description && (
-                  <p className="text-xs text-slate-500 line-clamp-2 mb-3">
-                    {b.description}
-                  </p>
-                )}
-                <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                  <span>
-                    <span className="font-bold text-slate-700">{b.task_count}</span>{" "}
-                    {b.task_count === 1 ? "task" : "tasks"}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    <span className="font-bold text-slate-700">{b.column_count}</span>{" "}
-                    {b.column_count === 1 ? "column" : "columns"}
-                  </span>
-                  <span className="ml-auto text-[10px] uppercase tracking-wider text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Open →
-                  </span>
-                </div>
+                  <div className="flex items-center justify-between border-t border-hairline-soft pt-4 text-xs text-muted-ink">
+                    <span>
+                      <span className="font-mono text-body-strong">
+                        {b.task_count}
+                      </span>{" "}
+                      {b.task_count === 1 ? "card" : "cards"}
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-medium opacity-0 transition-opacity group-hover:opacity-100">
+                      Open
+                      <ArrowUpRight className="size-3" />
+                    </span>
+                  </div>
+                </Card>
               </Link>
             ))}
           </div>
         )}
-      </div>
+      </PageContainer>
     </Layout>
   );
 }

@@ -13,6 +13,11 @@ import Layout from "../../../shared/components/Layout";
 import { apiClient } from "../../../services/apiClient";
 import { authService } from "../../../services/authService";
 import IntegrationCard, { type ConnectionState } from "../components/IntegrationCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
 
 /**
  * One-stop view of every external integration. Today Google Calendar is
@@ -88,26 +93,20 @@ export default function IntegrationsPage() {
 
   return (
     <Layout>
-      <div className="px-8 py-8 max-w-6xl mx-auto">
-        <header className="mb-6">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-            Integrations
-          </p>
-          <h1 className="text-2xl font-bold text-gray-900 mt-1">
-            Connected services
-          </h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            External services your workspace can talk to. Connect once;
-            the AI uses these signals when running meetings + automations.
-          </p>
-        </header>
+      <PageContainer width="default">
+        <PageHeader
+          eyebrow="Workspace"
+          title="Integrations"
+          description="Connect the tools your meetings already live in. Connect once; the agents use these signals when running meetings and automations."
+        />
 
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <IntegrationCard
             name="Google Calendar"
             category="Calendar"
-            description="Sync scheduled meetings to your Google Calendar + read upcoming meetings into the workspace."
-            brandIcon={<Calendar className="w-6 h-6 text-indigo-600" />}
+            description="Sync scheduled meetings to your Google Calendar and read upcoming meetings into the workspace."
+            brandIcon={<Calendar />}
+            brandColor="var(--vb-info)"
             state={googleState}
             errorMessage={googleError}
             connectedAs={googleEmail}
@@ -118,7 +117,7 @@ export default function IntegrationsPage() {
         </section>
 
         {googleState === "connected" && <UpcomingGoogleEvents />}
-      </div>
+      </PageContainer>
     </Layout>
   );
 }
@@ -169,62 +168,54 @@ function UpcomingGoogleEvents() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <section className="mt-8">
-      <div className="flex items-end justify-between mb-4">
+    <section className="mt-9">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-            Google Calendar
-          </p>
-          <h2 className="text-lg font-semibold text-gray-900 mt-1">
-            Upcoming meetings
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="vb-label-caps">Google Calendar</p>
+          <h2 className="vb-title-lg mt-1.5">Upcoming meetings</h2>
+          <p className="mt-1.5 max-w-2xl text-[13px] text-muted-ink">
             Next {events.length || 10} events on your primary calendar. The bot
-            auto-joins any meeting with a Google Meet link scheduled within
-            the next 2 minutes.
+            auto-joins any meeting with a Google Meet link scheduled within the
+            next 2 minutes.
           </p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-        >
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           {loading ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Loader2 className="animate-spin" />
           ) : (
-            <RefreshCw className="w-3 h-3" />
+            <RefreshCw />
           )}
           Refresh
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-lg border border-error/20 bg-error/8 px-4 py-3.5 text-[13px] font-medium text-error">
           {error}
         </div>
       )}
 
       {!error && !loading && events.length === 0 && (
-        <div className="rounded-lg border border-dashed border-gray-200 px-6 py-10 text-center">
-          <Calendar className="w-6 h-6 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No upcoming meetings.</p>
-          <p className="text-xs text-gray-400 mt-1">
-            New events on your Google Calendar will show up here.
-          </p>
-        </div>
+        <EmptyState
+          icon={Calendar}
+          color="var(--vb-mint)"
+          title="Nothing on the calendar"
+          description="New events on your Google Calendar show up here."
+          className="border-dashed"
+        />
       )}
 
       {loading && events.length === 0 ? (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {[0, 1, 2].map((i) => (
             <li
               key={i}
-              className="h-24 rounded-xl border border-gray-200 bg-gray-50 animate-pulse"
+              className="h-24 animate-pulse rounded-lg border border-hairline bg-surface-soft"
             />
           ))}
         </ul>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {events.map((event) => (
             <EventRow key={event.id} event={event} />
           ))}
@@ -278,106 +269,109 @@ function EventRow({ event }: { event: GoogleEvent }) {
   })();
 
   return (
-    <li className="rounded-xl border border-gray-200 bg-white p-4 flex flex-wrap items-start gap-4">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          <h3 className="font-semibold text-gray-900 truncate max-w-xl">
-            {event.summary || "Untitled event"}
-          </h3>
-          {meetUrl && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
-              <Video className="w-2.5 h-2.5" />
-              Meet
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-4 flex-wrap text-xs text-gray-500 mb-2">
-          <span className="inline-flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-gray-400" />
-            {whenText}
-            {durationText && !isAllDay && (
-              <span className="text-gray-400"> · {durationText}</span>
+    <li>
+      <Card
+        variant="default"
+        className="flex flex-wrap items-start gap-5 rounded-lg p-5"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
+            <h3 className="vb-title-md max-w-xl truncate text-[17px]">
+              {event.summary || "Untitled event"}
+            </h3>
+            {meetUrl && (
+              <Badge variant="success">
+                <Video className="size-2.5" />
+                Meet
+              </Badge>
             )}
-          </span>
-          {event.location && (
-            <span className="inline-flex items-center gap-1.5 truncate max-w-xs">
-              <MapPin className="w-3.5 h-3.5 text-gray-400" />
-              {event.location}
-            </span>
-          )}
-          {(event.attendees?.length || 0) > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5 text-gray-400" />
-              {event.attendees!.length} attendee
-              {event.attendees!.length === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
+          </div>
 
-        {attendeesToShow.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {attendeesToShow.map((a, i) => (
-              <span
-                key={i}
-                title={a.email}
-                className="inline-flex items-center gap-1 text-[11px] bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 text-gray-700"
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background:
-                      a.responseStatus === "accepted"
-                        ? "#22c55e"
-                        : a.responseStatus === "declined"
-                          ? "#ef4444"
-                          : a.responseStatus === "tentative"
-                            ? "#f59e0b"
-                            : "#9ca3af",
-                  }}
-                />
-                {a.displayName || a.email || "attendee"}
+          <div className="mb-2.5 flex flex-wrap items-center gap-4 text-xs text-muted-ink">
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="size-3.5 text-muted-soft" />
+              {whenText}
+              {durationText && !isAllDay && (
+                <span className="text-muted-soft"> · {durationText}</span>
+              )}
+            </span>
+            {event.location && (
+              <span className="inline-flex max-w-xs items-center gap-1.5 truncate">
+                <MapPin className="size-3.5 text-muted-soft" />
+                {event.location}
               </span>
-            ))}
-            {extraAttendees > 0 && (
-              <span className="text-[11px] text-gray-500 self-center">
-                +{extraAttendees} more
+            )}
+            {(event.attendees?.length || 0) > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="size-3.5 text-muted-soft" />
+                {event.attendees!.length} attendee
+                {event.attendees!.length === 1 ? "" : "s"}
               </span>
             )}
           </div>
-        )}
 
-        {event.description && (
-          <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
-            {event.description.replace(/<[^>]*>/g, " ").trim()}
-          </p>
-        )}
-      </div>
+          {attendeesToShow.length > 0 && (
+            <div className="mb-2.5 flex flex-wrap gap-2">
+              {attendeesToShow.map((a, i) => (
+                <span
+                  key={i}
+                  title={a.email}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-surface-card px-3 py-1.5 text-[11px] font-medium text-body"
+                >
+                  {/* RSVP state, in the semantic hues. */}
+                  <span
+                    className="size-1.5 rounded-full"
+                    style={{
+                      background:
+                        a.responseStatus === "accepted"
+                          ? "var(--vb-success)"
+                          : a.responseStatus === "declined"
+                            ? "var(--vb-error)"
+                            : a.responseStatus === "tentative"
+                              ? "var(--vb-warning)"
+                              : "var(--vb-muted-soft)",
+                    }}
+                  />
+                  {a.displayName || a.email || "attendee"}
+                </span>
+              ))}
+              {extraAttendees > 0 && (
+                <span className="self-center text-[11px] text-muted-ink">
+                  +{extraAttendees} more
+                </span>
+              )}
+            </div>
+          )}
 
-      <div className="flex flex-col items-end gap-2 shrink-0">
-        {meetUrl && (
-          <a
-            href={meetUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
-          >
-            <Video className="w-3 h-3" />
-            Join
-          </a>
-        )}
-        {event.htmlLink && (
-          <a
-            href={event.htmlLink}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700"
-          >
-            <ExternalLink className="w-3 h-3" />
-            Open in Google
-          </a>
-        )}
-      </div>
+          {event.description && (
+            <p className="line-clamp-2 text-xs leading-relaxed text-muted-ink">
+              {event.description.replace(/<[^>]*>/g, " ").trim()}
+            </p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2.5">
+          {meetUrl && (
+            <Button size="sm" asChild>
+              <a href={meetUrl} target="_blank" rel="noreferrer">
+                <Video />
+                Join
+              </a>
+            </Button>
+          )}
+          {event.htmlLink && (
+            <a
+              href={event.htmlLink}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-ink hover:text-ink"
+            >
+              <ExternalLink className="size-3" />
+              Open in Google
+            </a>
+          )}
+        </div>
+      </Card>
     </li>
   );
 }

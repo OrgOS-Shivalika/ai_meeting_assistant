@@ -1,15 +1,4 @@
-/**
- * Tiny indicator that summarizes a meeting's AI-memory readiness in a
- * single dot. Used on MeetingCard and MeetingRow.
- *
- * State table (precedence: failed > processing > pending > skipped > ready):
- *   ready        — both embedding and graph are terminal-good
- *   processing   — at least one stage is mid-flight
- *   pending      — at least one stage hasn't started yet
- *   skipped      — terminal-but-nothing-to-do (e.g. empty transcript)
- *   failed       — at least one stage failed
- *   absent       — fields not present on the meeting payload (older API)
- */
+import { Sparkles } from "lucide-react";
 import type { MemoryLifecycleStatus } from "../types";
 
 interface AIMemoryStatusDotProps {
@@ -45,23 +34,30 @@ const combine = (
   if (e === "failed" || g === "failed") return "failed";
   if (e === "processing" || g === "processing") return "processing";
   if (e === "pending" || g === "pending") return "pending";
-  // Both must be terminal-good (embedded/extracted or skipped) to be ready.
   if (isTerminalGood("embedding", e) && isTerminalGood("graph", g))
     return "ready";
   if (e === "skipped" && g === "skipped") return "skipped";
   return "pending";
 };
 
+// Rendered as a sparkle rather than a dot on purpose. This sits beside the
+// meeting's status pill, which carries its own coloured dot — two identical
+// dots side by side read as one repeated signal, when in fact they track
+// different things (processing status vs. AI memory lifecycle). The glyph
+// keeps them tellable apart at a glance.
+//
+// `quiet` marks the states worth de-emphasising: ready and skipped need no
+// attention, so they recede instead of competing with the status pill.
 const STYLE: Record<
   CombinedState,
-  { dotClass: string; ring: string; label: string }
+  { color: string; animate: string; label: string; quiet?: boolean }
 > = {
-  ready:      { dotClass: "bg-emerald-500", ring: "shadow-[0_0_6px_rgba(16,185,129,0.5)]", label: "AI memory ready" },
-  processing: { dotClass: "bg-amber-500",  ring: "shadow-[0_0_6px_rgba(245,158,11,0.5)] animate-pulse", label: "AI memory processing" },
-  pending:    { dotClass: "bg-slate-300",  ring: "", label: "AI memory pending" },
-  skipped:    { dotClass: "bg-slate-300",  ring: "", label: "AI memory skipped" },
-  failed:     { dotClass: "bg-rose-500",   ring: "shadow-[0_0_6px_rgba(244,63,94,0.5)]", label: "AI memory failed" },
-  absent:     { dotClass: "bg-slate-200",  ring: "", label: "AI memory unknown" },
+  ready:      { color: "var(--vb-success)",    animate: "", label: "AI memory ready", quiet: true },
+  processing: { color: "var(--vb-warning)",    animate: "animate-pulse", label: "AI memory processing" },
+  pending:    { color: "var(--vb-muted-soft)", animate: "", label: "AI memory pending", quiet: true },
+  skipped:    { color: "var(--vb-muted-soft)", animate: "", label: "AI memory skipped", quiet: true },
+  failed:     { color: "var(--vb-error)",      animate: "", label: "AI memory failed" },
+  absent:     { color: "var(--vb-muted-soft)", animate: "", label: "AI memory unknown", quiet: true },
 };
 
 export default function AIMemoryStatusDot({
@@ -73,11 +69,11 @@ export default function AIMemoryStatusDot({
   const state = combine(embeddingStatus, graphStatus);
   if (state === "absent" && !showLabel) return null;
   const style = STYLE[state];
-  const dim = size === "xs" ? "w-1.5 h-1.5" : "w-2 h-2";
-
-  // Detailed tooltip — shown on hover. Cheaper than a popover and the
-  // information needs zero interaction to consume.
+  // Sized to sit on the text baseline inside a status pill rather than
+  // tower over it — 10px matches the pill's own type size.
+  const dim = size === "xs" ? "w-2.5 h-2.5" : "w-3.5 h-3.5";
   const tip = [
+    style.label,
     `Embeddings: ${embeddingStatus ?? "unknown"}`,
     `Graph: ${graphStatus ?? "unknown"}`,
   ].join(" · ");
@@ -88,9 +84,12 @@ export default function AIMemoryStatusDot({
       title={tip}
       aria-label={style.label}
     >
-      <span className={`${dim} rounded-full ${style.dotClass} ${style.ring}`} />
+      <Sparkles
+        className={`${dim} shrink-0 ${style.animate}`}
+        style={{ color: style.color, opacity: style.quiet ? 0.55 : 1 }}
+      />
       {showLabel && (
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
           {state}
         </span>
       )}

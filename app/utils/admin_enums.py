@@ -1,18 +1,3 @@
-"""Enums for user administration.
-
-`AccessRole` is the canonical definition of the three meeting-access roles.
-Before this module they lived as loose string constants in
-``services/permissions.py``, which meant the literal ``"org_admin"`` was
-written out by hand in the models, the schemas, the auth service and the
-migration — four places that had to agree with no way to notice when they
-stopped.
-
-Inherits from ``str`` on purpose. ``AccessRole.ADMIN == "admin"`` is True
-and the members serialize straight through SQLAlchemy, Pydantic and
-``json.dumps`` as their plain string value, so nothing downstream needs to
-know an enum exists. That keeps rows written before this module valid and
-lets a comparison against a raw DB string keep working.
-"""
 from enum import Enum
 
 
@@ -25,20 +10,8 @@ class AccessRole(str, Enum):
     this enum for that column.
     """
 
-    # Values are stored UPPERCASE in `users.access_role`. Note this differs
-    # from `users.role` (Phase 7E), which stores lowercase — the two columns
-    # are unrelated and neither convention is being changed to match the
-    # other.
-
-    #: Implicit default. Nobody is granted MEMBER; a user has it by
-    #: virtue of having attended a meeting, i.e. by having a row in
-    #: `participants` that links to them. Sees those meetings, their
-    #: tasks and their cards, plus tasks assigned to them.
     MEMBER = "MEMBER"
 
-    #: Category-level. Sees and manages everything in the categories
-    #: granted via `category_admins`. Read scope is the union with their
-    #: own attended meetings; write scope is the grants alone.
     ADMIN = "ADMIN"
 
     #: Organization-wide. Every meeting, task and board in the org.
@@ -102,14 +75,10 @@ class PromptRole(str, Enum):
     safe-deny default.
     """
 
-    #: Read-only on the agent surfaces.
     VIEWER = "VIEWER"
 
-    #: VIEWER + create/edit drafts, publish, rollback.
     PROMPT_EDITOR = "PROMPT_EDITOR"
 
-    #: PROMPT_EDITOR + archive profiles, run the playground, view the
-    #: audit log.
     ORG_ADMIN = "ORG_ADMIN"
 
     def __str__(self) -> str:

@@ -1,19 +1,4 @@
-/**
- * Memory Phase 2 — in-meeting AskAssistantPanel.
- *
- * A collapsible side panel on the meeting detail page. Users ask
- * cross-meeting questions ("who owns OAuth?", "what did we decide
- * about pricing?") without leaving the meeting page.
- *
- * Reuses /rag/ask SSE via the existing useChatStream hook — only
- * difference is the endpoint override to /rag/ask-live so scope auto-
- * resolves from the meeting_id.
- *
- * Two visual states:
- *   - Closed: a thin right-edge tab (`position:fixed`)
- *   - Open: a regular flex-column panel meant to mount inside the
- *           meeting page's grid as the third column.
- */
+
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, X, Send, ChevronRight, KeyRound } from "lucide-react";
 import { useChatStream } from "../../ask/hooks/useChatStream";
@@ -58,7 +43,6 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onOpen, onClose]);
 
-  // Auto-focus the textarea when the panel opens.
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 60);
   }, [open]);
@@ -67,9 +51,6 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
     const q = input.trim();
     if (!q || streaming) return;
     setInput("");
-    // Hits /rag/ask-live — the endpoint extracts scope from meeting_id,
-    // so we don't pass scope/scope_id from the panel. AskLiveRequest
-    // ignores the extra fields useChatStream sends (scope, sources, etc.).
     ask({
       query: q,
       scope: "auto",
@@ -78,12 +59,11 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
     } as Parameters<typeof ask>[0]);
   };
 
-  // ---- Closed: floating right-edge tab ----
   if (!open) {
     return (
       <button
         onClick={onOpen}
-        className="fixed right-0 top-[30vh] z-30 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-2 py-3 rounded-l-lg shadow-lg flex flex-col items-center gap-1.5 transition-all"
+        className="fixed right-0 top-[30vh] z-30 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-2 py-3 rounded-l-lg shadow-soft flex flex-col items-center gap-1.5 transition-all"
         title="Ask the assistant (Cmd+K)"
       >
         <Sparkles className="w-4 h-4" />
@@ -97,16 +77,16 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
   const scopeLabel = meeting.team?.name || meeting.category?.name || "your org";
 
   return (
-    <aside className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
+    <aside className="bg-canvas border border-slate-200 rounded-xl shadow-sm flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-900">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-900">
             Ask the assistant
           </span>
           {isLive && (
-            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+            <span className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
               Live
             </span>
           )}
@@ -121,10 +101,9 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
         </div>
       </div>
 
-      {/* Prefetch chips */}
       {!turn && facts.length > 0 && (
         <div className="px-3 py-2 border-b border-slate-50 shrink-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
             Recently in this {meeting.team ? "team" : meeting.category ? "category" : "org"}
           </div>
           <div className="space-y-1">
@@ -136,7 +115,7 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
                 }
                 className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-indigo-50 text-xs text-slate-700 flex items-start gap-1.5 group"
               >
-                <span className="text-[8px] font-black uppercase text-indigo-600 mt-0.5 shrink-0">
+                <span className="text-[8px] font-semibold uppercase text-indigo-600 mt-0.5 shrink-0">
                   {f.fact_type}
                 </span>
                 <span className="line-clamp-2 leading-snug flex-1">{f.fact}</span>
@@ -190,7 +169,7 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
           {streaming ? (
             <button
               onClick={abort}
-              className="px-2.5 py-1.5 bg-rose-50 text-rose-700 rounded-lg text-xs font-bold"
+              className="px-2.5 py-1.5 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold"
             >
               Stop
             </button>
@@ -198,7 +177,7 @@ export default function AskAssistantPanel({ meeting, open, onOpen, onClose }: Pr
             <button
               onClick={submit}
               disabled={!input.trim()}
-              className="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold disabled:opacity-40"
+              className="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
             >
               <Send className="w-3.5 h-3.5" />
             </button>

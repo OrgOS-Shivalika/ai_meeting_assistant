@@ -146,7 +146,7 @@ export default function ContinuumControlPanel() {
       )}
 
       {/* Core AI */}
-      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
+      <section className="bg-canvas border border-slate-200 rounded-lg p-5 space-y-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Core AI
         </h2>
@@ -196,7 +196,7 @@ export default function ContinuumControlPanel() {
       </section>
 
       {/* Master prompt */}
-      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+      <section className="bg-canvas border border-slate-200 rounded-lg p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Master prompt
@@ -240,7 +240,7 @@ export default function ContinuumControlPanel() {
       </section>
 
       {/* Langfuse */}
-      <section className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+      <section className="bg-canvas border border-slate-200 rounded-lg p-5 space-y-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Langfuse observability
         </h2>

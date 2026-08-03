@@ -137,14 +137,14 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
             return (
               <li key={c.id} className="flex items-start gap-2.5">
                 <div
-                  className={`w-6 h-6 rounded text-white text-[8px] font-black flex items-center justify-center shrink-0 ${colorFor(name)}`}
+                  className={`w-6 h-6 rounded text-white text-[8px] font-semibold flex items-center justify-center shrink-0 ${colorFor(name)}`}
                 >
                   {initials(name)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between gap-2">
                     <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs font-bold text-slate-800">{name}</span>
+                      <span className="text-xs font-semibold text-slate-800">{name}</span>
                       <span className="text-[10px] text-slate-400">
                         {formatRelative(c.created_at)}
                       </span>
@@ -190,7 +190,7 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
                         <button
                           onClick={() => handleEditSave(c.id)}
                           disabled={!editingBody.trim()}
-                          className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-indigo-600 text-white rounded disabled:opacity-50"
+                          className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 bg-indigo-600 text-white rounded disabled:opacity-50"
                         >
                           Save
                         </button>
@@ -199,7 +199,7 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
                             setEditingId(null);
                             setEditingBody("");
                           }}
-                          className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 text-slate-500 hover:bg-slate-100 rounded"
+                          className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 text-slate-500 hover:bg-slate-100 rounded"
                         >
                           Cancel
                         </button>
@@ -236,7 +236,7 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
           <button
             onClick={handleSubmit}
             disabled={submitting || !newBody.trim()}
-            className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
           >
             {submitting ? "Posting…" : "Comment"}
           </button>

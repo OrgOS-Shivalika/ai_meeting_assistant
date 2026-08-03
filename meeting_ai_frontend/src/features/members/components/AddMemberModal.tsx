@@ -187,10 +187,10 @@ export default function AddMemberModal({
         aria-modal="true"
         aria-labelledby="add-member-title"
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-lg shadow-lg max-w-md w-full p-6"
+        className="bg-canvas rounded-lg shadow-soft max-w-md w-full p-6"
       >
         <div className="flex items-center justify-between mb-1">
-          <h2 id="add-member-title" className="text-lg font-bold text-[#0F1523]">
+          <h2 id="add-member-title" className="text-lg font-semibold text-[#0F1523]">
             {step === "form" ? "Add Member" : "Review New Member"}
           </h2>
           <span className="text-xs font-semibold text-[#777681]">
@@ -351,7 +351,7 @@ export default function AddMemberModal({
           </>
         ) : (
           <>
-            <dl className="rounded-lg border border-gray-200 divide-y divide-gray-100 mb-4">
+            <dl className="rounded-lg border border-gray-200 divide-y divide-hairline-soft mb-4">
               <div className="flex items-center justify-between px-3 py-2 gap-3">
                 <dt className="text-xs font-semibold text-[#777681]">Email</dt>
                 <dd className="text-sm text-[#0F1523] truncate">{email.trim()}</dd>
@@ -359,7 +359,7 @@ export default function AddMemberModal({
               <div className="flex items-center justify-between px-3 py-2 gap-3">
                 <dt className="text-xs font-semibold text-[#777681]">Role</dt>
                 <dd
-                  className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider ${roleBadgeClass(
+                  className={`px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${roleBadgeClass(
                     role,
                   )}`}
                 >

@@ -4,19 +4,18 @@
  */
 import {
   AlertCircle,
-  ArrowRight,
+  ArrowUpRight,
+  Bot,
   Brain,
   Calendar,
   CalendarPlus,
   CheckCircle2,
   ChevronRight,
   Clock,
-  ExternalLink,
   ListChecks,
   Network,
   Plus,
   Search as SearchIcon,
-  Sparkles,
   TrendingUp,
   Users as UsersIcon,
   User,
@@ -41,6 +40,13 @@ import type {
   EntityType,
 } from "../../knowledge/types";
 import { cn } from "@/lib/utils";
+import { accent, tint } from "@/lib/vibrant";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { IconChip } from "@/components/ui/icon-chip";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 
 interface DashboardData {
   meetings: Meeting[];
@@ -140,95 +146,7 @@ function useDashboardData(): DashboardData & { refetch: () => void } {
 }
 
 // ---------------------------------------------------------------------------
-// Stat tile — unified slate look, indigo only for the primary tile
-// ---------------------------------------------------------------------------
-
-interface StatTileProps {
-  icon: LucideIcon;
-  label: string;
-  value: number | string;
-  hint?: string;
-  to?: string;
-  primary?: boolean;
-}
-
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  to,
-  primary,
-}: StatTileProps) {
-  const Wrapper: React.ElementType = to ? Link : "div";
-  const wrapperProps = to ? { to } : {};
-  return (
-    <Wrapper
-      {...wrapperProps}
-      className={cn(
-        "group block rounded-lg border p-4 transition-colors",
-        primary
-          ? "bg-slate-950 border-slate-950 text-white"
-          : "bg-white border-slate-200",
-        to && !primary && "hover:border-slate-300",
-        to && primary && "hover:bg-slate-900",
-      )}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div
-          className={cn(
-            "w-8 h-8 rounded-md flex items-center justify-center",
-            primary ? "bg-white/10" : "bg-slate-50",
-          )}
-        >
-          <Icon
-            className={cn(
-              "w-4 h-4",
-              primary ? "text-white" : "text-slate-500",
-            )}
-          />
-        </div>
-        {to && (
-          <ArrowRight
-            className={cn(
-              "w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5",
-              primary ? "text-white/40" : "text-slate-300",
-            )}
-          />
-        )}
-      </div>
-      <div
-        className={cn(
-          "text-2xl font-semibold tabular-nums leading-none",
-          primary ? "text-white" : "text-slate-900",
-        )}
-      >
-        {value}
-      </div>
-      <div
-        className={cn(
-          "text-[11px] font-medium mt-2",
-          primary ? "text-white/60" : "text-slate-500",
-        )}
-      >
-        {label}
-      </div>
-      {hint && (
-        <div
-          className={cn(
-            "text-[11px] mt-0.5",
-            primary ? "text-white/40" : "text-slate-400",
-          )}
-        >
-          {hint}
-        </div>
-      )}
-    </Wrapper>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section card — sidebar-style: flat, subtle border, quiet header
+// Section card — hairline frame, display-face header, quiet "view all"
 // ---------------------------------------------------------------------------
 
 interface SectionCardProps {
@@ -236,32 +154,41 @@ interface SectionCardProps {
   subtitle?: string;
   action?: { label: string; to: string };
   children: React.ReactNode;
+  /** For column-fill sizing, e.g. `flex-1` in a stretched grid column. */
+  className?: string;
 }
 
-function SectionCard({ title, subtitle, action, children }: SectionCardProps) {
+function SectionCard({
+  title,
+  subtitle,
+  action,
+  children,
+  className,
+}: SectionCardProps) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-3">
+    <Card
+      variant="default"
+      className={cn("overflow-hidden rounded-xl", className)}
+    >
+      <div className="flex items-center justify-between gap-3 px-6 py-[18px]">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
-            {title}
-          </h3>
+          <h3 className="vb-title-md">{title}</h3>
           {subtitle && (
-            <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+            <p className="mt-0.5 text-xs text-muted-ink">{subtitle}</p>
           )}
         </div>
         {action && (
           <Link
             to={action.to}
-            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+            className="inline-flex shrink-0 items-center gap-0.5 text-[13px] font-medium text-muted-ink transition-colors hover:text-ink"
           >
             {action.label}
-            <ChevronRight className="w-3 h-3" />
+            <ChevronRight className="size-3.5" />
           </Link>
         )}
       </div>
-      <div>{children}</div>
-    </div>
+      <div className="border-t border-hairline-soft">{children}</div>
+    </Card>
   );
 }
 
@@ -371,7 +298,7 @@ export default function DashboardPage() {
       return {
         id,
         name: cat?.name ?? `Category #${id}`,
-        color: cat?.color ?? "#4F46E5",
+        color: cat?.color ?? "#ff4d8b",
         count,
       };
     });
@@ -384,22 +311,22 @@ export default function DashboardPage() {
   if (loading && meetings.length === 0) {
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
-          <div className="space-y-2">
+        <PageContainer width="wide" className="space-y-7">
+          <div className="space-y-3">
             <Skeleton className="h-3 w-32" />
-            <Skeleton className="h-7 w-72" />
+            <Skeleton className="h-10 w-72" />
             <Skeleton className="h-4 w-96" />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <SkeletonCard key={i} className="h-28" />
+              <SkeletonCard key={i} className="h-36 rounded-2xl" />
             ))}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SkeletonCard className="h-80" />
-            <SkeletonCard className="h-80" />
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.5fr_1fr]">
+            <SkeletonCard className="h-80 rounded-xl" />
+            <SkeletonCard className="h-80 rounded-xl" />
           </div>
-        </div>
+        </PageContainer>
       </Layout>
     );
   }
@@ -425,397 +352,426 @@ export default function DashboardPage() {
     return "You have " + bits.join(" · ") + ".";
   })();
 
-  const todayStr = now.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const hour = now.getHours();
+  const partOfDay =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const firstName = user?.name ? user.name.split(/\s+/)[0] : null;
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
-        {/* ─────── Header ─────── */}
-        <header className="flex items-end justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
-              {todayStr}
-            </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Welcome back
-              {user?.name ? `, ${user.name.split(/\s+/)[0]}` : ""}
-            </h1>
-            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-              {summarySentence}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={refetch}
-            className="text-xs font-medium text-slate-500 hover:text-slate-900 px-3 h-8 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors"
-          >
-            Refresh
-          </button>
-        </header>
+      <PageContainer width="wide">
+        <PageHeader
+          eyebrow={firstName ? `${partOfDay}, ${firstName}` : partOfDay}
+          title="Dashboard"
+          description={summarySentence}
+          actions={
+            <Button variant="outline" size="sm" onClick={refetch}>
+              Refresh
+            </Button>
+          }
+        />
 
         {error && (
-          <div className="flex items-center gap-2.5 px-3 py-2.5 bg-red-50 border border-red-100 rounded-md text-xs text-red-700">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="mb-6 flex items-center gap-2.5 rounded-md border border-error/20 bg-error/8 px-3.5 py-3 text-xs text-error">
+            <AlertCircle className="size-4 shrink-0" />
             {error}
           </div>
         )}
 
-        {/* ─────── Stat tiles ─────── */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatTile
-            icon={CalendarPlus}
-            label="Upcoming this week"
-            value={upcomingThisWeek}
-            hint={
-              upcomingMeetings.length > 0
-                ? `Next: ${formatDateShort(upcomingMeetings[0].scheduled_at) ?? "—"}`
-                : "Nothing on the calendar"
-            }
-            to="/calendar"
-            primary
-          />
-          <StatTile
-            icon={ListChecks}
-            label="Open action items"
-            value={openTasks.length}
-            hint={
-              tasks.length > 0
-                ? `${tasks.length - openTasks.length} completed · ${tasks.length} total`
-                : undefined
-            }
-            to="/action-items"
-          />
-          <StatTile
-            icon={AlertCircle}
-            label="Tasks needing owner"
-            value={unassignedTasks.length}
-            hint={
-              highPriorityOpen.length > 0
-                ? `${highPriorityOpen.length} high priority overall`
-                : undefined
-            }
-            to="/action-items"
-          />
-          <StatTile
-            icon={Network}
-            label="Knowledge entities"
-            value={entityTotal}
-            hint={
-              entityTotal > 0
-                ? "People, projects, topics, decisions"
-                : "Will populate as meetings complete"
-            }
-            to="/knowledge-graph"
-          />
+        {/* ─────── Feature stat tiles, cycling the saturated palette ─────── */}
+        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Link to="/calendar">
+            <StatCard
+              tone={0}
+              icon={CalendarPlus}
+              value={upcomingThisWeek}
+              label="Upcoming this week"
+              delta={
+                upcomingMeetings.length > 0
+                  ? `Next ${formatDateShort(upcomingMeetings[0].scheduled_at) ?? "—"}`
+                  : undefined
+              }
+            />
+          </Link>
+          <Link to="/action-items">
+            <StatCard
+              tone={1}
+              icon={ListChecks}
+              value={openTasks.length}
+              label="Open action items"
+              delta={tasks.length > 0 ? `${tasks.length} total` : undefined}
+            />
+          </Link>
+          <Link to="/action-items">
+            <StatCard
+              tone={2}
+              icon={AlertCircle}
+              value={unassignedTasks.length}
+              label="Tasks needing an owner"
+              delta={
+                highPriorityOpen.length > 0
+                  ? `${highPriorityOpen.length} high`
+                  : undefined
+              }
+            />
+          </Link>
+          <Link to="/knowledge-graph">
+            <StatCard
+              tone={3}
+              icon={Network}
+              value={entityTotal}
+              label="Knowledge entities"
+            />
+          </Link>
         </section>
 
-        {/* ─────── Upcoming + Needs owner ─────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SectionCard
-            title="Upcoming meetings"
-            subtitle="Next 5 by scheduled time"
-            action={{ label: "All meetings", to: "/" }}
-          >
-            {upcomingMeetings.length === 0 ? (
-              <EmptyState
-                icon={Calendar}
-                title="No upcoming meetings"
-                description="Schedule one from the sidebar."
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {upcomingMeetings.map((m) => (
-                  <li key={m.id}>
-                    <Link
-                      to={`/meeting/${m.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
+        {/* Columns stretch rather than sit at the top: the right rail carries
+            three cards to the left's two, so with items-start the left column
+            ended early and left a tall void beside the rail. Stretching lets
+            the two list cards share that leftover height instead. */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.5fr_1fr]">
+          {/* ─────── Left column ─────── */}
+          <div className="flex flex-col gap-5">
+            <SectionCard
+              className="flex-1"
+              title="Upcoming meetings"
+              subtitle="Next 5 by scheduled time"
+              action={{ label: "View all", to: "/" }}
+            >
+              {upcomingMeetings.length === 0 ? (
+                <InlineEmpty
+                  icon={Calendar}
+                  title="Nothing on the calendar"
+                  description="Schedule a meeting from the sidebar and the bot joins it."
+                />
+              ) : (
+                <ul>
+                  {upcomingMeetings.map((m, index) => (
+                    <li key={m.id}>
+                      <Link
+                        to={`/meeting/${m.id}`}
+                        className="group flex items-center gap-3.5 border-b border-hairline-soft px-6 py-3.5 transition-colors last:border-0 hover:bg-surface-soft/60"
+                      >
+                        <IconChip
+                          color={m.category?.color || accent(index)}
+                          className="size-9 rounded-[11px] [&_svg]:size-4"
+                        >
+                          <Calendar />
+                        </IconChip>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-ink">
+                            {m.title || "Untitled meeting"}
+                          </p>
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-ink">
+                            <Clock className="size-3 text-muted-soft" />
+                            <span>{formatDate(m.scheduled_at) ?? "—"}</span>
+                            {m.category && (
+                              <>
+                                <span className="text-hairline">·</span>
+                                <span
+                                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                  style={{
+                                    background: tint(
+                                      m.category.color || "#ff4d8b",
+                                    ),
+                                    color: m.category.color || "#ff4d8b",
+                                  }}
+                                >
+                                  {m.category.name}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <ArrowUpRight className="size-4 shrink-0 text-muted-soft transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              className="flex-1"
+              title="Recently completed"
+              subtitle="Last 5 meetings the agents processed"
+              action={{ label: "View all", to: "/" }}
+            >
+              {recentMeetings.length === 0 ? (
+                <InlineEmpty
+                  icon={CheckCircle2}
+                  title="No completed meetings yet"
+                />
+              ) : (
+                <ul>
+                  {recentMeetings.map((m) => (
+                    <li key={m.id}>
+                      <Link
+                        to={`/meeting/${m.id}`}
+                        className="group flex items-center gap-3.5 border-b border-hairline-soft px-6 py-3.5 transition-colors last:border-0 hover:bg-surface-soft/60"
+                      >
+                        <IconChip
+                          color="var(--vb-success)"
+                          className="size-9 rounded-[11px] [&_svg]:size-4"
+                        >
+                          <CheckCircle2 />
+                        </IconChip>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-ink">
+                            {m.title || "Untitled meeting"}
+                          </p>
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-ink">
+                            <span>{formatDate(m.updated_at) ?? "—"}</span>
+                            {m.participants && m.participants.length > 0 && (
+                              <>
+                                <span className="text-hairline">·</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <UsersIcon className="size-3 text-muted-soft" />
+                                  {m.participants.length}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {(m.embedding_status === "embedded" ||
+                          m.graph_status === "extracted") && (
+                          <Badge variant="success" dot>
+                            Memory ready
+                          </Badge>
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+          </div>
+
+          {/* ─────── Right rail ─────── */}
+          <div className="flex flex-col gap-5">
+            {/* The one dark surface in the system — the agent status card. */}
+            <Card variant="dark" className="rounded-xl p-6">
+              <div className="mb-4 flex items-center gap-2.5">
+                <Bot className="size-4 text-lavender" />
+                <span className="text-xs font-semibold tracking-[1px] text-on-ink-soft uppercase">
+                  Agents working
+                </span>
+              </div>
+              <p className="mb-[18px] text-[15px] leading-relaxed text-on-ink">
+                {recentMeetings.length} summaries generated · {openTasks.length}{" "}
+                tasks routed · {entityTotal} entities in memory.
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <AgentRow
+                  label="Summarizer"
+                  state={inProgressCount > 0 ? "running" : "idle"}
+                />
+                <AgentRow
+                  label="Task router"
+                  state={unassignedTasks.length > 0 ? "running" : "idle"}
+                />
+                <AgentRow
+                  label="Graph extractor"
+                  state={
+                    memoryHealth.graph.processing > 0 ? "running" : "idle"
+                  }
+                />
+              </div>
+            </Card>
+
+            <SectionCard
+              title="Needs an owner"
+              subtitle={
+                unassignedTasks.length > 0
+                  ? `${unassignedTasks.length} task${unassignedTasks.length === 1 ? "" : "s"} without an assignee`
+                  : "Everything's owned"
+              }
+              action={{ label: "Triage", to: "/action-items" }}
+            >
+              {unassignedTasks.length === 0 ? (
+                <InlineEmpty
+                  icon={CheckCircle2}
+                  title="All open tasks have owners"
+                  color="var(--vb-success)"
+                />
+              ) : (
+                <ul>
+                  {unassignedTasks.slice(0, 5).map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-start gap-3 border-b border-hairline-soft px-6 py-3.5 last:border-0"
                     >
-                      <div className="w-8 h-8 rounded-md bg-slate-50 text-slate-500 flex items-center justify-center shrink-0">
-                        <Calendar className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
-                          {m.title || "Untitled meeting"}
+                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-[13px] leading-snug font-medium text-body-strong">
+                          {t.task}
                         </p>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                          <Clock className="w-3 h-3 text-slate-400" />
-                          <span>{formatDate(m.scheduled_at) ?? "—"}</span>
-                          {m.category && (
-                            <>
-                              <span className="text-slate-300">·</span>
-                              <span
-                                className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                                style={{
-                                  backgroundColor:
-                                    (m.category.color || "#4F46E5") + "18",
-                                  color: m.category.color || "#4F46E5",
-                                }}
-                              >
-                                {m.category.name}
-                              </span>
-                            </>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-ink">
+                          {t.priority === "high" && (
+                            <Badge variant="error" size="sm">
+                              High
+                            </Badge>
+                          )}
+                          {t.due_date ? (
+                            <span className="font-mono">
+                              Due {formatDateShort(t.due_date)}
+                            </span>
+                          ) : (
+                            // Muted, not warning: a missing due date is an
+                            // absence, not a problem. Amber here put a second
+                            // alarm colour in a row that already has the
+                            // amber "needs an owner" dot and a High badge.
+                            <span className="font-mono text-muted-soft">No date</span>
+                          )}
+                          {t.meeting_id && (
+                            <Link
+                              to={`/meeting/${t.meeting_id}`}
+                              // Same treatment as this page's other secondary
+                              // links (see the SectionCard action above) —
+                              // blue was the only one of its kind on the page.
+                              className="inline-flex items-center gap-1 truncate font-medium text-muted-ink transition-colors hover:text-ink"
+                            >
+                              <ArrowUpRight className="size-3" />
+                              Source
+                            </Link>
                           )}
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 shrink-0" />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Memory pipeline"
+              subtitle="Across every meeting in the org"
+            >
+              <div className="space-y-4 px-6 py-5">
+                <HealthBar
+                  label="Embedded"
+                  buckets={memoryHealth.embedding}
+                  ready="embedded"
+                />
+                <HealthBar
+                  label="Graph extracted"
+                  buckets={memoryHealth.graph}
+                  ready="extracted"
+                />
+                {(memoryHealth.embedding.failed > 0 ||
+                  memoryHealth.graph.failed > 0) && (
+                  <p className="text-[11px] leading-relaxed text-muted-ink">
+                    Some meetings failed the AI pipeline.{" "}
+                    <Link to="/" className="font-medium text-ink hover:underline">
+                      Open one to retry →
                     </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
+                  </p>
+                )}
+              </div>
+            </SectionCard>
+          </div>
+        </div>
 
+        {/* ─────── Knowledge growth ─────── */}
+        <div className="mt-5">
           <SectionCard
-            title="Action items needing owner"
-            subtitle={
-              unassignedTasks.length > 0
-                ? `${unassignedTasks.length} task${unassignedTasks.length === 1 ? "" : "s"} without an assignee`
-                : "Everything's owned"
-            }
-            action={{ label: "Triage", to: "/action-items" }}
+            title="Knowledge growth"
+            subtitle="What the agents have captured across your org"
+            action={{ label: "Explore graph", to: "/knowledge-graph" }}
           >
-            {unassignedTasks.length === 0 ? (
-              <EmptyState
-                icon={CheckCircle2}
-                title="All open tasks have owners"
-                iconClassName="text-emerald-400"
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {unassignedTasks.slice(0, 5).map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors"
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-slate-800 leading-snug line-clamp-2">
-                        {t.task}
-                      </p>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                        {t.priority === "high" && (
-                          <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 text-[10px] font-medium">
-                            High
-                          </span>
-                        )}
-                        {t.due_date ? (
-                          <span>Due {formatDateShort(t.due_date)}</span>
-                        ) : (
-                          <span className="text-amber-600">
-                            Unassigned date
-                          </span>
-                        )}
-                        {t.meeting_id && (
-                          <Link
-                            to={`/meeting/${t.meeting_id}`}
-                            className="text-indigo-600 hover:underline truncate"
-                          >
-                            View source →
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-        </section>
-
-        {/* ─────── Recent meetings + AI Memory health ─────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SectionCard
-            title="Recently completed"
-            subtitle="Last 5 meetings the agent processed"
-            action={{ label: "All meetings", to: "/" }}
-          >
-            {recentMeetings.length === 0 ? (
-              <EmptyState
-                icon={Calendar}
-                title="No completed meetings yet"
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {recentMeetings.map((m) => (
-                  <li key={m.id}>
-                    <Link
-                      to={`/meeting/${m.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
-                    >
-                      <div className="w-8 h-8 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
-                          {m.title || "Untitled meeting"}
-                        </p>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                          <span>{formatDate(m.updated_at) ?? "—"}</span>
-                          {m.participants && m.participants.length > 0 && (
-                            <>
-                              <span className="text-slate-300">·</span>
-                              <span className="inline-flex items-center gap-1">
-                                <UsersIcon className="w-3 h-3 text-slate-400" />
-                                {m.participants.length}
-                              </span>
-                            </>
-                          )}
-                          {(m.embedding_status === "embedded" ||
-                            m.graph_status === "extracted") && (
-                            <>
-                              <span className="text-slate-300">·</span>
-                              <span className="inline-flex items-center gap-1 text-emerald-600">
-                                <Sparkles className="w-3 h-3" />
-                                Memory ready
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 shrink-0" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="AI Memory health"
-            subtitle="Across every meeting in the org"
-          >
-            <div className="px-5 py-4 space-y-4">
-              <HealthBar
-                label="Embedded"
-                buckets={memoryHealth.embedding}
-                ready="embedded"
-              />
-              <HealthBar
-                label="Graph extracted"
-                buckets={memoryHealth.graph}
-                ready="extracted"
-              />
-              {(memoryHealth.embedding.failed > 0 ||
-                memoryHealth.graph.failed > 0) && (
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Some meetings failed the AI pipeline.{" "}
-                  <Link
-                    to="/"
-                    className="text-indigo-600 hover:underline font-medium"
-                  >
-                    Open one to retry →
-                  </Link>
+            <div className="px-6 py-5">
+              {entityTotal === 0 ? (
+                <p className="text-[13px] text-muted-ink">
+                  Nothing extracted yet — the graph populates after the first
+                  meeting completes.
                 </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-5">
+                  {(Object.keys(ENTITY_TYPE_META) as EntityType[]).map(
+                    (t, index) => {
+                      const meta = ENTITY_TYPE_META[t];
+                      const count = entityTypeCounts[t];
+                      const Icon = meta.icon;
+                      return (
+                        <Link
+                          key={t}
+                          to={`/knowledge-graph?type=${t}`}
+                          className="group block rounded-md border border-hairline bg-canvas p-4 transition-colors hover:bg-surface-soft"
+                        >
+                          <IconChip
+                            size="sm"
+                            color={accent(index)}
+                            className="mb-3"
+                          >
+                            <Icon />
+                          </IconChip>
+                          <div className="font-mono text-xl leading-none font-medium text-ink">
+                            {count}
+                          </div>
+                          <div className="mt-1.5 text-[11px] font-medium text-muted-ink">
+                            {meta.label}
+                          </div>
+                        </Link>
+                      );
+                    },
+                  )}
+                </div>
               )}
             </div>
           </SectionCard>
-        </section>
+        </div>
 
-        {/* ─────── Knowledge growth ─────── */}
-        <SectionCard
-          title="Knowledge growth"
-          subtitle="What the agent has captured across your org"
-          action={{ label: "Explore graph", to: "/knowledge-graph" }}
-        >
-          <div className="px-5 py-4">
-            {entityTotal === 0 ? (
-              <p className="text-xs text-slate-500">
-                Nothing extracted yet — the graph populates after the first
-                meeting completes.
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                {(Object.keys(ENTITY_TYPE_META) as EntityType[]).map((t) => {
-                  const meta = ENTITY_TYPE_META[t];
-                  const count = entityTypeCounts[t];
-                  const Icon = meta.icon;
+        {/* ─────── Top categories ─────── */}
+        {categoryRanking.length > 0 && (
+          <div className="mt-5">
+            <SectionCard
+              title="Most active meeting types"
+              subtitle="Categories ranked by meeting volume"
+              action={{ label: "Manage", to: "/meeting-types" }}
+            >
+              <div className="flex flex-col gap-4 px-6 py-5">
+                {categoryRanking.map((cat, idx) => {
+                  const max = categoryRanking[0]?.count ?? 1;
+                  const widthPct = Math.max(
+                    6,
+                    Math.round((cat.count / max) * 100),
+                  );
                   return (
                     <Link
-                      key={t}
-                      to={`/knowledge-graph?type=${t}`}
-                      className="block px-3 py-3 rounded-md border border-slate-200 hover:border-slate-300 hover:bg-slate-50/60 transition-colors group"
+                      key={cat.id}
+                      to={`/meeting-types?type=${cat.id}`}
+                      className="group flex items-center gap-3.5"
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="w-7 h-7 rounded-md bg-slate-50 flex items-center justify-center">
-                          <Icon className="w-3.5 h-3.5 text-slate-500" />
-                        </div>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                      <span className="w-4 font-mono text-[11px] text-muted-soft">
+                        {String(idx + 1).padStart(2, "0")}
+                      </span>
+                      <span className="w-[120px] shrink-0 truncate text-sm font-medium text-ink">
+                        {cat.name}
+                      </span>
+                      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-card">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${widthPct}%`,
+                            backgroundColor: cat.color,
+                          }}
+                        />
                       </div>
-                      <div className="text-lg font-semibold text-slate-900 tabular-nums leading-none">
-                        {count}
-                      </div>
-                      <div className="text-[11px] font-medium text-slate-500 mt-1">
-                        {meta.label}
-                      </div>
+                      <span className="w-10 text-right font-mono text-[13px] text-muted-ink">
+                        {cat.count}
+                      </span>
                     </Link>
                   );
                 })}
               </div>
-            )}
+            </SectionCard>
           </div>
-        </SectionCard>
-
-        {/* ─────── Top categories ─────── */}
-        {categoryRanking.length > 0 && (
-          <SectionCard
-            title="Most active meeting types"
-            subtitle="Categories ranked by meeting volume"
-            action={{ label: "Manage", to: "/meeting-types" }}
-          >
-            <ul className="divide-y divide-slate-100">
-              {categoryRanking.map((cat, idx) => {
-                const max = categoryRanking[0]?.count ?? 1;
-                const widthPct = Math.max(6, Math.round((cat.count / max) * 100));
-                return (
-                  <li key={cat.id}>
-                    <Link
-                      to={`/meeting-types?type=${cat.id}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors group"
-                    >
-                      <span className="text-[11px] font-medium text-slate-400 tabular-nums w-4">
-                        {String(idx + 1).padStart(2, "0")}
-                      </span>
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: cat.color }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-3 mb-1">
-                          <span className="text-[13px] font-medium text-slate-900 truncate group-hover:text-indigo-600">
-                            {cat.name}
-                          </span>
-                          <span className="text-[11px] font-medium text-slate-500 tabular-nums">
-                            {cat.count}
-                          </span>
-                        </div>
-                        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${widthPct}%`,
-                              backgroundColor: cat.color,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </SectionCard>
         )}
 
         {/* ─────── Quick actions ─────── */}
-        <section>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3">
-            Quick actions
-          </p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <section className="mt-8">
+          <p className="vb-label-caps mb-3.5">Quick actions</p>
+          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
             <QuickAction icon={Plus} label="Schedule meeting" to="/" primary />
             <QuickAction
               icon={SearchIcon}
@@ -830,7 +786,7 @@ export default function DashboardPage() {
             />
           </div>
         </section>
-      </div>
+      </PageContainer>
     </Layout>
   );
 }
@@ -839,28 +795,47 @@ export default function DashboardPage() {
 // Small in-file subcomponents
 // ---------------------------------------------------------------------------
 
-function EmptyState({
+function AgentRow({
+  label,
+  state,
+}: {
+  label: string;
+  state: "idle" | "running";
+}) {
+  return (
+    <div className="flex items-center gap-2.5 text-[13px] text-on-ink-soft">
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          state === "running" ? "animate-pulse bg-info" : "bg-success",
+        )}
+      />
+      {label} · {state}
+    </div>
+  );
+}
+
+function InlineEmpty({
   icon: Icon,
   title,
   description,
-  iconClassName,
+  color = "var(--vb-lavender)",
 }: {
   icon: LucideIcon;
   title: string;
   description?: string;
-  iconClassName?: string;
+  color?: string;
 }) {
   return (
-    <div className="px-5 py-10 text-center">
-      <Icon
-        className={cn(
-          "w-6 h-6 mx-auto mb-2",
-          iconClassName || "text-slate-300",
-        )}
-      />
-      <p className="text-xs font-medium text-slate-600">{title}</p>
+    <div className="px-6 py-11 text-center">
+      <IconChip size="lg" color={color} strength={16} className="mx-auto mb-3.5">
+        <Icon />
+      </IconChip>
+      <p className="text-sm font-medium text-ink">{title}</p>
       {description && (
-        <p className="text-[11px] text-slate-400 mt-0.5">{description}</p>
+        <p className="mx-auto mt-1.5 max-w-[320px] text-xs leading-relaxed text-muted-ink">
+          {description}
+        </p>
       )}
     </div>
   );
@@ -879,11 +854,11 @@ function HealthBar({
   if (total === 0) {
     return (
       <div>
-        <div className="flex items-center justify-between text-[11px] font-medium mb-1.5">
-          <span className="text-slate-700">{label}</span>
-          <span className="text-slate-400">no meetings yet</span>
+        <div className="mb-2 flex items-center justify-between text-[11px] font-medium">
+          <span className="text-body-strong">{label}</span>
+          <span className="text-muted-soft">no meetings yet</span>
         </div>
-        <div className="h-1.5 bg-slate-100 rounded-full" />
+        <div className="h-2 rounded-full bg-surface-card" />
       </div>
     );
   }
@@ -892,58 +867,58 @@ function HealthBar({
   const readyN = buckets[ready] || 0;
   return (
     <div>
-      <div className="flex items-center justify-between text-[11px] font-medium mb-1.5">
-        <span className="text-slate-700">{label}</span>
-        <span className="text-slate-500 tabular-nums">
+      <div className="mb-2 flex items-center justify-between text-[11px] font-medium">
+        <span className="text-body-strong">{label}</span>
+        <span className="font-mono text-muted-ink">
           {readyN} / {total} ready
         </span>
       </div>
-      <div className="h-1.5 rounded-full overflow-hidden flex bg-slate-100">
+      <div className="flex h-2 overflow-hidden rounded-full bg-surface-card">
         {readyN > 0 && (
           <div
-            className="bg-emerald-500"
+            className="bg-success"
             style={{ width: `${pct(ready)}%` }}
             title={`${readyN} ready`}
           />
         )}
         {(buckets.processing || 0) > 0 && (
           <div
-            className="bg-amber-500 animate-pulse"
+            className="animate-pulse bg-warning"
             style={{ width: `${pct("processing")}%` }}
             title={`${buckets.processing} processing`}
           />
         )}
         {(buckets.pending || 0) > 0 && (
           <div
-            className="bg-slate-300"
+            className="bg-surface-strong"
             style={{ width: `${pct("pending")}%` }}
             title={`${buckets.pending} pending`}
           />
         )}
         {(buckets.failed || 0) > 0 && (
           <div
-            className="bg-red-500"
+            className="bg-error"
             style={{ width: `${pct("failed")}%` }}
             title={`${buckets.failed} failed`}
           />
         )}
       </div>
-      <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1.5">
+      <div className="mt-2 flex items-center gap-3.5 text-[11px] text-muted-ink">
         {(buckets.processing || 0) > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-1.5 rounded-full bg-warning" />
             {buckets.processing} processing
           </span>
         )}
         {(buckets.pending || 0) > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-1.5 rounded-full bg-muted-soft" />
             {buckets.pending} pending
           </span>
         )}
         {(buckets.failed || 0) > 0 && (
-          <span className="inline-flex items-center gap-1 text-red-600">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+          <span className="inline-flex items-center gap-1.5 text-error">
+            <span className="size-1.5 rounded-full bg-error" />
             {buckets.failed} failed
           </span>
         )}
@@ -967,25 +942,22 @@ function QuickAction({
     <Link
       to={to}
       className={cn(
-        "group flex items-center justify-between gap-3 px-3.5 h-10 rounded-md text-[13px] font-medium transition-colors",
+        "group flex h-11 items-center justify-between gap-3 rounded-md px-4 text-[13px] font-medium transition-colors",
         primary
-          ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20"
-          : "bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50/60 text-slate-700",
+          ? "bg-ink text-on-ink hover:bg-ink-active"
+          : "border border-hairline bg-canvas text-body hover:bg-surface-soft hover:text-ink",
       )}
     >
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex items-center gap-2.5">
         <Icon
-          className={cn(
-            "w-4 h-4",
-            primary ? "text-white" : "text-slate-500",
-          )}
+          className={cn("size-4", primary ? "text-on-ink" : "text-muted-soft")}
         />
         {label}
       </span>
-      <ExternalLink
+      <ArrowUpRight
         className={cn(
-          "w-3.5 h-3.5 opacity-60 transition-transform group-hover:translate-x-0.5",
-          primary ? "text-white" : "text-slate-400",
+          "size-3.5 transition-transform group-hover:translate-x-0.5",
+          primary ? "text-on-ink/60" : "text-muted-soft",
         )}
       />
     </Link>

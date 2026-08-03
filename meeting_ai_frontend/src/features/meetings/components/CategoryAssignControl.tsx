@@ -62,7 +62,7 @@ export default function CategoryAssignControl({
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={saving}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-all hover:shadow-sm"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-semibold uppercase tracking-wider transition-all hover:shadow-sm"
         style={{
           backgroundColor: category ? `${chipColor}14` : "#F8FAFC",
           color: category ? chipColor : "#64748B",
@@ -81,15 +81,15 @@ export default function CategoryAssignControl({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1.5 right-0 w-64 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+        <div className="absolute z-30 mt-1.5 right-0 w-64 bg-canvas rounded-xl border border-slate-200 shadow-raised overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
               Assign Category
             </span>
             {(category || team) && (
               <button
                 onClick={() => apply(null, null)}
-                className="flex items-center gap-1 text-[10px] font-bold text-red-500 hover:bg-red-50 px-1.5 py-0.5 rounded"
+                className="flex items-center gap-1 text-[10px] font-semibold text-red-500 hover:bg-red-50 px-1.5 py-0.5 rounded"
               >
                 <X className="w-3 h-3" /> Clear
               </button>
@@ -129,7 +129,7 @@ export default function CategoryAssignControl({
                             onClick={() => apply(cat.id, t.id)}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 text-left text-[11px] font-medium rounded transition-colors ${
                               teamSelected
-                                ? "bg-indigo-50 text-indigo-700 font-bold"
+                                ? "bg-indigo-50 text-indigo-700 font-semibold"
                                 : "hover:bg-slate-50 text-slate-600"
                             }`}
                           >
