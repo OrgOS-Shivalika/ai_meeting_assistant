@@ -399,6 +399,19 @@ class Settings:
     MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "mem0_facts")
     # Default recency window (days) for window='short_term' searches.
     MEM0_SHORT_TERM_DAYS = int(os.getenv("MEM0_SHORT_TERM_DAYS", "60"))
+    # Similarity FLOOR for mem0 search — higher is stricter. Unset (the
+    # default) means "use mem0's own per-mode default", which is the only
+    # safe choice because the two modes do not agree on scale.
+    #
+    # This used to be hardcoded to 0.3. On the OSS store that is above every
+    # score the data actually produces (measured 2026-08-03: the best match
+    # for a real query scored 0.2349, and mem0's own OSS default is 0.1), so
+    # EVERY ranked search returned zero rows while the unranked/empty-query
+    # path kept working — i.e. semantic recall was silently dead in OSS mode.
+    # Set a float here only to tune deliberately, and re-measure after
+    # switching modes.
+    _MEM0_THRESHOLD_RAW = os.getenv("MEM0_SEARCH_THRESHOLD", "").strip()
+    MEM0_SEARCH_THRESHOLD = float(_MEM0_THRESHOLD_RAW) if _MEM0_THRESHOLD_RAW else None
     # Distiller anti-hallucination excerpt check. When true, a fact whose
     # cited excerpt isn't found verbatim in the transcript is dropped.
     # Default FALSE — keep every LLM-extracted fact (0 only when the model

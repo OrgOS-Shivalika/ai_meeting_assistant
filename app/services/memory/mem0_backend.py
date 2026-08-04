@@ -202,7 +202,8 @@ def add_turn(*, question, answer, org_id, conversation_id, meeting_id=None) -> l
 def search(
     *, query, org_id, category_id=None, team_id=None,
     conversation_id=None, agent_id=None,
-    window: str = "short_term", limit: int = 10, threshold: float = 0.3,
+    window: str = "short_term", limit: int = 10,
+    threshold: float | None = None,
 ) -> list[MemFact]:
     # An empty query is a SUPPORTED contract, not a caller mistake:
     # `MemoryAccess.search` documents "if query is empty: rank by
@@ -238,7 +239,20 @@ def search(
         filters["agent_id"] = str(agent_id)
     if conversation_id is not None:
         filters["run_id"] = str(conversation_id)
-    raw = _mem().search(query, filters=filters, top_k=fetch, threshold=threshold)
+    # Only pass `threshold` when it was deliberately chosen. It is a
+    # SIMILARITY floor (higher = stricter) and the two modes do not share a
+    # scale — the old hardcoded 0.3 sat above every score the OSS store
+    # produces, so every ranked search returned nothing while the
+    # empty-query path still worked. Omitting it uses mem0's own per-mode
+    # default; override via MEM0_SEARCH_THRESHOLD after measuring.
+    effective_threshold = (
+        threshold if threshold is not None
+        else settings.MEM0_SEARCH_THRESHOLD
+    )
+    search_kwargs: dict[str, Any] = {"filters": filters, "top_k": fetch}
+    if effective_threshold is not None:
+        search_kwargs["threshold"] = effective_threshold
+    raw = _mem().search(query, **search_kwargs)
 
     facts = [MemFact.from_mem0(r) for r in _unwrap(raw)]
     facts = _post_scope(facts, category_id, team_id)

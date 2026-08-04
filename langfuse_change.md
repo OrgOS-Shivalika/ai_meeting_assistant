@@ -1,22 +1,27 @@
-# Session Record — Self-Hosted Langfuse, Participant Persistence, Memory Wire-In
+# Session Record — Self-Hosting Langfuse + mem0, Participant Persistence, Memory Wire-In
 
-**Date:** 2026-08-03
+**Date:** 2026-08-03 → 2026-08-04
 **Branch:** `continum`
-**HEAD at session end:** `63d5d15 update - sidebar`
+**HEAD:** `7fffdeb langfuse changes` (workstream F still uncommitted — see §0)
 **Working directory:** `D:\Divyansh\Projects\Shivalika_AI\agentic-meeting-assistant`
 
-> **No secret values appear in this document.** The session generated several
-> credentials (Langfuse server secrets, project API keys, a UI password) and
-> wrote them to `.env`. They are referenced here **by variable name only**.
-> `.env` is gitignored (`.gitignore:16`) and is not tracked, so those values
-> stay out of git — but this file may well be committed, so it deliberately
-> contains none of them. Read the real values from `.env`.
+**Headline outcome:** two paid SaaS dependencies moved in-house — Langfuse
+tracing and mem0 memory — and **five silent-failure bugs** found and fixed along
+the way, four of which produced no error output at all.
+
+> **No secret values appear in this document.** The session generated and moved
+> several credentials (Langfuse server secrets, Langfuse project API keys, a UI
+> password, and the mem0 platform key that is now commented out). They are
+> referenced here **by variable name only**. `.env` is gitignored
+> (`.gitignore:16`) and is not tracked, so those values stay out of git — but
+> this file is committed, so it deliberately contains none of them. Read the
+> real values from `.env`.
 
 ---
 
 ## 0. What this session covered
 
-Five distinct workstreams, in the order they happened. The filename says
+Six distinct workstreams, in the order they happened. The filename says
 `langfuse` because that was the headline request, but the session covered more
 and all of it is recorded here.
 
@@ -24,26 +29,29 @@ and all of it is recorded here.
 |---|---|---|---|
 | A | Read and map the entire codebase | Architecture map produced; 1 latent bug found | none |
 | B | Investigate missing meeting participants | 2 bugs found + fixed, 1 prod schema gap found | `meeting_pipeline.py` (**committed** in `bcc5b82`) |
-| C | Answer "is Langfuse open source" and self-host it | Running, verified; 1 silent-failure bug found + fixed | `tracing.py`, `docker-compose.yml`, `.env` |
+| C | Answer "is Langfuse open source" and self-host it | Running, verified; 1 silent-failure bug found + fixed | `tracing.py`, `docker-compose.yml`, `.env` (**committed** in `7fffdeb`) |
 | D | Verify traces come from the *real* meeting pipeline | Confirmed with evidence; 2 further findings | none |
-| E | Fix the empty-query memory bug found in D | Fixed; both agent paths restored | `mem0_backend.py` |
+| E | Fix the empty-query memory bug found in D | Fixed; both agent paths restored | `mem0_backend.py` (**committed** in `7fffdeb`) |
+| F | **Self-host mem0** (OSS instead of managed) | 112 facts migrated; **2 more silent bugs found + fixed** | `mem0_backend.py`, `settings.py`, new migration script, `.env` |
 
 **Git state at session end:**
 
 ```
-M app/agents_v2/shared/tracing.py        (workstream C)
-M app/services/memory/mem0_backend.py    (workstream E)
-M docker-compose.yml                     (workstream C)
-?? tests/test_memory_empty_query.py      (workstream E)
+M app/config/settings.py                  (workstream F — MEM0_SEARCH_THRESHOLD)
+M app/services/memory/mem0_backend.py     (workstream F — threshold handling)
+?? scripts/migrate_mem0_to_selfhosted.py  (workstream F)
 ```
 
-Workstream B was already committed by you mid-session as
-`bcc5b82 new frontend + participants fix`, which is why
-`app/pipelines/meeting_pipeline.py` and `tests/test_participant_saving.py`
-do not appear as modified above. I verified the fix survived that commit
-(see §B.6).
+Two commits landed mid-session, which is why most files above are already clean:
 
-`.env` is modified but gitignored, so it shows in neither list.
+- `bcc5b82 new frontend + participants fix` — workstream B
+  (`app/pipelines/meeting_pipeline.py`, `tests/test_participant_saving.py`).
+  Verified the fix survived it (see §B.6).
+- `7fffdeb langfuse changes` — workstreams C, D, E
+  (`tracing.py`, `docker-compose.yml`, `tests/test_memory_empty_query.py`,
+  the empty-query fix in `mem0_backend.py`, and **this document**).
+
+`.env` is modified by both C and F but gitignored, so it shows in neither list.
 
 ---
 
@@ -139,9 +147,10 @@ Graph-RAG: `plan_query` → hybrid `retrieve` (vector top-K over
 entity discovery, 1-hop graph expansion, rerank) → `synthesize_stream` with
 citation validation → audit row + access events.
 
-Memory runs on **mem0 managed** (`MEMORY_BACKEND=mem0`, `MEM0_API_KEY` set),
-with `org_memory_facts` retained as the kill-switch. `MEMORY_CHAT_ENABLED` is
-off.
+Memory runs on mem0 (`MEMORY_BACKEND=mem0`) with `org_memory_facts` retained as
+the kill-switch. `MEMORY_CHAT_ENABLED` is off. **At the time of this read it was
+on the mem0 MANAGED platform; workstream F moved it to OSS self-hosted later in
+the session — see §F.**
 
 `app/services/permissions.py` is the single authorization source. Its central
 design decision: **a grant says WHERE, the role says WHAT.** A `category_admins`
@@ -198,11 +207,12 @@ Two things in my notes were stale and got corrected by direct checks:
 Local dev DB (`localhost:5433/meeting_ai`): 61 users, 78 `category_admins`
 grants, 206 meetings, 162 participants, `cc_clients`=1, `agents_v2`=1.
 
-Runtime config read from `settings`:
-`MEMORY_BACKEND=mem0`, `MEM0_API_KEY` set, `MEMORY_CHAT_ENABLED=False`,
-`USE_CELERY=True`, `TRANSCRIPTION_PROVIDER=deepgram`,
-`TRANSCRIPTION_LANGUAGE=multi`, `APP_PUBLIC_URL` = an ngrok tunnel,
-`SMTP_HOST=smtp.gmail.com:587`.
+Runtime config read from `settings` **at session start** (`MEM0_API_KEY` and the
+Langfuse host both changed later — see §C and §F):
+`MEMORY_BACKEND=mem0`, `MEM0_API_KEY` set (→ managed mode),
+`MEMORY_CHAT_ENABLED=False`, `USE_CELERY=True`,
+`TRANSCRIPTION_PROVIDER=deepgram`, `TRANSCRIPTION_LANGUAGE=multi`,
+`APP_PUBLIC_URL` = an ngrok tunnel, `SMTP_HOST=smtp.gmail.com:587`.
 
 `tests/test_rbac_scopes.py` → **28 checks passed**.
 
@@ -950,28 +960,374 @@ regressed:
 
 ---
 
-## F. Complete change inventory
+## F. Self-hosting mem0 (managed → OSS)
 
-### F.1 Committed by you mid-session (`bcc5b82 new frontend + participants fix`)
+Same motivation as Langfuse: stop paying a platform fee and keep the data local.
+
+### F.1 Why this was a much smaller job than Langfuse
+
+**The OSS path was already built.** `mem0_backend` is dual-mode and the switch
+is the *presence* of a key, not a separate flag:
+
+```python
+def _is_managed() -> bool:
+    """Managed platform when a mem0 API key is configured, else OSS."""
+    return bool(getattr(settings, "MEM0_API_KEY", None))
+```
+
+- key **set** → `MemoryClient(api_key=…)`, data lives on api.mem0.ai
+- key **unset** → `Memory.from_config(_build_oss_config())`, vectors live in our
+  own Postgres/pgvector table `mem0_facts`
+
+So self-hosting needed **no new container and no new service** — just remove the
+key. All the real work was data migration and two latent bugs the mode switch
+exposed.
+
+One honesty point: **OSS still calls OpenAI for embeddings.** "Self-hosted" here
+means the vector store is ours, not that the pipeline is LLM-free. It removes
+the mem0 platform fee, not model costs.
+
+### F.2 Go/no-go — does the OSS path even work?
+
+Tested before changing any config, constructing the OSS client directly:
+
+```
+vector_store: pgvector | collection: mem0_facts
+embedder    : text-embedding-3-small 1536 dims
+OSS Memory instantiated: OK
+add()    -> {'results': [{'id': '0d24b40e…', 'memory': 'Self-host probe: …'}]}
+search() -> 1 hit(s)   metadata preserved: {'subject': 'Asha', 'fact_type': 'ownership'}
+get_all()-> 1 item(s)
+cleanup: probe memories deleted
+```
+
+Two `spaCy is not installed` warnings appear (optional `mem0ai[nlp]` extras);
+mem0 falls back cleanly and they are not fatal.
+
+### F.3 The data problem — a plain backfill would have lost facts
+
+`scripts/backfill_mem0.py` already exists and reads `org_memory_facts`. It was
+the **wrong tool**, because of this in `MeetingMemoryEngine.distill_for_meeting`:
+
+```python
+if settings.MEMORY_BACKEND == "mem0":
+    ...
+    for f in verified:
+        mem0_backend.add_facts(...)
+    return {...}          # ← RETURNS. The native insert below never runs.
+```
+
+Distill **returns early** and never writes `org_memory_facts`. So the native
+table is a snapshot frozen at the moment mem0 was switched on:
+
+| store | facts | newest |
+|---|---|---|
+| `org_memory_facts` (native Postgres) | 99 active | **2026-07-23** |
+| mem0 **managed** cloud | **112** | current |
+| `mem0_facts` (OSS destination) | 0 | — |
+
+Roughly **13 facts existed only in the cloud**. Backfilling from Postgres would
+have silently dropped them.
+
+### F.4 The migration — `scripts/migrate_mem0_to_selfhosted.py` (new)
+
+Direction: **managed → OSS**. Design decisions worth recording:
+
+- **Both clients constructed directly**, not via `mem0_backend._mem()`, whose
+  module-level singleton picks exactly one mode per process. This needs both at
+  once.
+- **Must run BEFORE unsetting the key** — the key authenticates the read side.
+  The script guards on this and on `MEMORY_BACKEND == "mem0"`, exiting 2
+  otherwise, so it cannot silently no-op and look like success.
+- **Metadata copied verbatim.** `_post_scope` filters on
+  `metadata.category_id` / `metadata.team_id`, and `MemFact.from_mem0` reads
+  `fact_type` / `subject` / `importance_score` / `confidence_score` off it.
+  Dropping metadata would silently un-scope every fact and blank the structured
+  fields.
+- **`infer=False` on every write.** With mem0's default `infer=True` the LLM
+  would rephrase the text, merge it into other memories, and strip `run_id`
+  scoping — the same trap that broke chat memory earlier in the project.
+- **Idempotency keyed on normalized fact TEXT, not id.** mem0 mints its own ids
+  per store, and with `infer=False` it dedups identical text into a pre-existing
+  memory and keeps *its* metadata, so a copied-id marker would not survive the
+  merge. Same reasoning as `backfill_mem0.py`.
+- Flags `--dry-run` / `--org-id` / `--limit` mirror the existing script's
+  conventions.
+
+Dry run, then the real run:
+
+```
+source: mem0 MANAGED  ->  dest: OSS pgvector collection='mem0_facts'
+  divyansh bhardwaj's Workspace  read=17   copied=17   skipped=0    failed=0
+  Divyansh Bhardwaj's Workspace  read=43   copied=43   skipped=0    failed=0
+  Ganji Vamshi's Workspace       read=1    copied=1    skipped=0    failed=0
+  Raahulll's Workspace           read=51   copied=51   skipped=0    failed=0
+TOTAL read=112 copied=112 skipped=0 failed=0
+```
+
+`mem0_facts` → 112 rows.
+
+### F.5 Bug 1 (mine) — `get_all` takes `top_k`, not `limit`, and defaults to 20
+
+The re-run that should have skipped everything wrote duplicates instead:
+
+```
+TOTAL read=112 copied=54 skipped=58 failed=0      ← wrong
+mem0_facts rows: 166
+```
+
+**Cause.** The OSS signature is:
+
+```
+get_all(*, filters=None, top_k: int = 20, show_expired=False, **kwargs)
+```
+
+It takes `top_k`, **not** `limit`, and defaults to **20**. My destination
+pre-load passed neither, so the "already present" set only ever held the first
+20 facts per org; everything past that looked absent and was copied again.
+
+The arithmetic confirmed the diagnosis exactly:
+
+| org | unique | total after re-run | duplicates |
+|---|---|---|---|
+| `118c6fa2…` | 51 | 82 | **31** (= 51 − 20) |
+| `0dd7e275…` | 43 | 66 | **23** (= 43 − 20) |
+| `18c012f4…` | 17 | 17 | 0 (under the cap) |
+| `fb1a8baa…` | 1 | 1 | 0 |
+
+Also confirmed en route that `get_all(user_id=…)` **raises** —
+`ValueError: Top-level entity parameters … are not supported in get_all(). Use
+filters={'user_id': '...'} instead.` So `mem0_backend`'s use of `filters=` is
+correct, and **`mem0_backend.get_all` itself was never buggy**: it already
+passes `top_k=max(limit*3, 20)`. The defect was only in my script.
+
+**Fix.** `top_k=100_000` on the pre-load, plus the failure path now prints and
+skips the org rather than failing open — failing open here duplicates an entire
+org silently.
+
+**Cleanup.** Both candidate keys agreed on 112 unique
+(`(user_id, hash)` and `(user_id, normalized text)`), so the payload `hash` is a
+reliable dedup key:
+
+```sql
+DELETE FROM mem0_facts WHERE id IN (
+  SELECT id FROM (
+    SELECT id, row_number() OVER (
+      PARTITION BY payload->>'user_id', payload->>'hash'
+      ORDER BY payload->>'created_at', id) rn
+    FROM mem0_facts) t
+  WHERE rn > 1);
+-- deleted 54 duplicate row(s): 166 -> 112
+```
+
+Re-run now correctly reports `read=112 copied=0 skipped=112`, count stable
+at 112.
+
+### F.6 Bug 2 (live, pre-existing) — `threshold` killed every ranked search
+
+After flipping to OSS, the empty-query path worked but **every ranked query
+returned zero**:
+
+```
+divyansh bhardwaj's Workspac empty_query= 17  ranked_query= 0
+Divyansh Bhardwaj's Workspac empty_query= 43  ranked_query= 0
+Raahulll's Workspace         empty_query= 50  ranked_query= 0
+```
+
+**Cause.** OSS `search` signature:
+
+```
+search(query, *, top_k=20, filters=None, threshold: float = 0.1, rerank=False, ...)
+```
+
+`threshold` is a **similarity floor** (higher = stricter), mem0's OSS default is
+`0.1`, and the real scores this data produces top out at **0.2349**. The code
+hardcoded **`threshold: float = 0.3`** — above every achievable score:
+
+```
+threshold=0.3 (the hardcoded value) ->  0 hit(s)  scores=[]
+threshold=None                      -> 10 hit(s)  scores=[0.2349, 0.1893, 0.1804, …]
+no threshold kwarg                  -> 10 hit(s)  same
+threshold=1.0                       ->  0 hit(s)
+```
+
+This is the nastiest shape of bug in the session: the unranked/empty-query path
+kept working, so memory *looked* healthy while semantic recall — the path
+`/ask` and `search_for_meeting(query=…)` use — was returning nothing.
+
+**Fix.** Stop hardcoding it. `threshold` now defaults to `None` and is only
+passed when deliberately chosen:
+
+```python
+effective_threshold = (
+    threshold if threshold is not None
+    else settings.MEM0_SEARCH_THRESHOLD
+)
+search_kwargs: dict[str, Any] = {"filters": filters, "top_k": fetch}
+if effective_threshold is not None:
+    search_kwargs["threshold"] = effective_threshold
+raw = _mem().search(query, **search_kwargs)
+```
+
+New setting `MEM0_SEARCH_THRESHOLD` (`settings.py`), unset by default = use
+mem0's own per-mode default.
+
+**Why the two modes disagree.** Managed embedded server-side with mem0's own
+model choice; OSS embeds locally with ours. Different embedder → different score
+distribution → the same `0.3` that worked on managed filtered out everything
+here. Treat scores as **not comparable across modes** and re-measure after any
+switch. (This also resolves a caveat that had been sitting unverified in my
+notes: `threshold` is a similarity floor, not a distance ceiling.)
+
+### F.7 The flip — `.env`
+
+`MEM0_API_KEY` commented out (presence is the switch), `MEM0_COLLECTION`
+made explicit, the key preserved commented for one-line rollback, and a comment
+block explaining the mode switch, the migration, and the OpenAI-still-required
+caveat.
+
+### F.8 Verification in OSS mode
+
+```
+MEMORY_BACKEND : mem0
+MEM0_API_KEY   : None
+mode           : OSS  <-- self-hosted
+
+empty-query per org      : 17 / 43 / 1 / 50        (matches the migration)
+ranked 'who owns what'   : 5 / 5 / 0 / 5           (was 0 everywhere)
+ranked 'training …'      : 5 / 5 / 1 / 5
+search_for_meeting 4860  : 8 facts ('') / 7 facts ('training gaps')
+add_facts write→read-back: 1 hit, fact_type+subject+cat:4554/team:3864 intact
+wrong-scope search       : 0 hits (want 0)
+cross-org isolation      : no overlap, under BOTH empty and ranked search
+agents_v2._build_knowledge: prior_facts=10 summaries=5 tasks=20
+python -m scripts.smoke_mem0 : PASS
+  (round-trip, org isolation, chat-turn session memory, empty-org guard)
+```
+
+Regressions: memory 4/4, participant 8/8, RBAC 28/28.
+
+Note `scripts/smoke_mem0.py` has no `sys.path` insert (pre-existing), so it must
+be run as `python -m scripts.smoke_mem0`.
+
+### F.9 The embedder (asked directly, recorded for reference)
+
+**OpenAI `text-embedding-3-small`, 1536 dimensions** — and it is *your* setting,
+not a mem0 choice:
+
+```python
+"embedder": {"provider": "openai",
+             "config": {"model": settings.EMBEDDING_MODEL,
+                        "embedding_dims": settings.EMBEDDING_DIMENSIONS,
+                        "api_key": settings.OPEN_API_KEY}},
+```
+
+So mem0 uses the **same embedder as the rest of the app** — `meeting_chunks`,
+`document_chunks` and `org_memory_facts` all resolve to the same two settings.
+Change `EMBEDDING_MODEL` and mem0 follows. That consistency is load-bearing:
+every vector table is `vector(1536)`, confirmed live as
+`mem0_facts.vector -> vector(1536)`.
+
+The HNSW index the config requests **was** created — worth confirming given this
+repo's history of missing vector indexes:
+
+```
+mem0_facts_hnsw_idx            -> USING hnsw (vector vector_cosine_ops)
+mem0_facts_text_lemmatized_idx -> GIN to_tsvector(payload->>'text_lemmatized')
+```
+
+All four vector tables now have an HNSW index.
+
+The OSS config also declares an **LLM (`gpt-4o-mini`, temp 0.1) that is
+effectively idle** — it only fires on `infer=True`, and every app write forces
+`infer=False`. So mem0 adds embeddings per fact, not LLM calls.
+
+Finally: the 112 migrated facts were **re-embedded locally** on write
+(`dst.add()` embeds), so the managed platform's vectors were never copied. The
+OSS store is internally consistent with our own embedder, which is exactly why
+the migration was safe from a model/dimension mismatch.
+
+### F.10 Known side effect — `created_at` was reset by the migration
+
+Every migrated row carries `created_at = 2026-08-03`. mem0 stamps that field
+itself on write, and it is a **top-level payload field, not part of
+`metadata`**, so the copy did not carry the originals across.
+
+Impact today is nil — `_apply_window` is a no-op stub, so nothing filters or
+sorts on recency. But if the recency window is ever implemented, every
+pre-migration fact will look same-day. The true timestamps still exist in the
+managed store (the key is commented, not deleted) and in `org_memory_facts` for
+the 99 that predate the switch, so this is recoverable by re-copying with the
+original timestamp pushed into `metadata`.
+
+### F.11 There is no mem0 dashboard to self-host
+
+| | Has a UI? |
+|---|---|
+| mem0 **managed** (app.mem0.ai) | Yes — but that is the paid product |
+| mem0 **OSS** (`mem0ai` package) | **No.** Embedded Python library; no server, no UI |
+| This app | **No.** Zero memory endpoints exist |
+
+Checked: there are no memory-related API routes, and the frontend's
+`MeetingAIMemorySection.tsx` / `AIMemoryStatusDot.tsx` are about
+embedding/graph status, not mem0 facts.
+
+So browsing is SQL for now. This query renders the JSONB readably (a raw
+`select *` is a vector column plus nested JSON):
+
+```sql
+SELECT o.name AS org,
+       m.payload->>'fact_type'   AS type,
+       m.payload->>'subject'     AS subject,
+       left(m.payload->>'data', 58) AS fact,
+       m.payload->>'category_id' AS cat,
+       m.payload->>'team_id'     AS team,
+       left(m.payload->>'created_at', 10) AS created
+FROM mem0_facts m
+LEFT JOIN organizations o ON o.id::text = m.payload->>'user_id'
+ORDER BY m.payload->>'created_at' DESC
+LIMIT 12;
+```
+
+Options discussed for a real UI, none built: (1) add `pgweb`/`adminer` to
+compose — cheapest, but exposes the whole DB over HTTP including `users`, so
+localhost only; (2) a read-only memory page in this app — the only RBAC-scoped
+option; (3) mem0's OpenMemory — ships a UI but uses its own separate store, so
+it would show **none** of the 112 migrated facts.
+
+---
+
+## G. Complete change inventory
+
+### G.1 Committed — `bcc5b82 new frontend + participants fix` (workstream B)
 
 | File | Change |
 |---|---|
 | `app/pipelines/meeting_pipeline.py` | `_remember` helper; nameless-attendee placeholder; per-id idempotency skip; `recall_id=str(p_id)` |
 | `tests/test_participant_saving.py` | new — 8 offline checks |
 
-### F.2 Uncommitted working tree
+### G.2 Committed — `7fffdeb langfuse changes` (workstreams C, D, E)
+
+| File | Change |
+|---|---|
+| `app/agents_v2/shared/tracing.py` | `_lf_ctx.configure(...)` so the decorator/openai singleton honours the configured host (§C.8) |
+| `docker-compose.yml` | `langfuse` (v2) + `langfuse-db-init` services; `LANGFUSE_HOST` override on the worker |
+| `app/services/memory/mem0_backend.py` | blank-query reroute to `get_all` (§E.3) |
+| `tests/test_memory_empty_query.py` | new — 4 offline checks |
+| `langfuse_change.md` | this document |
+
+### G.3 Uncommitted working tree (workstream F)
 
 ```
- app/agents_v2/shared/tracing.py     | 24 +++++++++++-
- app/services/memory/mem0_backend.py | 25 +++++++++++++
- docker-compose.yml                  | 73 +++++++++++++++++++++++++++++++++++++
- 3 files changed, 121 insertions(+), 1 deletion(-)
-?? tests/test_memory_empty_query.py
+ app/config/settings.py              | 13 +++++++++++++   MEM0_SEARCH_THRESHOLD
+ app/services/memory/mem0_backend.py | 18 ++++++++++++++--  threshold handling
+ 2 files changed, 29 insertions(+), 2 deletions(-)
+?? scripts/migrate_mem0_to_selfhosted.py
 ```
 
-Plus `.env` (gitignored, untracked).
+Plus `.env` (gitignored, untracked) — touched by both C and F.
 
-### F.3 Infrastructure state
+### G.4 Infrastructure state
 
 ```
 meeting-ai-langfuse    langfuse/langfuse:2      Up   0.0.0.0:3000->3000/tcp
@@ -980,16 +1336,22 @@ meeting-ai-redis       redis:7-alpine           Up (healthy)   6379
 meeting-ai-postgres    pgvector/pgvector:pg16   Up (healthy)   5433->5432
 ```
 
-New database `langfuse` on the existing Postgres container. Data accumulated
-during verification: **9 traces, 40 observations, 16 generations**.
+**No container was added for mem0** — the OSS store is a table in the existing
+Postgres. Two new databases/tables on that one container:
 
-Two traces are disposable verification artifacts (`selfhost.verify`,
-`selfhost.generation_check`), plus four `_route`/`_build_knowledge` orphans.
-Delete whenever.
+| | |
+|---|---|
+| database `langfuse` | Langfuse's own Prisma-managed schema. 9 traces, 40 observations, 16 generations from verification. |
+| table `mem0_facts` (in `meeting_ai`) | **112 rows**, `vector(1536)`, `mem0_facts_hnsw_idx` present. |
+
+Disposable verification artifacts left behind: Langfuse traces
+`selfhost.verify` / `selfhost.generation_check` plus four
+`_route`/`_build_knowledge` orphans. The mem0 write probe was cleaned up
+(verified back to 112 rows). Delete the Langfuse ones whenever.
 
 ---
 
-## G. Reproducible verification commands
+## H. Reproducible verification commands
 
 ```bash
 # Bring the stack up (creates the langfuse DB, runs its migrations)
@@ -1019,11 +1381,44 @@ python tests/test_rbac_scopes.py            # 28 checks
 docker compose up -d worker
 ```
 
+mem0 self-hosting (workstream F):
+
+```bash
+# Which mode am I in? Must print OSS after the switch.
+python -c "from app.services.memory import mem0_backend as mb; \
+print('MANAGED' if mb._is_managed() else 'OSS')"
+
+# Migration — run BEFORE unsetting MEM0_API_KEY. Idempotent; re-run skips all.
+python scripts/migrate_mem0_to_selfhosted.py --dry-run
+python scripts/migrate_mem0_to_selfhosted.py
+
+# The store itself (readable — a raw `select *` is a vector + nested JSON)
+docker exec meeting-ai-postgres psql -U postgres -d meeting_ai -c \
+ "SELECT o.name AS org, m.payload->>'fact_type' AS type, \
+         m.payload->>'subject' AS subject, left(m.payload->>'data',58) AS fact, \
+         m.payload->>'category_id' AS cat, m.payload->>'team_id' AS team \
+  FROM mem0_facts m LEFT JOIN organizations o ON o.id::text = m.payload->>'user_id' \
+  ORDER BY m.payload->>'created_at' DESC LIMIT 12;"
+
+# Row count + duplicate check (both keys must agree)
+docker exec meeting-ai-postgres psql -U postgres -d meeting_ai -tc \
+ "select count(*)||' rows / '|| \
+    (select count(*) from (select distinct payload->>'user_id' u, payload->>'hash' h \
+                           from mem0_facts) t)||' unique' from mem0_facts;"
+
+# Vector dims + indexes
+docker exec meeting-ai-postgres psql -U postgres -d meeting_ai -c \
+ "select indexname, indexdef from pg_indexes where tablename='mem0_facts';"
+
+# The project's own smoke test — note `-m`, the script has no sys.path insert
+python -m scripts.smoke_mem0                # PASS
+```
+
 ---
 
-## H. Open items
+## I. Open items
 
-### H.1 Blocking before deploying this branch to Railway
+### I.1 Blocking before deploying this branch to Railway
 
 **Run `alembic upgrade head` on Railway first.** It sits at `g3o7j9k1l2m`;
 `participants.user_id` and `participants.match_source` do not exist there, and
@@ -1031,7 +1426,7 @@ this branch's `save_participants` writes both. Deploy without migrating and
 participant INSERTs fail outright — participants go from partial to zero and
 meetings get marked `failed`. See §B.8.
 
-### H.2 Decisions awaiting you
+### I.2 Decisions awaiting you
 
 | Item | Detail |
 |---|---|
@@ -1041,9 +1436,13 @@ meetings get marked `failed`. See §B.8.
 | `meeting_pipeline.py` `prof` NameError | Compliance redaction + AutomationBus events silently skipped for every agents_v2 meeting. ~2-line fix. §A.5 |
 | Legacy path is untraced | Every non-agents_v2 meeting produces no traces at all. Instrumenting `graph_orchestrator` would need the shim imported there. §D.1 |
 | `agents_v2._route` orphan traces | One empty root trace per meeting. Cosmetic. §D.4 |
+| mem0 `created_at` reset | The migration re-stamped every fact to 2026-08-03. Harmless while `_apply_window` is a no-op stub; misleading if the recency window is ever built. Recoverable from the managed store. §F.10 |
+| mem0 has no dashboard | Browsing is SQL. Three UI options costed, none built — `pgweb`/`adminer` in compose (exposes the whole DB, localhost only), a read-only page in this app (the only RBAC-scoped option), or mem0's OpenMemory (own store, would show none of the 112 facts). §F.11 |
+| `MEM0_SEARCH_THRESHOLD` is unset | Deliberate — unset means mem0's per-mode default. Tune only after measuring; scores are **not comparable across modes**. §F.6 |
+| `scripts/smoke_mem0.py` has no `sys.path` insert | Pre-existing. Must be run as `python -m scripts.smoke_mem0`. Two-line fix if it annoys. |
 | Also still open from earlier work | `APP_PUBLIC_URL` is an ngrok tunnel so invite/reset links rot; deliberate RBAC coverage gaps in `document_router`, `team_document_router`, `graph_router /entities`; no `legacy → calendar_exact` re-linking script. |
 
-### H.3 Rollback
+### I.3 Rollback
 
 **Langfuse → back to Cloud.** In `.env`, comment the self-hosted block and
 uncomment the three preserved cloud lines (`LANGFUSE_SECRET_KEY`,
@@ -1052,15 +1451,24 @@ uncomment the three preserved cloud lines (`LANGFUSE_SECRET_KEY`,
 stay — it is what makes the configured host actually take effect either way.
 
 **Memory fix.** `git checkout app/services/memory/mem0_backend.py` restores the
-old behaviour (both agent paths silently receive zero prior facts again).
+old behaviour (both agent paths silently receive zero prior facts again, and the
+hardcoded `threshold=0.3` returns, killing ranked search in OSS mode).
+
+**mem0 → back to the managed platform.** Uncomment `MEM0_API_KEY` in `.env`.
+That is the whole switch — presence of the key *is* the mode. Nothing needs
+un-migrating: the managed store was only read from, never modified, so all 112
+facts are still there with their original timestamps. The OSS table stays behind
+harmlessly and would be picked up again if the key is removed later. The
+`settings.py` + `threshold` changes are mode-agnostic and should stay.
 
 **Langfuse data.** `docker compose down` leaves it intact — it lives in the
 `postgres_data` volume alongside `meeting_ai`. To discard only Langfuse:
-`DROP DATABASE langfuse;`.
+`DROP DATABASE langfuse;`. Likewise `DROP TABLE mem0_facts;` discards only the
+self-hosted memory store.
 
 ---
 
-## I. Corrections to things I said earlier in this session
+## J. Corrections to things I said earlier in this session
 
 Recorded so the transcript is not more authoritative than the final state.
 
@@ -1078,3 +1486,17 @@ Recorded so the transcript is not more authoritative than the final state.
    §E.2.
 4. Two prior-session beliefs corrected by direct checks: the repo was *not*
    mid-merge, and the RBAC migrations *were* applied locally. §A.6.
+5. **My mem0 migration script wrote 54 duplicate rows on its first re-run.**
+   Not a mem0 bug and not an app bug — I omitted `top_k` on the destination
+   pre-load, and the OSS `get_all` default is 20. Diagnosed from the exact
+   arithmetic, cleaned up with a `row_number()` delete, and the script now
+   passes `top_k=100_000` and refuses to fail open. §F.5.
+6. **I initially proposed `backfill_mem0.py` as the migration path** for
+   self-hosting mem0. That would have lost ~13 facts, because
+   `distill_for_meeting` returns early under `MEMORY_BACKEND=mem0` and never
+   writes `org_memory_facts` — so the native table is frozen at 2026-07-23 and
+   is not a complete source. Wrote a managed→OSS script instead. §F.3.
+7. **Two claims in §A about mem0 were true when written and are now stale** —
+   §A.4 and §A.6 described mem0 as running on the managed platform. Both are
+   annotated in place rather than rewritten, so the session's chronology stays
+   readable. The current state is §F.
