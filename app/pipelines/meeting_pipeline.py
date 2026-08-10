@@ -484,6 +484,23 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
+            # Resolve the behaviour profile ONCE, before the routing branch.
+            #
+            # It must be bound on both paths: the legacy orchestrator takes it
+            # as an argument, and the compliance + automation block further
+            # down gates on it regardless of which path produced `result_obj`.
+            # Resolving it inside the `else` left it unbound on every
+            # agents_v2 meeting, and the resulting NameError was caught by
+            # that block's `except Exception` — so PII redaction and every
+            # automation event were silently skipped rather than erroring.
+            from app.services.behavior.resolver import resolve_behavior_profile
+            prof = resolve_behavior_profile(
+                db,
+                organization_id=meeting.organization_id,
+                category_id=meeting.category_id,
+                team_id=meeting.team_id
+            )
+
             # Agents v2 feature flag — if there's an agents_v2 row for
             # this meeting's scope, route through the new orchestrator.
             # Otherwise fall through to the legacy Phase 9.6 path.
@@ -495,21 +512,10 @@ class MeetingPipeline:
             else:
                 # Phase 9.6 — Agent Graph Orchestration.
                 # Use the orchestrator to run capability-based analysis.
-                # The orchestrator handles BehaviorProfile resolution internally
-                # or we can pass it in if we already have it.
                 logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
                 from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
-                from app.services.behavior.resolver import resolve_behavior_profile
 
-                # 1. Resolve the profile once for the entire runtime execution
-                prof = resolve_behavior_profile(
-                    db,
-                    organization_id=meeting.organization_id,
-                    category_id=meeting.category_id,
-                    team_id=meeting.team_id
-                )
-
-                # 2. Execute the Agent Graph
+                # Execute the Agent Graph
                 # meeting_id MUST be passed — the harness threads it through
                 # ToolContext to every tool. Without it, create_task can't
                 # resolve which meeting to attach the new task to and fails

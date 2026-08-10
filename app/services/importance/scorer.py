@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Literal, Optional
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import bindparam, case, func, select
 from sqlalchemy.orm import Session
 
 from app.config.settings import settings
@@ -425,6 +425,33 @@ def _load_entity_degree_centrality(
     return {eid: _count_norm(d, weights.count_saturation) for eid, d in degree.items()}
 
 
+def _write_scores(db: Session, table, pending: list[dict]) -> None:
+    """Write every changed score for one target kind in one batched call.
+
+    This used to be a ``db.execute()`` inside the scoring loop — one
+    statement, and against a remote database one network round trip, per
+    changed row, all inside a single transaction that only commits once the
+    whole kind is done. In production that ran ~30 seconds for a single
+    org's meeting chunks and the socket was being dropped part way through
+    (``SSL SYSCALL error: EOF detected``), which rolled the entire pass
+    back and left the scores stale.
+
+    ``pool_pre_ping`` does not help with that: it validates a connection
+    when it is checked OUT of the pool, not while a transaction is already
+    running.
+
+    Two details worth keeping:
+      * the bind is ``_id``, not ``id``, so it cannot collide with a column
+        named in the SET clause;
+      * this stays SQLAlchemy Core rather than hand-written SQL because
+        ``updated_at`` is a Python-side ``onupdate`` — Core still applies it
+        per parameter set, raw SQL would silently stop bumping it.
+    """
+    if not pending:
+        return
+    db.execute(table.update().where(table.c.id == bindparam("_id")), pending)
+
+
 def _score_meeting_chunks(
     db: Session, organization_id: UUID, weights: ImportanceWeights,
 ) -> tuple[int, int, dict]:
@@ -458,7 +485,7 @@ def _score_meeting_chunks(
     # 6C: pull real citation counts (was hard-coded 0 in 6A).
     citation_counts = _load_chunk_citation_counts(db, organization_id, "meeting")
     scored: list[float] = []
-    updated = 0
+    pending: list[dict] = []
     for r in rows:
         sig = _ChunkSignals(
             access_count=r.access_count or 0,
@@ -473,14 +500,10 @@ def _score_meeting_chunks(
         new_score = score_chunk(sig, weights, now=now)
         scored.append(new_score)
         if r.importance_score is None or abs(new_score - r.importance_score) > 1e-6:
-            db.execute(
-                MeetingChunk.__table__.update()
-                .where(MeetingChunk.id == r.id)
-                .values(importance_score=new_score)
-            )
-            updated += 1
+            pending.append({"_id": r.id, "importance_score": new_score})
+    _write_scores(db, MeetingChunk.__table__, pending)
     db.commit()
-    return len(rows), updated, distribution(scored)
+    return len(rows), len(pending), distribution(scored)
 
 
 def _score_document_chunks(
@@ -512,7 +535,7 @@ def _score_document_chunks(
     ).all()
     citation_counts = _load_chunk_citation_counts(db, organization_id, "document")
     scored: list[float] = []
-    updated = 0
+    pending: list[dict] = []
     for r in rows:
         sig = _ChunkSignals(
             access_count=r.access_count or 0,
@@ -526,14 +549,10 @@ def _score_document_chunks(
         new_score = score_chunk(sig, weights, now=now)
         scored.append(new_score)
         if r.importance_score is None or abs(new_score - r.importance_score) > 1e-6:
-            db.execute(
-                DocumentChunk.__table__.update()
-                .where(DocumentChunk.id == r.id)
-                .values(importance_score=new_score)
-            )
-            updated += 1
+            pending.append({"_id": r.id, "importance_score": new_score})
+    _write_scores(db, DocumentChunk.__table__, pending)
     db.commit()
-    return len(rows), updated, distribution(scored)
+    return len(rows), len(pending), distribution(scored)
 
 
 def _score_entities(
@@ -563,7 +582,7 @@ def _score_entities(
     citation_counts = _load_entity_citation_counts(db, organization_id)
     centrality_map = _load_entity_degree_centrality(db, organization_id, weights)
     scored: list[float] = []
-    updated = 0
+    pending: list[dict] = []
     for r in rows:
         sig = _EntitySignals(
             access_count=r.access_count or 0,
@@ -576,14 +595,10 @@ def _score_entities(
         new_score = score_entity(sig, weights, now=now)
         scored.append(new_score)
         if r.importance_score is None or abs(new_score - r.importance_score) > 1e-6:
-            db.execute(
-                Entity.__table__.update()
-                .where(Entity.id == r.id)
-                .values(importance_score=new_score)
-            )
-            updated += 1
+            pending.append({"_id": r.id, "importance_score": new_score})
+    _write_scores(db, Entity.__table__, pending)
     db.commit()
-    return len(rows), updated, distribution(scored)
+    return len(rows), len(pending), distribution(scored)
 
 
 def _score_relationships(
@@ -612,7 +627,7 @@ def _score_relationships(
     # between two highly-connected entities is itself central.
     entity_centrality = _load_entity_degree_centrality(db, organization_id, weights)
     scored: list[float] = []
-    updated = 0
+    pending: list[dict] = []
     for r in extended:
         endpoint_max = max(r.subj_imp or 0.0, r.obj_imp or 0.0)
         centrality = max(
@@ -628,14 +643,10 @@ def _score_relationships(
         new_score = score_relationship(sig, weights, now=now)
         scored.append(new_score)
         if r.importance_score is None or abs(new_score - r.importance_score) > 1e-6:
-            db.execute(
-                Relationship.__table__.update()
-                .where(Relationship.id == r.id)
-                .values(importance_score=new_score)
-            )
-            updated += 1
+            pending.append({"_id": r.id, "importance_score": new_score})
+    _write_scores(db, Relationship.__table__, pending)
     db.commit()
-    return len(extended), updated, distribution(scored)
+    return len(extended), len(pending), distribution(scored)
 
 
 # ---------------------------------------------------------------------------

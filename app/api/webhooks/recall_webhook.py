@@ -23,6 +23,19 @@ recall_webhook_router = APIRouter()
 # nothing, but that's fine for diagnostics.
 _LAST_EVENT_AT: dict[int, float] = {}
 
+# Per-meeting {participant_id: display label}, owned by the live path.
+#
+# The live path sees one utterance at a time, so unlike the batch pass it
+# cannot look at the whole conversation before deciding labels — it needs
+# to remember what it already called each participant. Without this it
+# keyed purely on the name, which merged two different people who happen
+# to share one (meeting 4421: ids 100 and 200 are both "Divyansh
+# Bhardwaj") into a single speaker for the entire live transcript.
+#
+# Dropped in `process_status_change_event` on the terminal `done` status,
+# alongside the lifecycle monitor's own per-meeting phase.
+_SPEAKER_LABELS: dict[int, dict] = {}
+
 
 # Phase 12A — closing-briefing status state machine.
 # The DB column `meetings.closing_briefing_status` is the cross-process
@@ -69,19 +82,36 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
     # Check all possible fields for a name or identifier
     participant = source.get("participant") or data_block.get("participant") or {}
     
+    # A NAME, from the platform roster. Only ever a string.
     speaker = None
     if isinstance(participant, dict) and participant.get("name"):
         speaker = participant.get("name")
-    
-    if not speaker:
-        speaker = source.get("speaker") or data_block.get("speaker")
-        
-    if not speaker and isinstance(participant, dict) and participant.get("id"):
-        # Fallback to ID if name is null but ID exists (common in some new accounts)
-        speaker = f"Participant {participant.get('id')}"
-        
-    if not speaker:
-        speaker = "Unknown Speaker"
+
+    # A DIARIZATION INDEX, from the transcription provider — a different
+    # thing entirely, and deliberately NOT folded into `speaker` above.
+    #
+    # Deepgram emits an integer here when `diarize` is on. The previous
+    # code did `speaker = source.get("speaker")` as a name fallback, which
+    # meant index 0 (falsy) read as "no speaker" and index 1 reached
+    # `(name or "").strip()` as an int and raised AttributeError. That is
+    # latent today only because `deepgram_provider` sets `diarize: False`.
+    #
+    # It matters for in-room capture: N people share ONE Google account,
+    # so Recall reports one participant id for all speech and the
+    # diarization index is the only thing separating them.
+    dia_speaker = source.get("speaker")
+    if dia_speaker is None:
+        dia_speaker = data_block.get("speaker")
+    if not isinstance(dia_speaker, int):
+        dia_speaker = None
+
+    # The participant id is returned RAW rather than being folded into a
+    # "Participant N" string here. The id is the real identity — the
+    # caller needs it to tell two same-named people apart, which this
+    # function cannot do because it has no cross-utterance memory.
+    # Naming is the caller's job; see
+    # `TranscriptProcessor.incremental_speaker_label`.
+    p_id = participant.get("id") if isinstance(participant, dict) else None
 
     # 3. Determine if Final
     is_final = source.get("is_final", event == "transcript.data")
@@ -95,7 +125,7 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
         if words:
             text = " ".join([w.get("text", "") for w in words]).strip()
     
-    return speaker, text, is_final
+    return speaker, text, is_final, p_id, dia_speaker
 
 
 async def process_transcript_event(meeting_id: int, payload: dict):
@@ -111,7 +141,7 @@ async def process_transcript_event(meeting_id: int, payload: dict):
     if event not in ["transcript.data", "transcript.partial_data"]:
         return
 
-    speaker, text, is_final = extract_transcript_fields(payload, event)
+    speaker, text, is_final, p_id, dia_speaker = extract_transcript_fields(payload, event)
 
     if not text:
         logger.warning(f"[LIVE TRANSCRIPT] Empty text for meeting {meeting_id} | payload: {json.dumps(payload)}")
@@ -132,7 +162,15 @@ async def process_transcript_event(meeting_id: int, payload: dict):
         lang_code = "unknown"
 
     # Standardize speaker name for logs and UI
-    speaker_safe = speaker or "Unknown Speaker"
+    # Identity is the participant id, not the name. Two people sharing a
+    # name get distinct labels; a participant Recall never named gets
+    # "Participant <id>" instead of being lumped in with every other
+    # unnamed speaker.
+    from app.processors.transcript_processor import TranscriptProcessor
+    speaker_safe = TranscriptProcessor.incremental_speaker_label(
+        p_id, speaker, _SPEAKER_LABELS.setdefault(meeting_id, {}),
+        dia_speaker=dia_speaker,
+    )
 
     # User-facing line — saved to meeting.transcript and consumed by
     # post-meeting analysis. Clean "Speaker: text" format.
@@ -308,6 +346,10 @@ async def process_status_change_event(meeting_id: int, payload: dict) -> None:
         # Bot has fully left and uploaded the recording. Pure cleanup
         # signal — let the monitor drop its in-memory phase.
         meeting_lifecycle_monitor.on_status_change(str(meeting_id), status)
+        # Drop this meeting's speaker labels too, so the map doesn't grow
+        # for the lifetime of the process.
+        _SPEAKER_LABELS.pop(meeting_id, None)
+        _LAST_EVENT_AT.pop(meeting_id, None)
 
     # All other codes are no-ops (joining_call, in_call_recording, etc.)
 
