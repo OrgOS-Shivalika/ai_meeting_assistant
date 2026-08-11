@@ -68,12 +68,12 @@ const StatusLine = ({
   const s = (status && STATUS_BADGE[status]) ?? STATUS_BADGE.pending;
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
         {label}
       </span>
       <span className="flex items-center gap-2">
         <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-        <span className={`text-[11px] font-bold ${s.text}`}>
+        <span className={`text-[11px] font-semibold ${s.text}`}>
           {s.label}
           {detail ? ` · ${detail}` : ""}
         </span>
@@ -154,10 +154,10 @@ export default function MeetingAIMemorySection({
   const graphFailed = liveGraphStatus === "failed";
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-7 border-b-[3px] border-b-gray-100">
+    <div className="bg-canvas rounded-xl border border-gray-200 shadow-sm p-7 border-b-[3px] border-b-gray-100">
       <div className="flex items-center gap-2.5 mb-5">
         <Brain className="w-4 h-4 text-[#4F46E5]" />
-        <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.15em]">
+        <h3 className="text-[11px] font-semibold text-slate-900 uppercase tracking-[0.15em]">
           AI Memory
         </h3>
       </div>
@@ -186,7 +186,7 @@ export default function MeetingAIMemorySection({
           <div className="flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-black uppercase tracking-widest text-rose-700 mb-0.5">
+              <div className="text-[11px] font-semibold uppercase tracking-widest text-rose-700 mb-0.5">
                 {embedFailed && graphFailed
                   ? "Embedding and graph failed"
                   : embedFailed
@@ -212,7 +212,7 @@ export default function MeetingAIMemorySection({
                 type="button"
                 onClick={handleRetryEmbedding}
                 disabled={retryingEmbed}
-                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-rose-700 hover:bg-rose-100 px-2 py-1 rounded disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-rose-700 hover:bg-rose-100 px-2 py-1 rounded disabled:opacity-50"
               >
                 {retryingEmbed ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -227,7 +227,7 @@ export default function MeetingAIMemorySection({
                 type="button"
                 onClick={handleRetryGraph}
                 disabled={retryingGraph}
-                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-rose-700 hover:bg-rose-100 px-2 py-1 rounded disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-rose-700 hover:bg-rose-100 px-2 py-1 rounded disabled:opacity-50"
               >
                 {retryingGraph ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -256,7 +256,7 @@ export default function MeetingAIMemorySection({
 
       {graph && entityCount > 0 && (
         <div className="pt-4 border-t border-slate-50">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">
             Entities mentioned
           </div>
           <div className="space-y-1.5">
@@ -267,17 +267,17 @@ export default function MeetingAIMemorySection({
                 className="flex items-center gap-2 px-2 py-1.5 -mx-2 rounded-md hover:bg-slate-50 group transition-colors"
               >
                 <span className="text-sm">{ENTITY_ICON[e.entity_type]}</span>
-                <span className="text-[11.5px] font-bold text-slate-700 truncate flex-1 group-hover:text-indigo-600">
+                <span className="text-[11.5px] font-semibold text-slate-700 truncate flex-1 group-hover:text-indigo-600">
                   {e.name}
                 </span>
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
                   {e.entity_type}
                 </span>
                 <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-indigo-600 shrink-0" />
               </Link>
             ))}
             {entityCount > 6 && (
-              <div className="text-[10px] font-bold text-slate-400 pl-7 pt-1">
+              <div className="text-[10px] font-semibold text-slate-400 pl-7 pt-1">
                 + {entityCount - 6} more
               </div>
             )}
@@ -289,7 +289,7 @@ export default function MeetingAIMemorySection({
       {graph && (
         <Link
           to={`/knowledge-graph?meeting=${meetingId}`}
-          className="mt-5 inline-flex items-center justify-center gap-2 w-full h-9 border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/40 text-slate-600 hover:text-indigo-600 font-black text-[10px] uppercase tracking-[0.15em] rounded-lg transition-all active:scale-[0.98]"
+          className="mt-5 inline-flex items-center justify-center gap-2 w-full h-9 border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/40 text-slate-600 hover:text-indigo-600 font-semibold text-[10px] uppercase tracking-[0.15em] rounded-lg transition-all active:scale-[0.98]"
         >
           <Sparkles className="w-3 h-3" />
           View graph for this meeting
@@ -301,7 +301,7 @@ export default function MeetingAIMemorySection({
       <button
         type="button"
         onClick={() => setShowChunks((v) => !v)}
-        className="mt-3 w-full flex items-center justify-center gap-1 text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest"
+        className="mt-3 w-full flex items-center justify-center gap-1 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-widest"
       >
         <ChevronDown
           className={`w-3 h-3 transition-transform ${
@@ -327,13 +327,13 @@ export default function MeetingAIMemorySection({
           {chunks?.chunks?.map((c) => (
             <div
               key={c.chunk_id}
-              className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-line bg-white border border-slate-100 rounded-md p-2"
+              className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-line bg-canvas border border-slate-100 rounded-md p-2"
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
                   chunk #{c.chunk_index}
                 </span>
-                <span className="text-[9px] font-bold text-slate-400">
+                <span className="text-[9px] font-semibold text-slate-400">
                   {c.token_count} tokens
                 </span>
               </div>

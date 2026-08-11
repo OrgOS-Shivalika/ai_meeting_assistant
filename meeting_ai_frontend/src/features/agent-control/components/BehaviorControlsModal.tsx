@@ -50,7 +50,7 @@ export default function BehaviorControlsModal({
       }}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-full max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-canvas rounded-2xl shadow-2xl w-full max-w-6xl h-full max-h-[92vh] flex flex-col overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-white">
@@ -62,7 +62,7 @@ export default function BehaviorControlsModal({
               <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">
                 Agent Controls — {scope.type === "team" ? "Team" : "Category"}
               </p>
-              <h2 className="text-lg font-bold text-gray-900 truncate">
+              <h2 className="text-lg font-semibold text-gray-900 truncate">
                 {scope.display_name}
               </h2>
             </div>

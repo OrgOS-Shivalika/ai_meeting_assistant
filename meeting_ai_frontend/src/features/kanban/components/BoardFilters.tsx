@@ -1,24 +1,8 @@
-// Phase 14 — board filter strip.
-//
-// Six filter dimensions, all SINGLE-select (pick one value or "All"
-// per dimension). The entire strip is HIDDEN until the parent toggles
-// `open` true (via the "Filter" button on BoardPage's header).
-//
-//   [Priority ▾] [Person ▾] [Category ▾] [Team ▾]  Created [from] → [to]  Due [from] → [to]  × Clear
-//
-// All controls live in a single horizontal flex row that wraps to the
-// next line only when the viewport can't fit them — never because
-// chips spill out.
-//
-// Selection state lives in the parent (BoardPage) so it can also drive
-// search and drag logic. We keep this component controlled — props in,
-// callback out.
+
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import type { BoardDetail } from "../types";
 
-// Single-select semantics: null = "no filter applied on this dimension".
-// The page concats AND across dimensions.
 export interface FilterState {
   priority: "low" | "medium" | "high" | null;
   assignee: string | null;   // owner_name; UNASSIGNED sentinel for null owners
@@ -43,16 +27,12 @@ export const EMPTY_FILTER_STATE: FilterState = {
   dueTo: null,
 };
 
-// String sentinels so the <select> code can store "no value" as a
-// distinct option from "all".
 export const UNASSIGNED = "__unassigned__";
 export const NO_TEAM = "__no_team__";
 export const NO_CATEGORY = "__no_category__";
 export const NO_MEETING = "__no_meeting__";
 
 interface Props {
-  /** When false, the entire strip is unmounted — parent toggles via
-   *  the Filter button. */
   open: boolean;
   board: BoardDetail;
   filters: FilterState;
@@ -82,8 +62,7 @@ export default function BoardFilters({
   onChange,
   onClose,
 }: Props) {
-  // Derive options from the board's own cards — only show values that
-  // actually appear, so dropdowns never list empty buckets.
+
   const { assigneeOptions, priorityOptions, teamOptions, categoryOptions, meetingOptions } =
     useMemo(() => {
       const ownerSet = new Set<string>();
@@ -160,7 +139,7 @@ export default function BoardFilters({
   if (!open) return null;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-2.5 text-xs flex items-center gap-2 flex-wrap">
+    <div className="bg-canvas border border-slate-200 rounded-lg p-2.5 text-xs flex items-center gap-2 flex-wrap">
       <FilterSelect
         label="Priority"
         value={filters.priority || ""}
@@ -229,7 +208,7 @@ export default function BoardFilters({
         {activeCount > 0 && (
           <button
             onClick={clearAll}
-            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-rose-600 px-1.5 py-0.5"
+            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-rose-600 px-1.5 py-0.5"
           >
             <X className="w-3 h-3" />
             Clear ({activeCount})
@@ -250,11 +229,6 @@ export default function BoardFilters({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Reusable single-select with a label. Renders nothing when there are
-// no options — keeps the strip tight on sparse boards.
-// ---------------------------------------------------------------------------
-
 function FilterSelect({
   label,
   value,
@@ -269,7 +243,7 @@ function FilterSelect({
   if (options.length === 0) return null;
   return (
     <label className="flex items-center gap-1.5">
-      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 shrink-0">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 shrink-0">
         {label}
       </span>
       <select
@@ -278,7 +252,7 @@ function FilterSelect({
         className={`text-[11px] px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none ${
           value
             ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-semibold"
-            : "bg-white text-slate-600"
+            : "bg-canvas text-slate-600"
         }`}
       >
         <option value="">All</option>
@@ -309,7 +283,7 @@ function DateRangePicker({
   const active = !!(from || to);
   return (
     <label className="flex items-center gap-1.5">
-      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 shrink-0">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 shrink-0">
         {label}
       </span>
       <input

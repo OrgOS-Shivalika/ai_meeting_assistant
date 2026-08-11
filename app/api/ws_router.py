@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Optional
 import json
 import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
-from app.db.models import Meeting, User
+from app.db.models import User
 from app.dependencies.auth import resolve_user_from_token
+from app.services import permissions
 from app.services.transcript_persistence import schedule_transcript_save
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +28,18 @@ async def _authenticate_ws(
     meeting_id: int,
     db: Session,
 ) -> Optional[User]:
-    """Validate the JWT + org scope on a WebSocket handshake.
+    """Validate the JWT + access scope on a WebSocket handshake.
 
     Closes with 4401 on any failure (invalid token, missing token,
     cross-org meeting, meeting not found — all treated the same to
     avoid leaking meeting-existence).
+
+    This socket streams the live transcript as it is spoken, so it is
+    exactly as sensitive as the transcript endpoint and gets the same
+    check. Access failures collapse into one close code here rather
+    than the HTTP layer's 404/403 split — a close reason isn't a
+    response body, and there's nothing to gain from being precise
+    about why a socket was refused.
 
     Must be called BEFORE `websocket.accept()` so the handshake fails
     cleanly on the client side with the reason attached.
@@ -42,13 +51,20 @@ async def _authenticate_ws(
     if user is None:
         await websocket.close(code=_WS_CLOSE_UNAUTHORIZED, reason="Invalid token")
         return None
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-    if not meeting or meeting.organization_id != user.organization_id:
+    try:
+        permissions.get_viewable_meeting(db, user, meeting_id)
+    except HTTPException:
         await websocket.close(code=_WS_CLOSE_FORBIDDEN, reason="Unauthorized")
         return None
     return user
 
+# Two routers so main.py can mount them at different prefixes:
+#   ws_router        → API_PREFIX  (the authenticated frontend viewer socket)
+#   recall_ws_router → root        (Recall.ai connects here machine-to-machine;
+#                                   its URL is external and JWT-less, so it must
+#                                   NOT sit under the auth-scoped /api prefix)
 ws_router = APIRouter()
+recall_ws_router = APIRouter()
 
 class ConnectionManager:
     def __init__(self):
@@ -129,14 +145,18 @@ async def websocket_endpoint(
 ):
     """Live transcript / cognitive-event stream for one meeting.
 
-    Auth: JWT via `?token=` on the WS URL (browser `WebSocket()` can't
-    send custom headers). Rejects with close code 4401 on any auth
-    failure or cross-org access. Only after auth passes do we accept
-    the connection and register with the ConnectionManager.
+    Auth: the HttpOnly `access_token` cookie, which the browser attaches
+    to the WS handshake automatically on same-origin connections (no more
+    token in the URL / server access logs). The `?token=` query param is
+    kept only as a fallback for non-browser clients that can't send the
+    cookie. Rejects with close code 4401 on any auth failure or cross-org
+    access. Only after auth passes do we accept the connection and register
+    with the ConnectionManager.
     """
+    effective_token = websocket.cookies.get(settings.AUTH_COOKIE_NAME) or token
     db = SessionLocal()
     try:
-        user = await _authenticate_ws(websocket, token, meeting_id, db)
+        user = await _authenticate_ws(websocket, effective_token, meeting_id, db)
     finally:
         db.close()
     if user is None:
@@ -151,7 +171,7 @@ async def websocket_endpoint(
         manager.disconnect(websocket, meeting_id)
 
 # --- NEW Recall.ai Receiver Endpoint ---
-@ws_router.websocket("/ws/recall/{meeting_id}")
+@recall_ws_router.websocket("/ws/recall/{meeting_id}")
 async def recall_websocket_receiver(websocket: WebSocket, meeting_id: int):
     """
     Recall.ai connects to this endpoint to push live transcript data.

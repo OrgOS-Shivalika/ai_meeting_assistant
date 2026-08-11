@@ -26,7 +26,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
       }`}
     >
       <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+        className={`inline-block h-4 w-4 transform rounded-full bg-canvas shadow-soft transition-transform duration-200 ${
           checked ? "translate-x-6" : "translate-x-1"
         }`}
       />
@@ -39,7 +39,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
         <Icon className="w-5 h-5" />
       </div>
       <div>
-        <h2 className="text-xl font-bold text-gray-900 tracking-tight">{title}</h2>
+        <h2 className="text-xl font-semibold text-gray-900 tracking-tight">{title}</h2>
         {desc && <p className="text-sm text-gray-500 font-medium">{desc}</p>}
       </div>
     </div>
@@ -55,24 +55,24 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
           desc="Define the personality and communication style of your assistant."
           colorClass="bg-indigo-600 text-white"
         />
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 space-y-8 hover:border-indigo-200 transition-colors">
+        <div className="bg-canvas border border-gray-200 rounded-2xl shadow-sm p-8 space-y-8 hover:border-indigo-200 transition-colors">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-2.5">
-              <label className="block text-sm font-bold text-gray-700 ml-1 uppercase tracking-wider">Role / Focus</label>
+              <label className="block text-sm font-semibold text-gray-700 ml-1 uppercase tracking-wider">Role / Focus</label>
               <input
                 type="text"
                 value={intent.behavior.role_focus}
                 onChange={(e) => updateSection("behavior", { role_focus: e.target.value })}
-                className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium text-gray-900"
+                className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-canvas outline-none transition-all font-medium text-gray-900"
                 placeholder="e.g. Backend engineering assistant"
               />
             </div>
             <div className="space-y-2.5">
-              <label className="block text-sm font-bold text-gray-700 ml-1 uppercase tracking-wider">Communication Style</label>
+              <label className="block text-sm font-semibold text-gray-700 ml-1 uppercase tracking-wider">Communication Style</label>
               <select
                 value={intent.behavior.communication_style}
                 onChange={(e) => updateSection("behavior", { communication_style: e.target.value })}
-                className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white outline-none transition-all font-medium text-gray-900 appearance-none cursor-pointer"
+                className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-canvas outline-none transition-all font-medium text-gray-900 appearance-none cursor-pointer"
               >
                 <option value="professional">Professional & Direct</option>
                 <option value="casual">Casual & Conversational</option>
@@ -83,12 +83,12 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
             </div>
           </div>
           <div className="space-y-2.5">
-            <label className="block text-sm font-bold text-gray-700 ml-1 uppercase tracking-wider">Custom Instructions</label>
+            <label className="block text-sm font-semibold text-gray-700 ml-1 uppercase tracking-wider">Custom Instructions</label>
             <textarea
               value={intent.behavior.custom_instructions || ""}
               onChange={(e) => updateSection("behavior", { custom_instructions: e.target.value })}
               rows={4}
-              className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-white outline-none resize-none transition-all font-medium text-gray-900 leading-relaxed"
+              className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:bg-canvas outline-none resize-none transition-all font-medium text-gray-900 leading-relaxed"
               placeholder="e.g. Prioritize technical risks and unresolved blockers. Always format data in tables when possible..."
             />
           </div>
@@ -119,7 +119,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
                 key={cap.key} 
                 className={`p-6 rounded-2xl border transition-all duration-200 ${
                   isEnabled 
-                    ? "bg-white border-amber-200 shadow-md shadow-amber-500/5 ring-1 ring-amber-50" 
+                    ? "bg-canvas border-amber-200 shadow-soft shadow-amber-500/5 ring-1 ring-amber-50" 
                     : "bg-gray-50/50 border-gray-100 opacity-70 grayscale-[0.5]"
                 }`}
               >
@@ -132,7 +132,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
                     onChange={(v) => updateSection("capabilities", { [cap.key]: v })}
                   />
                 </div>
-                <p className="font-bold text-gray-900">{cap.label}</p>
+                <p className="font-semibold text-gray-900">{cap.label}</p>
                 <p className="text-xs text-gray-500 mt-1 font-medium leading-relaxed">{cap.desc}</p>
               </div>
             );
@@ -149,7 +149,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
             desc="Control what data the AI can retrieve."
             colorClass="bg-emerald-600 text-white"
           />
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
+          <div className="bg-canvas border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
             {[
               { key: "meeting_history", label: "Meeting History" },
               { key: "team_documents", label: "Team Documents" },
@@ -164,10 +164,10 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
                   className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${
                     isEnabled
                       ? "bg-emerald-50 border-emerald-100 text-emerald-900 shadow-sm"
-                      : "bg-white border-gray-100 text-gray-400 hover:border-gray-200"
+                      : "bg-canvas border-gray-100 text-gray-400 hover:border-gray-200"
                   }`}
                 >
-                  <span className="font-bold text-sm">{k.label}</span>
+                  <span className="font-semibold text-sm">{k.label}</span>
                   <div className={`w-2 h-2 rounded-full ${isEnabled ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-gray-200"}`} />
                 </button>
               );
@@ -183,12 +183,12 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
             desc="Enterprise governance controls."
             colorClass="bg-rose-600 text-white"
           />
-          <div className="bg-white border border-gray-200 rounded-2xl p-8 space-y-8 shadow-sm">
+          <div className="bg-canvas border border-gray-200 rounded-2xl p-8 space-y-8 shadow-sm">
             <div className="flex items-start justify-between gap-6">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <Lock className="w-3.5 h-3.5 text-rose-600" />
-                  <p className="font-bold text-gray-900 text-sm">PII Redaction</p>
+                  <p className="font-semibold text-gray-900 text-sm">PII Redaction</p>
                 </div>
                 <p className="text-xs text-gray-500 font-medium leading-relaxed">Automatically mask sensitive personal data before storage.</p>
               </div>
@@ -201,14 +201,14 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <Globe className="w-3.5 h-3.5 text-blue-600" />
-                  <p className="font-bold text-gray-900 text-sm">Data Residency</p>
+                  <p className="font-semibold text-gray-900 text-sm">Data Residency</p>
                 </div>
                 <p className="text-xs text-gray-500 font-medium leading-relaxed">Restricts analysis to regional data centers only.</p>
               </div>
               <select
                 value={intent.privacy_safety.data_residency}
                 onChange={(e) => updateSection("privacy_safety", { data_residency: e.target.value })}
-                className="text-xs font-bold bg-gray-100 border-none rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-rose-500 outline-none"
+                className="text-xs font-semibold bg-gray-100 border-none rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-rose-500 outline-none"
               >
                 <option value="default">Default</option>
                 <option value="restricted">Restricted</option>
@@ -226,7 +226,7 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
           desc="Authorized tools and integration surfaces."
           colorClass="bg-gray-800 text-white"
         />
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+        <div className="bg-canvas border border-gray-200 rounded-2xl p-8 shadow-sm">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
             {[
               { key: "slack_enabled", label: "Slack" },
@@ -242,13 +242,13 @@ export default function IntentEditor({ intent, onChange }: IntentEditorProps) {
                   onClick={() => updateSection("connected_tools", { [t.key]: !isEnabled })}
                   className={`group relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 ${
                     isEnabled
-                      ? "bg-gray-900 border-gray-900 text-white shadow-xl shadow-gray-900/10 scale-[1.02]"
-                      : "bg-white border-gray-100 text-gray-300 hover:border-gray-200 hover:text-gray-400"
+                      ? "bg-gray-900 border-gray-900 text-white shadow-raised shadow-gray-900/10 scale-[1.02]"
+                      : "bg-canvas border-gray-100 text-gray-300 hover:border-gray-200 hover:text-gray-400"
                   }`}
                 >
                   <div className={`absolute top-0 left-0 w-full h-1 ${isEnabled ? "bg-indigo-500" : "bg-transparent"}`} />
-                  <div className="text-sm font-black uppercase tracking-widest">{t.label}</div>
-                  <div className={`mt-2 text-[10px] font-bold ${isEnabled ? "text-indigo-400" : "text-gray-200"}`}>
+                  <div className="text-sm font-semibold uppercase tracking-widest">{t.label}</div>
+                  <div className={`mt-2 text-[10px] font-semibold ${isEnabled ? "text-indigo-400" : "text-gray-200"}`}>
                     {isEnabled ? "AUTHORIZED" : "DISABLED"}
                   </div>
                 </button>

@@ -148,7 +148,7 @@ export default function TaskActivityList({ taskId, refreshKey }: Props) {
         <button
           onClick={loadMore}
           disabled={loadingMore}
-          className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
+          className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
         >
           {loadingMore ? (
             <Loader2 className="w-3 h-3 animate-spin" />

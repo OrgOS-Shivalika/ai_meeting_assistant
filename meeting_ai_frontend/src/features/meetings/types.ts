@@ -21,6 +21,28 @@ export interface Participant {
   is_organizer: string;
   avatar_url: string | null;
   created_at: string;
+
+  // Attendance → access. Present on the meeting DETAIL response only; the
+  // list endpoints omit them to keep the payload small.
+  /** The account this attendee is linked to, if any. */
+  user_id?: string | null;
+  /**
+   * How the link was made: `calendar_exact` | `manual` | `heuristic` |
+   * `legacy`. Only the first two are trusted, so a row can carry a
+   * `user_id` and still confer nothing — check `grants_access`, never
+   * `user_id`, to decide whether someone actually has access.
+   */
+  match_source?: string | null;
+  /** Whether this link actually gives that person access to the meeting. */
+  grants_access?: boolean;
+  /**
+   * The account whose email exactly matches this attendee's, if one
+   * exists. Lets the UI offer a one-click confirm rather than a
+   * people-picker — the common case is an email that was already correct
+   * on a row whose provenance wasn't trusted.
+   */
+  suggested_user_id?: string | null;
+  suggested_user_name?: string | null;
 }
 
 export interface Team {

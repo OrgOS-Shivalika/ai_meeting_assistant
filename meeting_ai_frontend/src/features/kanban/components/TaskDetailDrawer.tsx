@@ -222,7 +222,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
       />
       {/* Drawer */}
       <aside
-        className="fixed top-0 right-0 z-50 h-screen w-full max-w-md bg-white shadow-2xl border-l border-slate-200 flex flex-col"
+        className="fixed top-0 right-0 z-50 h-screen w-full max-w-md bg-canvas shadow-2xl border-l border-slate-200 flex flex-col"
         role="dialog"
         aria-label="Task detail"
       >
@@ -236,7 +236,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
             <div className="mt-3">
               <button
                 onClick={onClose}
-                className="text-xs font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-100 px-2 py-1 rounded"
+                className="text-xs font-semibold uppercase tracking-wider text-slate-600 hover:bg-slate-100 px-2 py-1 rounded"
               >
                 Close
               </button>
@@ -266,12 +266,12 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                         setEditingTitle(false);
                       }
                     }}
-                    className="w-full text-lg font-bold text-slate-900 border-b border-indigo-300 focus:outline-none"
+                    className="w-full text-lg font-semibold text-slate-900 border-b border-indigo-300 focus:outline-none"
                   />
                 ) : (
                   <h2
                     onClick={() => setEditingTitle(true)}
-                    className={`text-lg font-bold leading-tight cursor-text hover:bg-slate-50 -mx-1 px-1 rounded ${
+                    className={`text-lg font-semibold leading-tight cursor-text hover:bg-slate-50 -mx-1 px-1 rounded ${
                       task.is_completed
                         ? "text-slate-400 line-through"
                         : "text-slate-900"
@@ -308,7 +308,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 {/* Status / completion */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                     <Tag className="w-2.5 h-2.5" /> Status
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -322,7 +322,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                   <button
                     onClick={handleToggleComplete}
                     disabled={savingField === "is_completed"}
-                    className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                    className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
                   >
                     {task.is_completed ? "Mark incomplete" : "Mark complete"}
                   </button>
@@ -330,7 +330,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
                 {/* Priority */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                     Priority
                   </label>
                   <div className="flex items-center gap-1">
@@ -341,10 +341,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                           key={p}
                           onClick={() => handleChangePriority(p)}
                           disabled={savingField === "priority"}
-                          className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 transition-all ${
+                          className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 transition-all ${
                             active
                               ? PRIORITY_STYLE[p] + " ring-2"
-                              : "bg-white text-slate-500 ring-slate-200 hover:ring-slate-300"
+                              : "bg-canvas text-slate-500 ring-slate-200 hover:ring-slate-300"
                           }`}
                         >
                           {p}
@@ -356,7 +356,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
                 {/* Owner */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                     <User className="w-2.5 h-2.5" /> Owner
                   </label>
                   <OwnerPicker
@@ -369,7 +369,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
                 {/* Due date */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                     <Calendar className="w-2.5 h-2.5" /> Due date
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -414,13 +414,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
               {/* Description (markdown) */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                     Description
                   </label>
                   {!editingDescription && (
                     <button
                       onClick={() => setEditingDescription(true)}
-                      className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 flex items-center gap-0.5"
+                      className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 flex items-center gap-0.5"
                     >
                       <Pencil className="w-2.5 h-2.5" />
                       Edit
@@ -447,7 +447,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                       <button
                         onClick={handleSaveDescription}
                         disabled={savingField === "description"}
-                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
                       >
                         {savingField === "description" ? "Saving…" : "Save"}
                       </button>
@@ -456,14 +456,14 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                           setDescriptionDraft(task.description || "");
                           setEditingDescription(false);
                         }}
-                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 text-slate-500 hover:bg-slate-100 rounded"
+                        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 text-slate-500 hover:bg-slate-100 rounded"
                       >
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : task.description ? (
-                  <div className="prose prose-sm prose-slate max-w-none text-xs prose-headings:font-bold prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-code:text-rose-700 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-a:text-indigo-600">
+                  <div className="prose prose-sm prose-slate max-w-none text-xs prose-headings:font-semibold prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-code:text-rose-700 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-a:text-indigo-600">
                     <ReactMarkdown>{task.description}</ReactMarkdown>
                   </div>
                 ) : (
@@ -478,7 +478,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
               {/* Comments */}
               <div className="space-y-2">
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
                   <Eye className="w-2.5 h-2.5" />
                   Comments ({task.comment_count})
                 </h3>
@@ -494,7 +494,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
               {/* Activity */}
               <div className="space-y-2 pb-6">
-                <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                   Activity ({task.activity_count})
                 </h3>
                 <TaskActivityList taskId={task.id} refreshKey={refreshKey} />
@@ -549,7 +549,7 @@ function OwnerPicker({ task, participants, onChange, saving }: OwnerPickerProps)
         />
         <button
           onClick={() => setMode("display")}
-          className="text-[10px] font-bold uppercase text-slate-500 hover:bg-slate-100 px-1.5 rounded"
+          className="text-[10px] font-semibold uppercase text-slate-500 hover:bg-slate-100 px-1.5 rounded"
         >
           Pick
         </button>

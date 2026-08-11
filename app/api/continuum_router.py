@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agents_v2.shared import tracing
-from app.api.db_dependency import get_db
+from app.db.database import get_db
 from app.celery_tasks.continuum_tasks import dispatch_continuum_process
 from app.config.settings import settings
 from app.db.models import (
@@ -41,6 +41,7 @@ from app.db.models import (
     Team,
 )
 from app.dependencies.auth import get_current_user
+from app.services import permissions
 from app.services.continuum import service
 from app.services.continuum.service import STAGES
 
@@ -456,15 +457,8 @@ def reprocess_meeting(
 ):
     """Retry auto-processing for a recorded meeting (e.g. after a failed
     run). Idempotent — a meeting with a completed run is skipped."""
-    meeting = (
-        db.query(Meeting)
-        .filter(
-            Meeting.id == meeting_id,
-            Meeting.organization_id == user.organization_id,
-        )
-        .first()
-    )
-    if meeting is None:
-        raise HTTPException(status_code=404, detail="Meeting not found")
+    # Reprocessing spends tokens and rewrites derived data, so it needs
+    # manage rights rather than read.
+    permissions.get_manageable_meeting(db, user, meeting_id)
     dispatch_continuum_process(meeting_id)
     return {"ok": True}

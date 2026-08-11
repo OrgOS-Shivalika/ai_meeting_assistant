@@ -14,6 +14,10 @@ import {
 import Layout from "../../../shared/components/Layout";
 import { Skeleton, SkeletonCard } from "../../../shared/components/Skeleton";
 import { harnessApi, type HarnessMetrics } from "../services/harnessApi";
+import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { PageContainer } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
 
 const DAYS_OPTIONS = [1, 7, 30, 90];
 
@@ -46,22 +50,26 @@ function KpiCard({
   icon: React.ComponentType<{ className?: string }>;
   tone?: "neutral" | "good" | "warn" | "bad";
 }) {
-  const toneClass = {
-    neutral: "bg-slate-100 text-slate-600",
-    good:    "bg-emerald-50 text-emerald-600",
-    warn:    "bg-amber-50 text-amber-600",
-    bad:     "bg-rose-50 text-rose-600",
+  // Tone tints the icon chip only — the number stays ink so a wall of
+  // KPIs doesn't turn into a traffic light.
+  const hue = {
+    neutral: "var(--vb-muted-soft)",
+    good: "var(--vb-success)",
+    warn: "var(--vb-warning)",
+    bad: "var(--vb-error)",
   }[tone];
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
-        <div className={`p-1.5 rounded-lg ${toneClass}`}>
-          <Icon className="w-4 h-4" />
-        </div>
+    <div className="rounded-lg border border-hairline bg-canvas p-[22px]">
+      <div className="mb-3.5 flex items-center justify-between">
+        <span className="vb-label-caps">{label}</span>
+        <IconChip size="sm" color={hue}>
+          <Icon />
+        </IconChip>
       </div>
-      <div className="text-2xl font-bold text-slate-900 tabular-nums">{value}</div>
-      {sub && <div className="text-[11px] text-slate-500 mt-1">{sub}</div>}
+      <div className="font-mono text-[26px] leading-none font-medium text-ink">
+        {value}
+      </div>
+      {sub && <div className="mt-2 text-[11px] text-muted-ink">{sub}</div>}
     </div>
   );
 }
@@ -98,49 +106,42 @@ export default function HarnessMetricsPage() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <PageContainer width="default" className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              <Link to="/agent-control" className="hover:text-indigo-600">Agent Control</Link>
-              <span>/</span>
-              <span>Metrics</span>
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-1">
-              Harness metrics
-            </h1>
-            <p className="text-sm text-slate-500">
+            <nav className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-muted-ink">
+              <Link to="/agent-control" className="hover:text-ink">Agents</Link>
+              <span className="text-muted-soft">/</span>
+              <span className="text-body-strong">Metrics</span>
+            </nav>
+            <h1 className="vb-display-sm">Harness metrics</h1>
+            <p className="mt-2.5 max-w-2xl text-[15px] text-muted-ink">
               Operational rollups over the last {days} day{days > 1 ? "s" : ""}.{" "}
-              <Link to="/agent-control/runs" className="text-indigo-600 hover:underline">
+              <Link to="/agent-control/runs" className="font-medium text-ink hover:underline">
                 See individual runs →
               </Link>
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <Select
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="text-sm bg-white border border-slate-300 rounded-lg px-3 py-2"
+              className="h-10 w-auto min-w-36"
             >
               {DAYS_OPTIONS.map((d) => (
                 <option key={d} value={d}>Last {d} day{d > 1 ? "s" : ""}</option>
               ))}
-            </select>
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </Select>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+              <RefreshCw className={loading ? "animate-spin" : undefined} />
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2.5 rounded-lg border border-error/20 bg-error/8 px-4 py-3 text-[13px] font-medium text-error">
             <AlertCircle className="w-4 h-4" /> {error}
           </div>
         )}
@@ -148,7 +149,7 @@ export default function HarnessMetricsPage() {
         {/* KPI cards */}
         {loading && !data ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-28" />)}
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-28 rounded-lg" />)}
           </div>
         ) : totals ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -184,28 +185,28 @@ export default function HarnessMetricsPage() {
         {/* Per-skill rollup */}
         <section className="space-y-2">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-slate-500" /> Per-skill performance
+            <h2 className="vb-title-md flex items-center gap-2.5">
+              <TrendingUp className="size-4 text-muted-soft" /> Per-skill performance
             </h2>
-            <span className="text-[11px] text-slate-500">p50 / p95 = duration percentiles</span>
+            <span className="text-[11px] text-muted-ink">p50 / p95 = duration percentiles</span>
           </div>
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto rounded-lg border border-hairline bg-canvas">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
-                  <th className="text-left px-4 py-2 font-semibold">Skill</th>
-                  <th className="text-right px-3 py-2 font-semibold">Runs</th>
-                  <th className="text-right px-3 py-2 font-semibold">Success</th>
-                  <th className="text-right px-3 py-2 font-semibold">p50</th>
-                  <th className="text-right px-3 py-2 font-semibold">p95</th>
-                  <th className="text-right px-3 py-2 font-semibold">Avg tokens</th>
-                  <th className="text-right px-3 py-2 font-semibold">Storms</th>
+                <tr className="border-b border-hairline bg-surface-soft text-[11px] tracking-[1px] text-muted-soft uppercase">
+                  <th className="px-4 py-3.5 text-left font-semibold">Skill</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">Runs</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">Success</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">p50</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">p95</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">Avg tokens</th>
+                  <th className="px-3 py-3.5 text-right font-semibold">Storms</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && !data ? (
                   Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="border-t border-slate-100">
+                    <tr key={i} className="border-t border-hairline-soft">
                       <td className="px-4 py-3"><Skeleton className="h-3 w-40" /></td>
                       <td className="px-3 py-3"><Skeleton className="h-3 w-8 ml-auto" /></td>
                       <td className="px-3 py-3"><Skeleton className="h-3 w-12 ml-auto" /></td>
@@ -226,7 +227,7 @@ export default function HarnessMetricsPage() {
                     const skillTone = pickTone(s.success_rate);
                     const stormy = s.retry_storms > 0;
                     return (
-                      <tr key={s.skill_id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <tr key={s.skill_id} className="border-t border-hairline-soft hover:bg-surface-soft/60">
                         <td className="px-4 py-2.5">
                           <Link
                             to={`/agent-control/runs?skill=${encodeURIComponent(s.skill_id)}`}
@@ -238,7 +239,7 @@ export default function HarnessMetricsPage() {
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{s.runs}</td>
                         <td className="px-3 py-2.5 text-right">
                           <span
-                            className={`tabular-nums text-xs font-bold px-2 py-0.5 rounded ${
+                            className={`tabular-nums text-xs font-semibold px-2 py-0.5 rounded ${
                               skillTone === "good" ? "bg-emerald-50 text-emerald-700" :
                               skillTone === "warn" ? "bg-amber-50 text-amber-700" :
                               skillTone === "bad"  ? "bg-rose-50 text-rose-700"     :
@@ -253,7 +254,7 @@ export default function HarnessMetricsPage() {
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{fmtNum(s.avg_tokens)}</td>
                         <td className="px-3 py-2.5 text-right">
                           {stormy ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
                               <Zap className="w-3 h-3" /> {s.retry_storms}
                             </span>
                           ) : (
@@ -271,24 +272,24 @@ export default function HarnessMetricsPage() {
 
         {/* Top failures */}
         <section className="space-y-2">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+          <h2 className="vb-title-md">
             Top failure reasons
           </h2>
           {loading && !data ? (
             <SkeletonCard className="h-40" />
           ) : !data || data.top_failures.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
+            <div className="bg-canvas border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
               No failures recorded. ✨
             </div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+            <div className="bg-canvas border border-slate-200 rounded-2xl divide-y divide-hairline-soft">
               {data.top_failures.map((f, i) => (
                 <div key={i} className="flex items-start justify-between gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
                     <code className="text-[12px] text-slate-800 break-all">{f.error}</code>
                     <div className="text-[10px] text-slate-400 mt-1">last seen {fmtTime(f.last_seen)}</div>
                   </div>
-                  <span className="shrink-0 text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full tabular-nums">
+                  <span className="shrink-0 text-xs font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full tabular-nums">
                     {f.count}×
                   </span>
                 </div>
@@ -296,7 +297,7 @@ export default function HarnessMetricsPage() {
             </div>
           )}
         </section>
-      </div>
+      </PageContainer>
     </Layout>
   );
 }

@@ -173,6 +173,12 @@ def ask_stream(
     *,
     organization_id: UUID,
     user_id: Optional[UUID],
+    # The User row behind `user_id`. Retrieval needs the whole object,
+    # not just the ID, to derive the caller's meeting scope. Optional so
+    # background/eval callers that legitimately run unscoped (the
+    # importance scorer, replay harnesses) keep working — but any
+    # request originating from a browser MUST pass it.
+    viewer=None,
     query_text: str,
     requested_scope_type: Optional[ScopeType] = None,
     requested_scope_id: Optional[int] = None,
@@ -294,7 +300,7 @@ def ask_stream(
             db, organization_id=organization_id,
             query_text=query_text, plan=plan, embedder=embedder,
             top_k_final=top_k_final, sources=sources,
-            rerank_strategy=rerank_strategy,
+            rerank_strategy=rerank_strategy, viewer=viewer,
         )
     except Exception as e:
         logger.error("ask_stream: retrieval crashed: %s", e, exc_info=True)
@@ -355,6 +361,35 @@ def ask_stream(
         logger.warning("memory wire-in (/ask) skipped: %s", exc)
         if not hasattr(bundle, "prior_facts"):
             bundle.prior_facts = []
+
+    # Memory Phase 4 — session/chat memory. Inject the relevant turns from
+    # earlier in THIS conversation (run_id = conversation_id) so follow-ups
+    # resolve against what was already said. mem0-only + flag-gated;
+    # non-fatal — a miss degrades to no session context.
+    if (
+        settings.MEMORY_CHAT_ENABLED
+        and settings.MEMORY_BACKEND == "mem0"
+        and conversation_id is not None
+    ):
+        try:
+            from app.services.memory import mem0_backend
+            turns = mem0_backend.search(
+                query=query_text, org_id=organization_id,
+                conversation_id=conversation_id, window="all", limit=6,
+            )
+            turn_lines = [f"- {t.fact}" for t in turns if getattr(t, "fact", None)]
+            if turn_lines:
+                bundle.session_block = (
+                    "### Earlier in this conversation\n" + "\n".join(turn_lines)
+                )
+                if not bundle.has_context:
+                    bundle.has_context = True
+                logger.info(
+                    "💭 Memory wire-in (/ask): %d session turn(s) injected (conv=%s)",
+                    len(turn_lines), conversation_id,
+                )
+        except Exception as exc:
+            logger.warning("session memory wire-in (/ask) skipped: %s", exc)
 
     # Memory Phase 2 — stamp the live-meeting state block (if any) onto
     # the bundle. /rag/ask-live passes this when the meeting is still
@@ -528,6 +563,29 @@ def ask_stream(
             logger.warning(
                 "ask_pipeline: access event logging failed: %s", exc,
             )
+
+    # Memory Phase 4 — persist this turn as session memory (run_id =
+    # conversation_id) so later turns in the same conversation can recall
+    # it. add_turn enforces infer=False (verbatim, run-scoped). Only store
+    # completed answers. mem0-only, flag-gated, fire-and-forget — a write
+    # failure never affects the response.
+    if (
+        settings.MEMORY_CHAT_ENABLED
+        and settings.MEMORY_BACKEND == "mem0"
+        and conversation_id is not None
+        and status == "completed"
+        and synth_result.answer_text
+    ):
+        try:
+            from app.services.memory import mem0_backend
+            mem0_backend.add_turn(
+                question=query_text,
+                answer=synth_result.answer_text,
+                org_id=organization_id,
+                conversation_id=conversation_id,
+            )
+        except Exception as exc:
+            logger.warning("session memory write (/ask) skipped: %s", exc)
 
     yield {"event": "done", "data": {
         "run_id": str(run_id),

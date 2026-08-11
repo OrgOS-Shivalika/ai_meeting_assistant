@@ -175,7 +175,7 @@ export default function ContinuumBoardPage() {
                       draggable
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", String(c.id))}
                       onClick={() => setDrawerId(c.id)}
-                      className="cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 shadow-sm hover:border-indigo-300 hover:shadow"
+                      className="cursor-pointer rounded-md border border-slate-200 bg-canvas p-2.5 shadow-sm hover:border-indigo-300 hover:shadow"
                     >
                       <div className="flex items-start justify-between gap-1">
                         <span className="text-sm font-medium text-slate-800">{c.name}</span>
@@ -300,7 +300,7 @@ function ClientDrawer({
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30" onClick={onClose}>
       <div
-        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-white shadow-2xl"
+        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-canvas shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drawer header */}
@@ -437,7 +437,7 @@ function ClientDrawer({
           {runs.length > 0 && (
             <div className="rounded-lg border border-slate-200 p-3">
               <h3 className="mb-1.5 text-sm font-medium text-slate-700">History</h3>
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-hairline-soft">
                 {runs.map((r) => (
                   <li key={r.id}>
                     <button

@@ -238,6 +238,12 @@ class RetrievalBundle:
     # questions that the distilled facts (short-term) can't cover. NOT
     # cited. Rendered BELOW facts and ABOVE chunks in the synth context.
     long_term_block: str = ""
+    # Memory Phase 4 — session/chat memory block: relevant turns from
+    # earlier in THIS conversation (run_id-scoped), so follow-up questions
+    # resolve against what was already said. Populated by ask_pipeline when
+    # MEMORY_CHAT_ENABLED. NOT cited. Rendered near the top (conversational
+    # context beats retrieved evidence for follow-ups).
+    session_block: str = ""
 
 
 # ---------------------------------------------------------------------------

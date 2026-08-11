@@ -15,12 +15,16 @@
  * transcript.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { API_PREFIX } from "../../../services/config";
 
 export type LivePartial = { speaker: string; text: string };
 export interface LiveFinal {
   speaker: string;
   text: string;
   timestamp: number;
+  // Present = a participant join/leave notice, not a spoken line.
+  // Consumers render these as an inline system notice.
+  kind?: "join" | "leave";
 }
 
 export interface LiveCognitiveEvent {
@@ -52,23 +56,22 @@ export interface UseLiveTranscript {
 // user isn't allowed on this meeting. Bail instead of hammering.
 const WS_AUTH_FAILED_CODES = new Set([4401, 4403]);
 
-function buildWsUrl(meetingId: number, token: string | null): string {
+function buildWsUrl(meetingId: number): string {
   // Use the standard Vite environment variable
   const apiUrl = import.meta.env.VITE_API_URL;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
 
-  // Token goes on the URL because browser WebSocket() can't send
-  // custom headers. It ends up in server access logs — mitigation is
-  // the short JWT TTL already used for HTTP auth.
-  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
-
+  // No token on the URL anymore. Auth rides the HttpOnly `access_token`
+  // cookie, which the browser attaches to the WS handshake automatically
+  // on same-origin connections — nothing sensitive lands in access logs.
+  // The viewer socket lives under API_PREFIX (it's an authenticated route).
   if (apiUrl && apiUrl.startsWith("http")) {
     // Transform http://host:port -> ws://host:port
-    return `${apiUrl.replace(/^http/, "ws")}/ws/${meetingId}${qs}`;
+    return `${apiUrl.replace(/^http/, "ws")}${API_PREFIX}/ws/${meetingId}`;
   }
 
   // Fallback to same-origin (Vite proxy will handle this in dev)
-  return `${protocol}://${window.location.host}/ws/${meetingId}${qs}`;
+  return `${protocol}://${window.location.host}${API_PREFIX}/ws/${meetingId}`;
 }
 
 export function useLiveTranscript(
@@ -113,11 +116,8 @@ export function useLiveTranscript(
 
     const connect = () => {
       if (cancelled) return;
-      // Re-read the token on every (re)connect so if it rotates
-      // between attempts the new one is used automatically.
-      const token = localStorage.getItem("token");
       try {
-        ws = new WebSocket(buildWsUrl(meetingId, token));
+        ws = new WebSocket(buildWsUrl(meetingId));
       } catch (e) {
         // Synchronous WebSocket construction failures (very rare)
         // — schedule a reconnect.
@@ -152,6 +152,20 @@ export function useLiveTranscript(
             const event = msg as LiveCognitiveEvent;
             setLiveEvents((prev) => [...prev, event]);
             eventCbRef.current?.(event);
+          } else if (msg.type === "participant_event") {
+            const action = msg.action === "leave" ? "leave" : "join";
+            const name = msg.name || "Someone";
+            setFinals((prev) => [
+              ...prev,
+              {
+                // Attributed to the assistant, not the participant, so the
+                // bubble reads "OrgOS / <name> joined the meeting".
+                speaker: "OrgOS",
+                text: `${name} ${action === "join" ? "joined" : "left"} the meeting`,
+                timestamp: Date.now(),
+                kind: action,
+              },
+            ]);
           }
         } catch {
           /* malformed payload — ignore */

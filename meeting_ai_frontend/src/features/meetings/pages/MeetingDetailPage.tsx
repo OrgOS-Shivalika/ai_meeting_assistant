@@ -7,6 +7,7 @@ import { Skeleton, SkeletonCard, SkeletonText } from "../../../shared/components
 import CategoryAssignControl from "../components/CategoryAssignControl";
 import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import AskAssistantPanel from "../components/AskAssistantPanel";
+import AttendeeAccessModal from "../components/AttendeeAccessModal";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
 import {
   Calendar,
@@ -27,6 +28,7 @@ import {
 import type { Meeting, Participant, Task } from "../types";
 import MeetingAIMemorySection from "../components/MeetingAIMemorySection";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import {
   useLiveTranscript,
@@ -57,6 +59,8 @@ type TranscriptGroup = {
   timestamp?: number | string;
   messages: string[];
   isPartial?: boolean;
+  // Present = a participant join/leave notice rendered inline, not a bubble.
+  kind?: "join" | "leave";
 };
 
 const getInitials = (name: string) => {
@@ -185,6 +189,7 @@ export default function MeetingDetailPage() {
   // so the meeting content (transcript, tasks) gets the full visual focus.
   // Cmd+K toggles, ? opens, Esc closes (wired inside the panel).
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [showAttendees, setShowAttendees] = useState(false);
   const [agentInsights, setAgentInsights] = useState<AgentInsight[]>([]);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -324,7 +329,21 @@ export default function MeetingDetailPage() {
     const gs: TranscriptGroup[] = [];
     for (const line of finals) {
       const last = gs[gs.length - 1];
-      if (last && last.speaker === line.speaker && !last.isPartial) {
+      if (line.kind) {
+        // participant join/leave — always a standalone inline notice,
+        // never merged into an adjacent same-name speaker group.
+        gs.push({
+          speaker: line.speaker,
+          timestamp: line.timestamp,
+          messages: [line.text],
+          kind: line.kind,
+        });
+      } else if (
+        last &&
+        last.speaker === line.speaker &&
+        !last.isPartial &&
+        !last.kind
+      ) {
         last.messages.push(line.text);
       } else {
         gs.push({
@@ -405,22 +424,22 @@ export default function MeetingDetailPage() {
   if (error) {
     return (
       <Layout>
-        <div className="max-w-md mx-auto px-8 py-16">
-          <div className="bg-white rounded-lg border border-slate-200 p-10 text-center">
-            <div className="w-10 h-10 rounded-md bg-red-50 flex items-center justify-center mx-auto mb-3">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-            </div>
-            <h2 className="text-base font-semibold text-slate-900 mb-1">
-              Couldn't load meeting
-            </h2>
-            <p className="text-sm text-slate-500 mb-5">{error}</p>
-            <Button asChild size="sm" className="bg-slate-900 hover:bg-slate-800">
-              <Link to="/">
-                <ChevronLeft className="w-4 h-4" />
-                Back to meetings
-              </Link>
-            </Button>
-          </div>
+        <div className="mx-auto max-w-md px-8 py-16">
+          <EmptyState
+            icon={AlertCircle}
+            color="var(--vb-error)"
+            title="Couldn't load meeting"
+            description={error}
+            className="rounded-2xl"
+            action={
+              <Button asChild>
+                <Link to="/">
+                  <ChevronLeft />
+                  Back to meetings
+                </Link>
+              </Button>
+            }
+          />
         </div>
       </Layout>
     );
@@ -429,23 +448,23 @@ export default function MeetingDetailPage() {
   if (!meeting) {
     return (
       <Layout>
-        <div className="h-full flex flex-col">
-          <div className="px-8 py-3 border-b border-slate-200 shrink-0">
+        <div className="flex h-full flex-col bg-canvas">
+          <div className="shrink-0 border-b border-hairline px-9 py-3.5">
             <Skeleton className="h-3 w-64" />
           </div>
-          <div className="px-8 py-6 border-b border-slate-200 shrink-0 space-y-3">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-8 w-96" />
+          <div className="shrink-0 space-y-3.5 border-b border-hairline px-9 py-7">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-9 w-96" />
             <Skeleton className="h-4 w-64" />
           </div>
-          <div className="flex-1 bg-slate-50 p-6 grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4 min-h-0">
-            <div className="bg-white rounded-lg border border-slate-200 p-5">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 p-7 xl:grid-cols-[1fr_360px]">
+            <div className="rounded-lg border border-hairline bg-canvas p-6">
               <SkeletonText lines={8} />
             </div>
             <div className="space-y-4">
-              <SkeletonCard className="h-40" />
-              <SkeletonCard className="h-56" />
-              <SkeletonCard className="h-32" />
+              <SkeletonCard className="h-40 rounded-lg" />
+              <SkeletonCard className="h-56 rounded-lg" />
+              <SkeletonCard className="h-32 rounded-lg" />
             </div>
           </div>
         </div>
@@ -457,6 +476,10 @@ export default function MeetingDetailPage() {
   const dateStr = formatDate(meeting.scheduled_at || meeting.started_at || meeting.created_at) || "—";
   const durationStr = computeDuration(meeting);
   const participants: Participant[] = meeting.participants ?? [];
+  // Attendees whose identity was never confirmed, so attending this
+  // meeting gave them nothing. Surfaced on the chip because it is
+  // otherwise silent — the row looks identical either way.
+  const missingAccess = participants.filter((p) => !p.grants_access).length;
   const taskCount = tasks.length;
   const completedTaskCount = tasks.filter((t) => t.is_completed).length;
   const isTaskUnassigned = (t: Task) => {
@@ -467,17 +490,7 @@ export default function MeetingDetailPage() {
 
   return (
     <Layout>
-      <div
-        className="h-full flex flex-col"
-        style={{
-          // Override the cream canvas token → white for this whole page,
-          // so every child using var(--vb-canvas) inherits white.
-          ["--vb-canvas" as string]: "#ffffff",
-          background: "#ffffff",
-          fontFamily: "var(--vb-font-sans)",
-          color: "var(--vb-body)",
-        } as React.CSSProperties}
-      >
+      <div className="flex h-full flex-col bg-canvas text-body">
         {/* Breadcrumb strip */}
         <div
           className="px-8 py-3 flex items-center justify-between shrink-0"
@@ -649,11 +662,28 @@ export default function MeetingDetailPage() {
                   {durationStr}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1.5">
+              {/* A button, because this count is where anyone looks for
+                  the attendee list — and the attendee list is the only
+                  place the access consequences of a bad name match are
+                  visible or fixable. */}
+              <button
+                onClick={() => setShowAttendees(true)}
+                className="inline-flex items-center gap-1.5 hover:underline"
+                style={{ font: "inherit", color: "inherit", cursor: "pointer" }}
+                title="View attendees and who can open this meeting"
+              >
                 <Users className="w-3.5 h-3.5" style={{ color: "var(--vb-muted-soft)" }} />
                 {participants.length} participant
                 {participants.length === 1 ? "" : "s"}
-              </span>
+                {missingAccess > 0 && (
+                  <span
+                    className="ml-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                    title={`${missingAccess} attendee(s) cannot open this meeting`}
+                  >
+                    {missingAccess} without access
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -767,7 +797,42 @@ export default function MeetingDetailPage() {
                   </p>
                 </div>
               ) : (
-                groups.map((group, idx) => (
+                groups.map((group, idx) =>
+                  group.kind ? (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "flex flex-row-reverse gap-3 p-2.5 rounded-md",
+                        group.kind === "join"
+                          ? "bg-emerald-50/50"
+                          : "bg-slate-50/70",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "w-7 h-7 rounded-md flex items-center justify-center font-semibold text-[10px] text-white shrink-0",
+                          colorFor(group.speaker),
+                        )}
+                      >
+                        {getInitials(group.speaker)}
+                      </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <div className="flex items-baseline justify-end gap-2 mb-1">
+                          {group.timestamp && (
+                            <span className="text-[10px] text-slate-400 tabular-nums">
+                              {formatTime(group.timestamp)}
+                            </span>
+                          )}
+                          <span className="text-[13px] font-semibold text-slate-900">
+                            {group.speaker}
+                          </span>
+                        </div>
+                        <p className="text-[13px] leading-relaxed text-slate-500 italic">
+                          {group.messages[0]}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
                   <div
                     key={idx}
                     className={cn(
@@ -1118,22 +1183,22 @@ export default function MeetingDetailPage() {
         {/* LIVE INTELLIGENCE POPUP */}
         {activeNotification && (
           <div className="fixed bottom-6 right-6 z-[100] animate-in slide-in-from-right-10 duration-500">
-            <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg border border-white/10 w-80 relative overflow-hidden">
+            <div className="bg-slate-900 text-white p-4 rounded-xl shadow-soft border border-white/10 w-80 relative overflow-hidden">
               <div className="absolute -top-8 -right-8 w-24 h-24 bg-indigo-500/20 blur-2xl rounded-full" />
               <div className="flex items-start gap-3 relative z-10">
                 <div className="shrink-0">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-soft">
                     <Zap className="w-4 h-4 text-white" />
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Task Detected</span>
+                    <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Task Detected</span>
                     <button onClick={() => setActiveNotification(null)} className="text-white/40 hover:text-white transition-colors"><CheckCircle2 className="w-3.5 h-3.5" /></button>
                   </div>
-                  <h5 className="text-xs font-bold leading-snug text-white line-clamp-2">{activeNotification.payload.task}</h5>
+                  <h5 className="text-xs font-semibold leading-snug text-white line-clamp-2">{activeNotification.payload.task}</h5>
                   <div className="mt-2 flex items-center gap-1.5 text-xs">
-                    <div className={`w-4 h-4 rounded text-[7px] font-bold flex items-center justify-center ${colorFor(activeNotification.payload.owner || "?")}`}>{getInitials(activeNotification.payload.owner || "?")}</div>
+                    <div className={`w-4 h-4 rounded text-[7px] font-semibold flex items-center justify-center ${colorFor(activeNotification.payload.owner || "?")}`}>{getInitials(activeNotification.payload.owner || "?")}</div>
                     <span className="text-white/70">Owner: <span className="text-white font-semibold">{activeNotification.payload.owner || "Unassigned owner"}</span></span>
                   </div>
                   {/* Due-date row — shows the ISO date if the LLM resolved one,
@@ -1186,6 +1251,29 @@ export default function MeetingDetailPage() {
             open={false}
             onOpen={() => setAskPanelOpen(true)}
             onClose={() => setAskPanelOpen(false)}
+          />
+        )}
+
+        {showAttendees && (
+          <AttendeeAccessModal
+            meetingId={meeting.id}
+            participants={participants}
+            onClose={() => setShowAttendees(false)}
+            onChanged={(updated) =>
+              // Patch the row in place rather than refetching the meeting —
+              // the response is the authoritative version of that row, and
+              // a refetch would discard the transcript scroll position.
+              setMeeting((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      participants: (prev.participants ?? []).map((p) =>
+                        p.id === updated.id ? updated : p,
+                      ),
+                    }
+                  : prev,
+              )
+            }
           />
         )}
       </div>

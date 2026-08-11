@@ -1,17 +1,4 @@
-// Phase 14 — Board view (child of BoardLayout).
-//
-// Owns the board-specific UI: search, filter strip, drag-drop columns,
-// and the card detail drawer. The shared header (back link, title,
-// tabs) lives in BoardLayout — this keeps tab switching cheap because
-// the layout stays mounted.
-//
-// Drag-and-drop wiring (@dnd-kit):
-//   - DndContext provides the engine
-//   - Each column is a SortableContext (vertical) holding TaskCards
-//   - On drag end, we figure out the target column + target slot,
-//     mutate state optimistically, fire the move API call, and
-//     refresh on response (so the position lands on whatever the
-//     server actually computed).
+
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -41,6 +28,8 @@ import BoardFilters, {
 } from "../components/BoardFilters";
 import TaskDetailDrawer from "../components/TaskDetailDrawer";
 import type { BoardDetail, BoardTaskSummary } from "../types";
+import { SearchInput } from "@/components/ui/input";
+import { FilterPill } from "@/components/ui/segmented";
 
 // ---------------------------------------------------------------------------
 // Date-range filter helpers. `parseDayStart` returns the timestamp at
@@ -381,39 +370,28 @@ export default function BoardPage() {
       {/* Search + filter button row. Back-link, board name, and tabs
           are rendered by BoardLayout — this component only owns the
           board-specific controls. */}
-      <div className="flex items-center justify-end gap-2 mb-3">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search cards…"
-            className="pl-7 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none w-48"
-          />
-        </div>
-        <button
+      <div className="mt-5 flex items-center justify-end gap-2.5 px-9">
+        <SearchInput
+          icon={Search}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search cards…"
+          className="h-[38px] w-52"
+        />
+        <FilterPill
+          active={filtersOpen || activeFilterCount > 0}
+          count={activeFilterCount > 0 ? activeFilterCount : undefined}
           onClick={() => setFiltersOpen((prev) => !prev)}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded border transition-colors ${
-            filtersOpen || activeFilterCount > 0
-              ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
-              : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
-          }`}
           aria-expanded={filtersOpen}
         >
-          <Filter className="w-3.5 h-3.5" />
+          <Filter className="size-3.5" />
           Filter
-          {activeFilterCount > 0 && (
-            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-indigo-600 text-white">
-              {activeFilterCount}
-            </span>
-          )}
-        </button>
+        </FilterPill>
       </div>
 
       {/* Filter strip — hidden until the user opens it via the button. */}
       {filtersOpen && (
-        <div className="mb-3">
+        <div className="mt-3 px-9">
           <BoardFilters
             open
             board={board}
@@ -431,8 +409,8 @@ export default function BoardPage() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex gap-3 h-full pb-2">
+        <div className="vb-no-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-9 py-6">
+          <div className="flex h-full items-start gap-4">
             {filteredColumns.map((col) => (
               <BoardColumn
                 key={col.id}

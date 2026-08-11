@@ -9,16 +9,56 @@ load_dotenv()
 
 class Settings:
     # ---- Database ---------------------------------------------------------
-    # Defaults match the previous hardcoded value so existing dev envs Just
-    # Work. Override via DATABASE_URL in .env when needed.
+    # Set DATABASE_URL in .env; this fallback exists only so a fresh checkout
+    # without a .env still starts.
+    #
+    # The fallback deliberately points at the LOCAL docker-compose Postgres
+    # (pgvector/pg16 on :5433, per POSTGRES_* in .env) — never at a remote.
+    # `alembic/env.py` migrates whatever this resolves to, so a production
+    # default here would mean an accidental `alembic upgrade head` rewrites
+    # production.
     DATABASE_URL = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:8210682@localhost:5432/meeting_ai",
+        "postgresql://postgres:postgres@localhost:5433/meeting_ai",
     )
 
     # ---- Auth -------------------------------------------------------------
     AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "supersecret")
     ALGORITHM = "HS256"
+
+    # ---- Auth cookie (HttpOnly JWT) --------------------------------------
+    # The JWT is delivered to browsers as an HttpOnly cookie instead of a
+    # body token the SPA stashes in localStorage. HttpOnly means JS can't
+    # read it, so an XSS payload can't exfiltrate the session — the browser
+    # attaches it automatically on same-origin requests + the WS handshake.
+    #
+    #   AUTH_COOKIE_SECURE   — set True in any HTTPS deployment so the cookie
+    #                          is never sent over plain http. Keep False for
+    #                          local http://localhost dev (a Secure cookie is
+    #                          dropped on http and the user can't log in).
+    #   AUTH_COOKIE_SAMESITE — 'lax' is right for the same-origin default
+    #                          (prod serves the SPA from FastAPI; dev proxies
+    #                          through Vite). Use 'none' (with Secure=True)
+    #                          only for a genuinely cross-site frontend.
+    #   AUTH_COOKIE_MAX_AGE  — mirrors the 7-day JWT TTL in auth_service.
+    AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "access_token")
+    AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+    AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+    AUTH_COOKIE_MAX_AGE = int(os.getenv("AUTH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
+
+    # ---- API route prefixes ----------------------------------------------
+    # Two mount points split the surface by auth expectation:
+    #   API_PREFIX     — JWT-authenticated app endpoints (the SPA sends the
+    #                    HttpOnly cookie). Everything the logged-in app calls.
+    #   PUBLIC_PREFIX  — unauthenticated endpoints: register + login only.
+    # Machine-to-machine endpoints (Recall webhook / WS receiver) and infra
+    # (/health, /docs, /openapi.json) deliberately stay at the root — they're
+    # neither browser-auth nor login. Both prefixes are overridable so a
+    # deployment behind a gateway can rename them (must be kept in sync with
+    # the frontend's VITE_API_PREFIX / VITE_PUBLIC_PREFIX). Leading slash,
+    # no trailing slash.
+    API_PREFIX = "/" + os.getenv("API_PREFIX", "/api").strip("/")
+    PUBLIC_PREFIX = "/" + os.getenv("PUBLIC_PREFIX", "/public").strip("/")
 
     # ---- AI providers -----------------------------------------------------
     OPEN_API_KEY = os.getenv("OPEN_API_KEY")
@@ -340,6 +380,71 @@ class Settings:
     INTERNAL_WEBHOOK_BASE_URL = os.getenv(
         "INTERNAL_WEBHOOK_BASE_URL", "http://localhost:8000",
     )
+
+    # ---------------------------------------------------------------------
+    # Memory backend — mem0 consolidation (see MEM0_IMPLEMENTATION_PLAN.md)
+    # ---------------------------------------------------------------------
+    # 'native' — the existing org_memory_facts pipeline (default).
+    # 'mem0'   — route persistent memory (facts + chat) through mem0.
+    # Kill switch: set back to 'native' to fall through to the legacy path.
+    MEMORY_BACKEND = os.getenv("MEMORY_BACKEND", "native")
+    # Phase 4 sub-flag — conversational (session) memory in /ask. Separate
+    # because it adds ~1 LLM call per chat turn.
+    MEMORY_CHAT_ENABLED = os.getenv("MEMORY_CHAT_ENABLED", "false").lower() in {"1", "true", "yes"}
+    # mem0 managed-platform API key (from app.mem0.ai). Its presence selects
+    # the mode: SET → managed (mem0 hosts the store on its servers, nothing
+    # local); UNSET → OSS self-hosted (mem0's own table in our Postgres).
+    MEM0_API_KEY = os.getenv("MEM0_API_KEY")
+    # mem0's own pgvector table — OSS mode only (never touches org_memory_facts).
+    MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "mem0_facts")
+    # Default recency window (days) for window='short_term' searches.
+    MEM0_SHORT_TERM_DAYS = int(os.getenv("MEM0_SHORT_TERM_DAYS", "60"))
+    # Similarity FLOOR for mem0 search — higher is stricter. Unset (the
+    # default) means "use mem0's own per-mode default", which is the only
+    # safe choice because the two modes do not agree on scale.
+    #
+    # This used to be hardcoded to 0.3. On the OSS store that is above every
+    # score the data actually produces (measured 2026-08-03: the best match
+    # for a real query scored 0.2349, and mem0's own OSS default is 0.1), so
+    # EVERY ranked search returned zero rows while the unranked/empty-query
+    # path kept working — i.e. semantic recall was silently dead in OSS mode.
+    # Set a float here only to tune deliberately, and re-measure after
+    # switching modes.
+    _MEM0_THRESHOLD_RAW = os.getenv("MEM0_SEARCH_THRESHOLD", "").strip()
+    MEM0_SEARCH_THRESHOLD = float(_MEM0_THRESHOLD_RAW) if _MEM0_THRESHOLD_RAW else None
+    # Distiller anti-hallucination excerpt check. When true, a fact whose
+    # cited excerpt isn't found verbatim in the transcript is dropped.
+    # Default FALSE — keep every LLM-extracted fact (0 only when the model
+    # genuinely found none). Set true to re-enable strict grounding.
+    MEMORY_VERBATIM_CHECK = os.getenv("MEMORY_VERBATIM_CHECK", "false").lower() in {"1", "true", "yes"}
+    # mem0 telemetry (posthog) — OFF by default for data residency. The
+    # backend module also sets this env var before importing mem0.
+    MEM0_TELEMETRY = os.getenv("MEM0_TELEMETRY", "false")
+
+    # ---- Outbound email (SMTP) -------------------------------------------
+    # Used for member invite emails. Plain SMTP via stdlib `smtplib` rather
+    # than a provider SDK, so any of Gmail/SES/Postmark/Mailgun works by
+    # config alone and no new dependency is introduced.
+    #
+    # Email is OPTIONAL. With SMTP_HOST unset, `mail_service.is_configured()`
+    # is False and invite sending is skipped — member creation still
+    # succeeds and the API returns the password for manual sharing. That
+    # keeps local dev working without a mail server.
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    # STARTTLS on 587 (the common default). Set SMTP_USE_SSL for implicit
+    # TLS on 465 instead; the two are mutually exclusive.
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
+    SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
+    # Envelope sender. Falls back to SMTP_USER, which is what most providers
+    # require the From address to match anyway.
+    SMTP_FROM = os.getenv("SMTP_FROM", "") or os.getenv("SMTP_USER", "")
+    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "OrgOS")
+    # Kept short: this send happens inside the HTTP request that creates the
+    # member, so a hanging mail server must not hang the request.
+    SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
 
     def __init__(self):
         if not self.OPEN_API_KEY:

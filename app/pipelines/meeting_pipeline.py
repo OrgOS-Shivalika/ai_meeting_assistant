@@ -7,7 +7,9 @@ from app.services.kanban.defaults import resolve_landing_for_meeting
 from app.services.kanban.positions import position_for_end
 from app.utils.logger import setup_logger
 import json
-from app.db.models import Meeting, Task, Participant
+from app.db.models import Meeting, Task, Participant, User
+from app.utils.admin_enums import ParticipantMatchSource
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -29,33 +31,55 @@ class MeetingPipeline:
             return None
 
     def save_participants(self, db, meeting, transcript_json, bot_data=None):
-        # Unique participants from transcript using their Recall ID
-        unique_participants = {} # recall_id -> name
+        # Unique participants keyed by their Recall ID. The value is the
+        # display name, or None until a real one turns up.
+        unique_participants: dict = {}
+
+        def _remember(p_id, name) -> None:
+            """Record one attendee.
+
+            An id with no name is still an attendee. Recall routinely
+            emits `{"id": 101, "name": null}` for dial-ins, guests, and
+            anyone whose platform profile it can't read — and the old
+            `if p_id and name` guard dropped every one of them, which is
+            why meetings showed fewer attendees than their transcript
+            contains (and zero when the only speaker was nameless). The
+            live webhook path already synthesizes the same placeholder;
+            this makes the batch path agree with it.
+
+            `is not None` rather than truthiness because Recall numbers
+            participants from 0 on some platforms.
+            """
+            if p_id is None:
+                return
+            real = (name or "").strip()
+            # A real name always wins over a placeholder; a nameless
+            # sighting never overwrites a name we already have.
+            if real or p_id not in unique_participants:
+                unique_participants[p_id] = real or None
 
         # 1. First, populate from Recall bot's meeting_participants list (if available)
         # This list includes everyone who joined the meeting, even if they didn't speak.
         if bot_data and "meeting_participants" in bot_data:
             logger.info(f"Using bot metadata for {len(bot_data['meeting_participants'])} participants")
             for p in bot_data["meeting_participants"]:
-                p_id = p.get("id")
-                name = p.get("name")
-                if p_id and name:
-                    unique_participants[p_id] = name
+                _remember(p.get("id"), p.get("name"))
 
         # 2. Fallback/Supplement from transcript (just in case).
         # transcript_json may be None when Recall's compiled transcript
         # failed and we fell back to the live transcript — in that case
         # we rely entirely on bot_data["meeting_participants"] above.
         for block in (transcript_json or []):
-            p_info = block.get("participant", {})
-            p_id = p_info.get("id")
-            name = p_info.get("name")
-            if p_id and name and p_id not in unique_participants:
-                unique_participants[p_id] = name
-        
-        # Get attendee map from Google Calendar data if available
-        attendee_map = {}
-        
+            p_info = block.get("participant") or {}
+            _remember(p_info.get("id"), p_info.get("name"))
+
+        # Label whoever Recall never named, so the row is still saved and
+        # renders as something a human can pick out of a list.
+        unique_participants = {
+            p_id: name or f"Participant {p_id}"
+            for p_id, name in unique_participants.items()
+        }
+
         # If google_event_data is missing, try to fetch it if we have a user with google tokens
         if not meeting.google_event_data and meeting.user and meeting.user.google_access_token:
             try:
@@ -79,33 +103,88 @@ class MeetingPipeline:
             except Exception as e:
                 logger.error(f"Failed to dynamically fetch calendar data: {str(e)}")
 
+        # Two maps, not one, because they carry different levels of
+        # trust and `participants.user_id` is now an authorization
+        # input rather than just an avatar lookup.
+        #
+        #   exact_map — the Recall name IS the attendee's email, or IS
+        #               their full calendar display name. Unambiguous.
+        #   fuzzy_map — email local-part, or a single token of a display
+        #               name. Good enough to render a face next to a
+        #               transcript line; nowhere near good enough to
+        #               decide who may read the meeting. Two colleagues
+        #               named "Chris" resolve to the same token.
+        #
+        # A link made through fuzzy_map is stored with
+        # match_source='heuristic' and grants nothing — see
+        # `permissions.TRUSTED_MATCH_SOURCES`.
+        exact_map: dict[str, str] = {}
+        fuzzy_map: dict[str, str] = {}
+        ambiguous_fuzzy_keys: set[str] = set()
+
+        def _add_fuzzy(key: str, email: str) -> None:
+            """Record a loose key, tracking collisions.
+
+            When two attendees claim the same token the key is poisoned
+            rather than won by whoever the iteration order happened to
+            reach first — a silently wrong avatar is bad, and the same
+            code path used to feed access decisions."""
+            existing = fuzzy_map.get(key)
+            if existing and existing.lower() != email.lower():
+                ambiguous_fuzzy_keys.add(key)
+            else:
+                fuzzy_map[key] = email
+
         if meeting.google_event_data and "attendees" in meeting.google_event_data:
             logger.info(f"Processing {len(meeting.google_event_data['attendees'])} attendees from Google data")
             for attendee in meeting.google_event_data["attendees"]:
                 a_email = attendee.get("email")
                 if not a_email:
                     continue
-                
-                # Store by exact email (Recall often uses email if display name is missing)
-                attendee_map[a_email.lower()] = a_email
 
-                # Store by full name
-                a_name = attendee.get("displayName")
+                # Exact: the email itself (Recall often uses the email
+                # when a display name is missing).
+                exact_map[a_email.strip().lower()] = a_email
+
+                # Exact: the complete display name.
+                a_name = (attendee.get("displayName") or "").strip()
                 if a_name:
-                    attendee_map[a_name.lower()] = a_email
-                
-                # Store by email prefix (common in Recall AI)
-                prefix = a_email.split("@")[0].lower()
-                attendee_map[prefix] = a_email
-                
-                # Store by parts of name
+                    exact_map[a_name.lower()] = a_email
+
+                # Fuzzy: email local-part, common in Recall.ai output.
+                _add_fuzzy(a_email.split("@")[0].strip().lower(), a_email)
+
+                # Fuzzy: individual name tokens.
                 if a_name:
                     for part in a_name.lower().split():
-                        if len(part) > 2: # ignore short names
-                            attendee_map[part] = a_email
+                        if len(part) > 2:  # ignore initials / particles
+                            _add_fuzzy(part, a_email)
 
-        logger.info(f"Cross-referencing {len(unique_participants)} participants with {len(attendee_map)} unique calendar mapping keys")
-        logger.info(f"Mapping keys available: {list(attendee_map.keys())}")
+        for key in ambiguous_fuzzy_keys:
+            fuzzy_map.pop(key, None)
+
+        logger.info(
+            "Cross-referencing %d participants with %d exact and %d unambiguous "
+            "fuzzy calendar keys (%d keys dropped as ambiguous)",
+            len(unique_participants), len(exact_map), len(fuzzy_map),
+            len(ambiguous_fuzzy_keys),
+        )
+
+        # Idempotency. A re-run (scripts/rerun_analysis.py, a Celery
+        # retry, a second dispatch for the same meeting) used to append a
+        # whole extra copy of every attendee — hence meetings carrying
+        # exactly 2× or 3× their real participant count.
+        #
+        # Skip ids already on the meeting rather than delete-and-reinsert:
+        # a row may carry a hand-made `match_source='manual'` link, which
+        # is the only recovery from a failed calendar match, and wiping it
+        # silently revokes that person's access to the meeting.
+        already_saved = {
+            r[0]
+            for r in db.query(Participant.recall_id)
+            .filter(Participant.meeting_id == meeting.id)
+            .all()
+        }
 
         # Track name occurrences for database display names
         name_counts = {}
@@ -117,6 +196,13 @@ class MeetingPipeline:
         current_counts = {}
 
         for p_id, name in unique_participants.items():
+            if str(p_id) in already_saved:
+                logger.debug(
+                    "Participant %s already on meeting %s — not duplicating",
+                    p_id, meeting.id,
+                )
+                continue
+
             display_name = name
             if name_counts[name] > 1:
                 if name not in current_counts:
@@ -124,32 +210,75 @@ class MeetingPipeline:
                 current_counts[name] += 1
                 display_name = f"{name} ({current_counts[name]})"
 
-            # Try to find email using multiple strategies
-            email = attendee_map.get(name.lower())
+            # Per participant, not per meeting. Without the reset the
+            # first organizer match leaked onto everyone processed after
+            # them — and before this line existed at all the reference
+            # below raised NameError on the first non-organizer, which is
+            # nearly every call, so no participant rows were written and
+            # member access could never work.
             is_organizer = False
-            
+
+            # Exact first, and remember which path won — the answer
+            # decides whether this person gets access to the meeting.
+            lookup = name.strip().lower()
+            email = exact_map.get(lookup)
+            match_source = (
+                ParticipantMatchSource.CALENDAR_EXACT.value if email else None
+            )
+
             if not email:
-                # Try matching by first name or last name
-                for part in name.lower().split():
-                    if part in attendee_map:
-                        email = attendee_map[part]
+                for part in lookup.split():
+                    if part in fuzzy_map:
+                        email = fuzzy_map[part]
+                        match_source = ParticipantMatchSource.HEURISTIC.value
                         break
-            
+
             # Check if this person is the organizer
             if email and meeting.google_event_data and meeting.google_event_data.get("organizer", {}).get("email") == email:
                 is_organizer = True
-            
-            logger.debug(f"Matching participant: '{name}' -> Email: {email or 'NOT FOUND'}, Organizer: {is_organizer}")
-            
+
+            # Attendance is membership, so this is the row that grants a
+            # member their access. Exact, case-normalized email equality
+            # against a user in the SAME organization — never a name.
+            linked_user_id = None
+            if email:
+                linked_user = (
+                    db.query(User)
+                    .filter(
+                        func.lower(User.email) == email.strip().lower(),
+                        User.organization_id == meeting.organization_id,
+                    )
+                    .first()
+                )
+                linked_user_id = linked_user.id if linked_user else None
+            if linked_user_id is None:
+                # No account behind this attendee (external guest,
+                # dial-in, or someone who hasn't signed up yet).
+                # Provenance describes a link, so with no link there's
+                # nothing to describe.
+                match_source = None
+
+            logger.debug(
+                "Matching participant: '%s' -> email=%s source=%s user=%s organizer=%s",
+                name, email or "NOT FOUND", match_source or "-",
+                linked_user_id or "-", is_organizer,
+            )
+
             participant = Participant(
                 meeting_id=meeting.id,
                 name=display_name,
-                recall_id=p_id,
+                # str() explicitly: the column is String, Recall sends an
+                # int, and `already_saved` above compares against what
+                # Postgres gives back. Leaving the coercion implicit meant
+                # the in-memory row and the stored row differed by type.
+                recall_id=str(p_id),
                 email=email,
+                user_id=linked_user_id,
+                match_source=match_source,
                 is_organizer=str(is_organizer) # Maintaining string compatibility for now
             )
             db.add(participant)
-        
+
         db.commit()
 
     def save_tasks(self, db, meeting_id, tasks):
@@ -355,6 +484,23 @@ class MeetingPipeline:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
 
+            # Resolve the behaviour profile ONCE, before the routing branch.
+            #
+            # It must be bound on both paths: the legacy orchestrator takes it
+            # as an argument, and the compliance + automation block further
+            # down gates on it regardless of which path produced `result_obj`.
+            # Resolving it inside the `else` left it unbound on every
+            # agents_v2 meeting, and the resulting NameError was caught by
+            # that block's `except Exception` — so PII redaction and every
+            # automation event were silently skipped rather than erroring.
+            from app.services.behavior.resolver import resolve_behavior_profile
+            prof = resolve_behavior_profile(
+                db,
+                organization_id=meeting.organization_id,
+                category_id=meeting.category_id,
+                team_id=meeting.team_id
+            )
+
             # Agents v2 feature flag — if there's an agents_v2 row for
             # this meeting's scope, route through the new orchestrator.
             # Otherwise fall through to the legacy Phase 9.6 path.
@@ -366,21 +512,10 @@ class MeetingPipeline:
             else:
                 # Phase 9.6 — Agent Graph Orchestration.
                 # Use the orchestrator to run capability-based analysis.
-                # The orchestrator handles BehaviorProfile resolution internally
-                # or we can pass it in if we already have it.
                 logger.info("🕸️  Running Orchestrated AI analysis (Phase 9.6)...")
                 from app.services.agents.graph_orchestrator import AgentGraphOrchestrator
-                from app.services.behavior.resolver import resolve_behavior_profile
 
-                # 1. Resolve the profile once for the entire runtime execution
-                prof = resolve_behavior_profile(
-                    db,
-                    organization_id=meeting.organization_id,
-                    category_id=meeting.category_id,
-                    team_id=meeting.team_id
-                )
-
-                # 2. Execute the Agent Graph
+                # Execute the Agent Graph
                 # meeting_id MUST be passed — the harness threads it through
                 # ToolContext to every tool. Without it, create_task can't
                 # resolve which meeting to attach the new task to and fails

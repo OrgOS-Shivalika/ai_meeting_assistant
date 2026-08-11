@@ -47,10 +47,10 @@ export default function EvalPanel({ profileId }: { profileId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <div className="bg-canvas border border-slate-200 rounded-xl p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Run eval (stub)</h3>
+            <h3 className="text-sm font-semibold text-slate-900">Run eval (stub)</h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
               Stub mode exercises Phase 5F retrieval cases without LLM calls.
               Useful as a smoke test against retrieval regressions.
@@ -70,7 +70,7 @@ export default function EvalPanel({ profileId }: { profileId: string }) {
             <button
               onClick={handleRun}
               disabled={running}
-              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
             >
               {running ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -103,7 +103,7 @@ export default function EvalPanel({ profileId }: { profileId: string }) {
           {runs.map((r) => (
             <li
               key={r.id}
-              className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-3"
+              className="bg-canvas border border-slate-200 rounded-xl p-3 flex items-center gap-3"
             >
               {r.overall_passed ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
@@ -112,16 +112,16 @@ export default function EvalPanel({ profileId }: { profileId: string }) {
               )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-bold text-slate-900">
+                  <span className="text-sm font-semibold text-slate-900">
                     {r.score !== null ? `${(r.score * 100).toFixed(1)}%` : "—"}
                   </span>
                   <span className="text-xs text-slate-500">
                     {r.passed_cases}/{r.total_cases} cases
                   </span>
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-600">
+                  <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-600">
                     {r.mode}
                   </span>
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-indigo-50 text-indigo-700">
+                  <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-indigo-50 text-indigo-700">
                     {r.triggered_by}
                   </span>
                 </div>

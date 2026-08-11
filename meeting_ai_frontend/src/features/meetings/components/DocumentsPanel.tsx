@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { apiClient } from "../../../services/apiClient";
+import { clearAuthFlag } from "../../../services/authFlag";
+import { apiUrl } from "../../../services/config";
 import type { CategoryDocument } from "../types";
 
 /**
@@ -141,18 +143,17 @@ export default function DocumentsPanel({
     if (!files || files.length === 0) return;
     setError("");
     setUploading(true);
-    const token = localStorage.getItem("token");
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
-        const res = await fetch(basePath(scope, scopeId), {
+        const res = await fetch(apiUrl(basePath(scope, scopeId)), {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           body: form,
         });
         if (res.status === 401) {
-          localStorage.removeItem("token");
+          clearAuthFlag();
           window.location.href = "/login";
           return;
         }
@@ -190,14 +191,14 @@ export default function DocumentsPanel({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
           {title} ({docs.length})
         </label>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
+          className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 rounded disabled:opacity-50"
         >
           {uploading ? (
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -249,7 +250,7 @@ export default function DocumentsPanel({
                 const badge = pipelineBadge(doc);
                 return (
                   <span
-                    className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${BADGE_STYLES[badge]}`}
+                    className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${BADGE_STYLES[badge]}`}
                     title={doc.error_message || undefined}
                   >
                     {BADGE_LABELS[badge]}
@@ -281,7 +282,7 @@ export default function DocumentsPanel({
       )}
 
       {error && (
-        <p className="mt-2 text-[11px] font-bold text-red-600">{error}</p>
+        <p className="mt-2 text-[11px] font-semibold text-red-600">{error}</p>
       )}
     </div>
   );

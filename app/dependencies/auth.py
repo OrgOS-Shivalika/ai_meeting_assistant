@@ -1,16 +1,34 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from app.db.database import get_db
 from sqlalchemy.orm import Session
 from app.db.models import User
 from app.config.settings import settings
+from app.utils.admin_enums import PromptRole
+from datetime import timezone
 import uuid
 
 SECRET_KEY = settings.AUTH_SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+# auto_error=False: the JWT now lives in an HttpOnly cookie, so a missing
+# Authorization header is normal — we fall back to the cookie below rather
+# than letting the scheme raise a 401 first. Kept in the graph so Swagger's
+# "Authorize" box and non-browser API clients can still send a Bearer token.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+
+def _token_from_request(request: Request, bearer_token: str | None) -> str | None:
+    """Resolve the JWT for an HTTP request.
+
+    Cookie first (the browser SPA's HttpOnly `access_token`), then the
+    Authorization Bearer header (Swagger + programmatic API clients). The
+    cookie wins when both are present so a browser session isn't shadowed
+    by a stale header.
+    """
+    cookie_token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    return cookie_token or bearer_token
 
 
 def resolve_user_from_token(db: Session, token: str | None) -> User | None:
@@ -28,61 +46,126 @@ def resolve_user_from_token(db: Session, token: str | None) -> User | None:
         user_id: str = payload.get("user_id")
         if user_id is None:
             return None
-        return db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+        user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+        if user is None:
+            return None
+        if _issued_before_password_change(user, payload.get("iat")):
+            return None
+        return user
     except (JWTError, ValueError):
         # ValueError catches malformed UUIDs.
         return None
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+# The JWT is stateless with a 7-day TTL, so there is nothing to delete
+# server-side when a password changes. `users.password_set_at` is the
+# revocation point instead: a token issued before the hash last changed is
+# refused. That is what makes an admin password reset actually cut off a
+# live session rather than merely changing what the next login needs.
+#
+# `iat` is whole seconds while `password_set_at` carries microseconds, so a
+# token minted in the same instant as the change would compare as older
+# than it. The leeway keeps a fresh login — and registration, which sets
+# the timestamp then immediately issues a token — from invalidating itself.
+_TOKEN_CLOCK_LEEWAY_SECONDS = 30
+
+
+def _issued_before_password_change(user: User, issued_at) -> bool:
+    """True when this token predates the user's current password.
+
+    Fails OPEN for tokens with no `iat` claim: those were minted before
+    this check existed, and refusing them would sign out every active
+    session on deploy. They expire within the 7-day TTL anyway.
+    """
+    changed_at = getattr(user, "password_set_at", None)
+    if changed_at is None or issued_at is None:
+        return False
+    if changed_at.tzinfo is None:
+        # Postgres returns aware datetimes; a naive one means a fixture or
+        # a backend without timezone support. Assume UTC rather than the
+        # server's local zone, which would shift the comparison by hours.
+        changed_at = changed_at.replace(tzinfo=timezone.utc)
+    return changed_at.timestamp() > float(issued_at) + _TOKEN_CLOCK_LEEWAY_SECONDS
+
+
+# Endpoints reachable while `must_change_password` is set. Matched as a
+# suffix so the API/public prefix doesn't have to be hardcoded here.
+#
+# The set is deliberately tiny: enough to sign in, see who you are, set
+# a password and sign out. An admin provisioned with a generated
+# password has, by definition, a credential that was transmitted out of
+# band — the window where it works should cover exactly the act of
+# replacing it and nothing else.
+_PASSWORD_CHANGE_ALLOWED_SUFFIXES = (
+    "/auth/me",
+    "/auth/change-password",
+    "/auth/logout",
+    "/auth/login",
+)
+
+
+def get_current_user(
+    request: Request,
+    bearer_token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = _token_from_request(request, bearer_token)
     user = resolve_user_from_token(db, token)
     if user is None:
         raise credentials_exception
+
+    # Forced password change. Enforced here rather than as a per-route
+    # dependency so a route added tomorrow inherits it — the failure mode
+    # of the alternative is a forgotten guard on exactly the endpoint
+    # that mattered.
+    if getattr(user, "must_change_password", False):
+        path = request.url.path.rstrip("/")
+        if not any(path.endswith(s) for s in _PASSWORD_CHANGE_ALLOWED_SUFFIXES):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must set a new password before using the application.",
+            )
     return user
 
 
 # ---------------------------------------------------------------------------
 # Phase 7E — RBAC
 #
-# `User.role` is one of:
-#   - 'viewer'        — read-only on agent surfaces
-#   - 'prompt_editor' — viewer + create/edit drafts, publish, rollback
-#   - 'org_admin'     — prompt_editor + archive profiles, run playground,
-#                       view audit log
+# `User.role` is one of VIEWER | PROMPT_EDITOR | ORG_ADMIN, stored
+# UPPERCASE. Canonical definition: `app/utils/admin_enums.PromptRole`,
+# which also owns the privilege ordering.
 #
-# NULL is treated as 'viewer' (safe-deny default). The 7E migration
-# backfills existing rows to 'org_admin' so no user loses access.
+# NULL is treated as VIEWER (safe-deny default). The 7E migration
+# backfills existing rows to ORG_ADMIN so no user loses access.
 # The dependency helpers below are designed to be drop-in `Depends()`
 # slots — the route declares `user: User = Depends(require_org_admin)`
 # and gets a 403 if the user's role isn't sufficient.
+#
+# NOTE: this is NOT the meeting-access role. `users.access_role`
+# (`AccessRole`) governs meetings, tasks and boards and is a separate
+# column with a separate meaning for its identically-named ORG_ADMIN.
 # ---------------------------------------------------------------------------
-
-_ROLE_RANK = {
-    "viewer": 0,
-    "prompt_editor": 1,
-    "org_admin": 2,
-}
 
 
 def _user_rank(user: User) -> int:
-    """Resolve the user's effective rank. NULL role → viewer."""
-    return _ROLE_RANK.get(user.role or "viewer", 0)
+    """Resolve the user's effective rank. NULL / unknown role → VIEWER."""
+    return PromptRole.coerce(getattr(user, "role", None)).rank
 
 
 def require_prompt_editor(
     user: User = Depends(get_current_user),
 ) -> User:
-    """Allow prompt_editor + org_admin. Used on draft/publish/rollback
+    """Allow PROMPT_EDITOR + ORG_ADMIN. Used on draft/publish/rollback
     endpoints."""
-    if _user_rank(user) < _ROLE_RANK["prompt_editor"]:
+    if _user_rank(user) < PromptRole.PROMPT_EDITOR.rank:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires role 'prompt_editor' or higher.",
+            detail=f"Requires role '{PromptRole.PROMPT_EDITOR}' or higher.",
         )
     return user
 
@@ -90,11 +173,11 @@ def require_prompt_editor(
 def require_org_admin(
     user: User = Depends(get_current_user),
 ) -> User:
-    """Allow org_admin only. Used on archive + playground + eval-gate
+    """Allow ORG_ADMIN only. Used on archive + playground + eval-gate
     config endpoints."""
-    if _user_rank(user) < _ROLE_RANK["org_admin"]:
+    if _user_rank(user) < PromptRole.ORG_ADMIN.rank:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires role 'org_admin'.",
+            detail=f"Requires role '{PromptRole.ORG_ADMIN}'.",
         )
     return user

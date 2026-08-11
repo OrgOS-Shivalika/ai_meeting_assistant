@@ -121,7 +121,7 @@ export default function MeetingSourceIcon({
         <source.Icon />
       </div>
       {showLabel && (
-        <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+        <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
           {source.label}
         </span>
       )}

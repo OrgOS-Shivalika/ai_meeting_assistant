@@ -22,6 +22,13 @@ import { fetchTeamMeetings } from "../api";
 import type { Category, Meeting, Team } from "../types";
 import BehaviorControlsModal from "../../agent-control/components/BehaviorControlsModal";
 import type { ActiveScope } from "../../agent-control/types";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { IconChip } from "@/components/ui/icon-chip";
+import { SearchInput } from "@/components/ui/input";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import { tint } from "@/lib/vibrant";
 
 const ICON_GLYPH: Record<string, string> = {
   tag: "🏷️",
@@ -35,10 +42,10 @@ const ICON_GLYPH: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  failed: "bg-rose-50 text-rose-700 ring-rose-200",
-  scheduled: "bg-blue-50 text-blue-700 ring-blue-200",
-  active: "bg-amber-50 text-amber-700 ring-amber-200",
+  completed: "bg-success/12 text-success",
+  failed: "bg-error/10 text-error",
+  scheduled: "bg-info/12 text-info",
+  active: "bg-warning/12 text-warning",
 };
 
 const formatDate = (iso: string | null | undefined) => {
@@ -158,9 +165,9 @@ export default function MeetingTypesPage() {
 
   // Loading skeleton, used at the top level only.
   const renderLoadingSkeleton = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
+    <div className="grid animate-pulse grid-cols-1 gap-[18px] md:grid-cols-2">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-40 bg-slate-100 rounded-xl" />
+        <div key={i} className="h-44 rounded-xl bg-surface-card" />
       ))}
     </div>
   );
@@ -183,107 +190,83 @@ export default function MeetingTypesPage() {
         {loading && renderLoadingSkeleton()}
 
         {!loading && categories.length === 0 && (
-          <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-slate-200">
-            <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Tag className="w-6 h-6 text-indigo-600" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              No meeting types yet
-            </h3>
-            <p className="text-sm text-slate-500 max-w-sm mx-auto mb-5">
-              Create your first meeting type to start grouping meetings — e.g.
-              Engineering, Customer Development, Hiring.
-            </p>
-            <button
-              onClick={openCreate}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              New Meeting Type
-            </button>
-          </div>
+          <EmptyState
+            icon={Tag}
+            color="var(--vb-pink)"
+            title="No categories yet"
+            description="Create your first category to start grouping meetings — Engineering, Customer development, Hiring."
+            className="border-dashed"
+            action={
+              <Button onClick={openCreate}>
+                <Plus />
+                New category
+              </Button>
+            }
+          />
         )}
 
         {!loading && categories.length > 0 && filtered.length === 0 && (
-          <div className="text-center py-12 bg-slate-50 rounded-xl border border-slate-200">
-            <p className="text-sm text-slate-500">
-              No meeting types match "
-              <span className="font-bold">{search}</span>".
+          <div className="rounded-lg border border-hairline bg-surface-soft py-12 text-center">
+            <p className="text-sm text-muted-ink">
+              No categories match "
+              <span className="font-semibold text-body-strong">{search}</span>".
             </p>
           </div>
         )}
 
         {filtered.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-[18px] md:grid-cols-2 lg:grid-cols-3">
             {filtered.map((cat) => {
               const teamCount = cat.teams?.length ?? 0;
+              const hue = cat.color || "var(--vb-pink)";
               return (
                 <button
                   key={cat.id}
                   onClick={() => goToType(cat.id)}
-                  className="group text-left bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all overflow-hidden"
+                  className="group overflow-hidden rounded-xl border border-hairline bg-canvas p-6 text-left transition-colors hover:border-muted-soft"
                 >
-                  <div className="p-5">
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0 shadow-sm"
-                          style={{
-                            backgroundColor: (cat.color || "#4F46E5") + "20",
-                          }}
-                        >
-                          <span>
-                            {cat.icon ? ICON_GLYPH[cat.icon] || "🏷️" : "🏷️"}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="text-base font-bold text-slate-900 truncate">
-                            {cat.name}
-                          </h3>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <Users className="w-3 h-3 text-slate-400" />
-                            <span className="text-[11px] font-semibold text-slate-500">
-                              {teamCount} {teamCount === 1 ? "team" : "teams"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(cat);
-                        }}
-                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 cursor-pointer"
-                        title="Edit meeting type"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </span>
-                    </div>
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <span
+                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-[13px] text-lg"
+                      style={{ background: tint(hue, 14) }}
+                    >
+                      {cat.icon ? ICON_GLYPH[cat.icon] || "🏷️" : "🏷️"}
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(cat);
+                      }}
+                      className="cursor-pointer rounded-sm p-2 text-muted-soft opacity-0 transition-colors group-hover:opacity-100 hover:bg-surface-card hover:text-ink"
+                      title="Edit category"
+                    >
+                      <Pencil className="size-3.5" />
+                    </span>
+                  </div>
 
-                    {cat.description && (
-                      <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mb-4">
-                        {cat.description}
-                      </p>
-                    )}
+                  <h3 className="vb-title-md truncate text-[19px]">{cat.name}</h3>
+                  <p className="mt-1.5 mb-[18px] line-clamp-2 min-h-9.5 text-[13px] leading-relaxed text-muted-ink">
+                    {cat.description || "No description yet."}
+                  </p>
 
-                    <div className="mt-2 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 group-hover:text-indigo-700 transition-colors">
-                        Open →
-                      </span>
-                      {/* ponytail: span+navigate because <Link> is an <a>, invalid nested in <button> */}
-                      <span
-                        role="link"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/?category_id=${cat.id}`);
-                        }}
-                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 cursor-pointer"
-                        title={`View all meetings in ${cat.name}`}
-                      >
-                        <Calendar className="w-3 h-3" />
-                        Meetings
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-3.5 border-t border-hairline-soft pt-4 text-xs text-muted-ink">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Users className="size-3.5 text-muted-soft" />
+                      {teamCount} {teamCount === 1 ? "team" : "teams"}
+                    </span>
+                    {/* ponytail: span+navigate because <Link> is an <a>, invalid nested in <button> */}
+                    <span
+                      role="link"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/?category_id=${cat.id}`);
+                      }}
+                      className="ml-auto inline-flex cursor-pointer items-center gap-1.5 font-medium transition-colors hover:text-ink"
+                      title={`View all meetings in ${cat.name}`}
+                    >
+                      <Calendar className="size-3.5 text-muted-soft" />
+                      Meetings
+                    </span>
                   </div>
                 </button>
               );
@@ -312,82 +295,70 @@ export default function MeetingTypesPage() {
     return (
       <>
         {teams.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-slate-200">
-            <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="w-6 h-6 text-indigo-600" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              No teams in {selectedType.name}
-            </h3>
-            <p className="text-sm text-slate-500 max-w-sm mx-auto mb-5">
-              Add a team to group meetings inside this meeting type.
-            </p>
-            <button
-              onClick={() => openAddTeam(selectedType)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              Add a team
-            </button>
-          </div>
+          <EmptyState
+            icon={Users}
+            color={selectedType.color || "var(--vb-pink)"}
+            title={`No teams in ${selectedType.name}`}
+            description="Add a team to group meetings inside this category."
+            className="border-dashed"
+            action={
+              <Button onClick={() => openAddTeam(selectedType)}>
+                <Plus />
+                Add a team
+              </Button>
+            }
+          />
         ) : filtered.length === 0 ? (
-          <div className="text-center py-12 bg-slate-50 rounded-xl border border-slate-200">
-            <p className="text-sm text-slate-500">
-              No teams match "<span className="font-bold">{search}</span>".
+          <div className="rounded-lg border border-hairline bg-surface-soft py-12 text-center">
+            <p className="text-sm text-muted-ink">
+              No teams match "
+              <span className="font-semibold text-body-strong">{search}</span>".
             </p>
           </div>
         ) : (
           <>
             {/* ponytail: just a Link to the existing /?category_id= filter the meetings page already supports. No new endpoint needed. */}
             <div className="mb-4 flex justify-end">
-              <Link
-                to={`/?category_id=${selectedType.id}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:border-indigo-300 hover:text-indigo-700 text-slate-600 transition-colors"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                View all meetings in {selectedType.name}
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Link>
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/?category_id=${selectedType.id}`}>
+                  <Calendar />
+                  All meetings in {selectedType.name}
+                  <ChevronRight />
+                </Link>
+              </Button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((team) => (
-              <button
-                key={team.id}
-                onClick={() => goToTeam(team.id)}
-                className="group text-left bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all p-5"
-              >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                      style={{
-                        backgroundColor:
-                          (selectedType.color || "#4F46E5") + "20",
-                      }}
-                    >
-                      <Folder
-                        className="w-5 h-5"
-                        style={{ color: selectedType.color || "#4F46E5" }}
-                      />
+            <div className="grid grid-cols-1 gap-[18px] md:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((team) => (
+                <button
+                  key={team.id}
+                  onClick={() => goToTeam(team.id)}
+                  className="group rounded-xl border border-hairline bg-canvas p-6 text-left transition-colors hover:border-muted-soft"
+                >
+                  <div className="mb-3.5 flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <IconChip
+                        size="lg"
+                        color={selectedType.color || "var(--vb-pink)"}
+                        strength={14}
+                      >
+                        <Folder />
+                      </IconChip>
+                      <div className="min-w-0">
+                        <h3 className="vb-title-md truncate">{team.name}</h3>
+                        <span className="text-[11px] text-muted-ink">
+                          {selectedType.name}
+                        </span>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <h3 className="text-base font-bold text-slate-900 truncate">
-                        {team.name}
-                      </h3>
-                      <span className="text-[11px] font-semibold text-slate-500">
-                        {selectedType.name}
-                      </span>
-                    </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted-soft transition-colors group-hover:text-ink" />
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors shrink-0" />
-                </div>
-                {team.description && (
-                  <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
-                    {team.description}
-                  </p>
-                )}
-              </button>
-            ))}
+                  {team.description && (
+                    <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-ink">
+                      {team.description}
+                    </p>
+                  )}
+                </button>
+              ))}
             </div>
           </>
         )}
@@ -411,9 +382,9 @@ export default function MeetingTypesPage() {
 
     if (meetingsLoading) {
       return (
-        <div className="space-y-3 animate-pulse">
+        <div className="animate-pulse space-y-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-20 bg-slate-100 rounded-xl" />
+            <div key={i} className="h-20 rounded-lg bg-surface-card" />
           ))}
         </div>
       );
@@ -421,85 +392,80 @@ export default function MeetingTypesPage() {
 
     if (teamMeetings.length === 0) {
       return (
-        <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-slate-200">
-          <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Calendar className="w-6 h-6 text-indigo-600" />
-          </div>
-          <h3 className="text-base font-bold text-slate-900 mb-1">
-            No meetings in {selectedTeam.name} yet
-          </h3>
-          <p className="text-sm text-slate-500 max-w-sm mx-auto mb-5">
-            Inject a bot into a meeting and tag it to this team to see it here.
-          </p>
-          <Link
-            to={`/?category_id=${selectedType.id}&team_id=${selectedTeam.id}`}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-all"
-          >
-            Go to meetings
-          </Link>
-        </div>
+        <EmptyState
+          icon={Calendar}
+          color={selectedType.color || "var(--vb-pink)"}
+          title={`No meetings in ${selectedTeam.name} yet`}
+          description="Bring the bot to a meeting and tag it to this team to see it here."
+          className="border-dashed"
+          action={
+            <Button asChild>
+              <Link
+                to={`/?category_id=${selectedType.id}&team_id=${selectedTeam.id}`}
+              >
+                Go to meetings
+              </Link>
+            </Button>
+          }
+        />
       );
     }
 
     if (filtered.length === 0) {
       return (
-        <div className="text-center py-12 bg-slate-50 rounded-xl border border-slate-200">
-          <p className="text-sm text-slate-500">
-            No meetings match "<span className="font-bold">{search}</span>".
+        <div className="rounded-lg border border-hairline bg-surface-soft py-12 text-center">
+          <p className="text-sm text-muted-ink">
+            No meetings match "
+            <span className="font-semibold text-body-strong">{search}</span>".
           </p>
         </div>
       );
     }
 
     return (
-      <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+      <Card variant="default" className="overflow-hidden">
         {filtered.map((m) => {
           const date = formatDate(m.scheduled_at || m.started_at || m.created_at);
           const badgeClass =
-            STATUS_BADGE[m.status] ||
-            "bg-slate-50 text-slate-700 ring-slate-200";
+            STATUS_BADGE[m.status] || "bg-surface-card text-muted-ink";
           return (
             <Link
               key={m.id}
               to={`/meeting/${m.id}`}
-              className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors group"
+              className="group flex items-center gap-4 border-b border-hairline-soft px-5 py-3.5 transition-colors last:border-0 hover:bg-surface-soft/60"
             >
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: (selectedType.color || "#4F46E5") + "20",
-                }}
+              <IconChip
+                size="lg"
+                color={selectedType.color || "var(--vb-pink)"}
+                strength={14}
               >
-                <Calendar
-                  className="w-5 h-5"
-                  style={{ color: selectedType.color || "#4F46E5" }}
-                />
-              </div>
+                <Calendar />
+              </IconChip>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <h4 className="text-sm font-bold text-slate-900 truncate">
+                <div className="mb-0.5 flex items-center gap-2.5">
+                  <h4 className="truncate text-sm font-medium text-ink">
                     {m.title || "Untitled meeting"}
                   </h4>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${badgeClass}`}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${badgeClass}`}
                   >
                     {m.status}
                   </span>
                 </div>
                 {m.summary && (
-                  <p className="text-xs text-slate-500 truncate">{m.summary}</p>
+                  <p className="truncate text-xs text-muted-ink">{m.summary}</p>
                 )}
               </div>
               {date && (
-                <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+                <span className="font-mono text-[11px] whitespace-nowrap text-muted-ink">
                   {date}
                 </span>
               )}
-              <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors shrink-0" />
+              <ChevronRight className="size-4 shrink-0 text-muted-soft transition-colors group-hover:text-ink" />
             </Link>
           );
         })}
-      </div>
+      </Card>
     );
   };
 
@@ -514,26 +480,26 @@ export default function MeetingTypesPage() {
 
   const headerTitle =
     level === "types"
-      ? "Categories & Teams"
+      ? "Categories"
       : level === "teams"
       ? selectedType!.name
       : selectedTeam!.name;
 
   const headerSubtitle =
     level === "types"
-      ? "Organise meetings into meeting types and teams. Click a type to see its teams."
+      ? "Organize meetings into types, each with its own teams and routing."
       : level === "teams"
       ? selectedType!.description ||
-        `Teams inside ${selectedType!.name}. Click a team to see its meetings.`
+        `Teams inside ${selectedType!.name}. Open a team to see its meetings.`
       : selectedTeam!.description ||
         `Meetings tagged to ${selectedType!.name} · ${selectedTeam!.name}.`;
 
   const searchPlaceholder =
     level === "types"
-      ? "Search meeting types..."
+      ? "Search categories…"
       : level === "teams"
-      ? `Search teams in ${selectedType!.name}...`
-      : `Search meetings in ${selectedTeam!.name}...`;
+      ? `Search teams in ${selectedType!.name}…`
+      : `Search meetings in ${selectedTeam!.name}…`;
 
   // Dedicated Agent Controls button. The scope it opens depends on
   // which level the user is currently viewing.
@@ -559,16 +525,16 @@ export default function MeetingTypesPage() {
 
   const behaviorButtonLabel =
     level === "types"
-      ? "Workspace Controls"
+      ? "Workspace controls"
       : level === "teams"
-      ? "Category Controls"
-      : "Team Controls";
+      ? "Category controls"
+      : "Team controls";
 
   const behaviorButton = (
-    <button
+    <Button
+      variant="secondary"
       onClick={openBehaviorControlsForLevel}
-      className="flex items-center gap-2 px-3 py-2.5 border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm font-bold transition-all"
-      title={`Agent Controls for ${
+      title={`Agent controls for ${
         level === "types"
           ? "the entire workspace"
           : level === "teams"
@@ -576,168 +542,137 @@ export default function MeetingTypesPage() {
           : selectedTeam!.name
       }`}
     >
-      <Cpu className="w-4 h-4" />
+      <Cpu />
       {behaviorButtonLabel}
-    </button>
+    </Button>
   );
 
   const primaryAction =
     level === "types" ? (
-      <button
-        onClick={openCreate}
-        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
-      >
-        <Plus className="w-4 h-4" />
-        New Meeting Type
-      </button>
+      <Button onClick={openCreate}>
+        <Plus />
+        New category
+      </Button>
     ) : level === "teams" ? (
-      <button
-        onClick={() => openAddTeam(selectedType!)}
-        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
-      >
-        <Plus className="w-4 h-4" />
-        Add Team
-      </button>
+      <Button onClick={() => openAddTeam(selectedType!)}>
+        <Plus />
+        Add team
+      </Button>
     ) : (
-      <Link
-        to={`/?category_id=${selectedType!.id}&team_id=${selectedTeam!.id}`}
-        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
-      >
-        <Calendar className="w-4 h-4" />
-        Open in Meetings
-      </Link>
+      <Button asChild>
+        <Link
+          to={`/?category_id=${selectedType!.id}&team_id=${selectedTeam!.id}`}
+        >
+          <Calendar />
+          Open in meetings
+        </Link>
+      </Button>
     );
 
   return (
     <Layout>
-      <div className="px-4 py-6">
+      <PageContainer width="wide">
         {/* Breadcrumb */}
         {level !== "types" && (
-          <nav className="flex items-center gap-1 text-xs font-semibold text-slate-500 mb-4">
+          <nav className="mb-4 flex items-center gap-1.5 text-[13px] font-medium text-muted-ink">
             <button
               onClick={goToTypes}
-              className="flex items-center gap-1 hover:text-indigo-600 transition-colors"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-ink"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Meeting Types
+              <ArrowLeft className="size-3.5" />
+              Categories
             </button>
             {selectedType && (
               <>
-                <ChevronRight className="w-3 h-3 text-slate-300" />
+                <ChevronRight className="size-3 text-muted-soft" />
                 {level === "meetings" ? (
                   <button
                     onClick={() => goToType(selectedType.id)}
-                    className="hover:text-indigo-600 transition-colors"
+                    className="transition-colors hover:text-ink"
                   >
                     {selectedType.name}
                   </button>
                 ) : (
-                  <span className="text-slate-700">{selectedType.name}</span>
+                  <span className="text-body-strong">{selectedType.name}</span>
                 )}
               </>
             )}
             {selectedTeam && (
               <>
-                <ChevronRight className="w-3 h-3 text-slate-300" />
-                <span className="text-slate-700">{selectedTeam.name}</span>
+                <ChevronRight className="size-3 text-muted-soft" />
+                <span className="text-body-strong">{selectedTeam.name}</span>
               </>
             )}
           </nav>
         )}
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div
-                className="p-1.5 rounded-md"
-                style={{
-                  backgroundColor:
-                    level === "types"
-                      ? "#EEF2FF"
-                      : (selectedType!.color || "#4F46E5") + "20",
-                }}
-              >
-                {level === "types" ? (
-                  <Tag className="w-4 h-4 text-indigo-600" />
-                ) : level === "teams" ? (
-                  <span className="text-sm leading-none">
-                    {selectedType!.icon
-                      ? ICON_GLYPH[selectedType!.icon] || "🏷️"
-                      : "🏷️"}
-                  </span>
-                ) : (
-                  <Folder
-                    className="w-4 h-4"
-                    style={{ color: selectedType!.color || "#4F46E5" }}
-                  />
-                )}
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                {level === "types"
-                  ? "Workspace"
-                  : level === "teams"
-                  ? "Meeting Type"
-                  : "Team"}
-              </span>
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight truncate">
-              {headerTitle}
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">{headerSubtitle}</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {behaviorButton}
-            {level === "teams" && (
-              <button
-                onClick={() => openEdit(selectedType!)}
-                className="flex items-center gap-2 px-3 py-2.5 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-bold transition-all"
-                title="Edit meeting type"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                Edit Type
-              </button>
-            )}
-            {primaryAction}
-          </div>
-        </div>
+        <PageHeader
+          eyebrow={
+            level === "types"
+              ? "Workspace"
+              : level === "teams"
+                ? "Meeting type"
+                : "Team"
+          }
+          title={headerTitle}
+          size={level === "types" ? "md" : "sm"}
+          description={headerSubtitle}
+          actions={
+            <>
+              {behaviorButton}
+              {level === "teams" && (
+                <Button
+                  variant="outline"
+                  onClick={() => openEdit(selectedType!)}
+                  title="Edit meeting type"
+                >
+                  <Pencil />
+                  Edit type
+                </Button>
+              )}
+              {primaryAction}
+            </>
+          }
+        />
 
         {/* Search */}
-        <div className="relative mb-6">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm"
-          />
-        </div>
+        <SearchInput
+          icon={Search}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={searchPlaceholder}
+          wrapperClassName="mb-6 max-w-[480px]"
+          className="h-12"
+        />
 
         {/* Body — every level gets a docs sidebar on the right. The contents
             differ: aggregated at the types level, category at the teams level,
             team at the meetings level. */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
           <div className="min-w-0">
             {level === "types" && renderTypesView()}
             {level === "teams" && renderTeamsView()}
             {level === "meetings" && renderMeetingsView()}
           </div>
-          <aside className="bg-white rounded-xl border border-slate-200 p-4 h-fit lg:sticky lg:top-4">
-            <div className="mb-3">
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">
+          <Card
+            variant="default"
+            className="h-fit p-5 lg:sticky lg:top-4"
+          >
+            <div className="mb-3.5">
+              <h3 className="vb-title-sm">
                 {level === "types"
-                  ? "Organization Knowledge"
+                  ? "Organization knowledge"
                   : level === "teams"
-                  ? `${selectedType!.name} Knowledge`
-                  : `${selectedTeam!.name} Knowledge`}
+                    ? `${selectedType!.name} knowledge`
+                    : `${selectedTeam!.name} knowledge`}
               </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-ink">
                 {level === "types"
                   ? "Every document uploaded across your categories. Click any to jump to its category."
                   : level === "teams"
-                  ? "Reference docs shared across every team in this category."
-                  : "Team-specific docs. Narrower than category-level knowledge."}
+                    ? "Reference docs shared across every team in this category."
+                    : "Team-specific docs. Narrower than category-level knowledge."}
               </p>
             </div>
             {level === "types" ? (
@@ -750,9 +685,9 @@ export default function MeetingTypesPage() {
                 compact
               />
             )}
-          </aside>
+          </Card>
         </div>
-      </div>
+      </PageContainer>
 
       <CategoryModal
         isOpen={showModal}

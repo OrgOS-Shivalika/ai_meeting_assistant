@@ -10,7 +10,7 @@
 //   <SkeletonAvatar size={32} />                       // circle
 //   <SkeletonStack>{...skeletons}</SkeletonStack>      // pre-pulsed group
 //
-// All variants render `animate-pulse` + `bg-slate-200` (tailwind only,
+// All variants render `animate-pulse` + `bg-surface-strong` (tailwind only,
 // no new dep). To disable the pulse — e.g. inside an already-pulsing
 // container — pass `noPulse`.
 
@@ -24,7 +24,7 @@ type BaseProps = {
 export function Skeleton({ className = "", noPulse = false }: BaseProps) {
   return (
     <div
-      className={`${noPulse ? "" : "animate-pulse"} bg-slate-200 rounded ${className}`}
+      className={`${noPulse ? "" : "animate-pulse"} bg-surface-strong rounded ${className}`}
       aria-hidden
     />
   );
@@ -42,7 +42,7 @@ export function SkeletonText({
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className={`h-3 bg-slate-200 rounded ${i === lines - 1 ? "w-3/5" : "w-full"}`}
+          className={`h-3 bg-surface-strong rounded ${i === lines - 1 ? "w-3/5" : "w-full"}`}
         />
       ))}
     </div>
@@ -55,7 +55,7 @@ export function SkeletonText({
 export function SkeletonCard({ className = "" }: BaseProps) {
   return (
     <div
-      className={`animate-pulse bg-slate-100 rounded-2xl border border-slate-200 ${className || "h-32"}`}
+      className={`animate-pulse bg-surface-card rounded-2xl border border-hairline ${className || "h-32"}`}
       aria-hidden
     />
   );
@@ -64,7 +64,7 @@ export function SkeletonCard({ className = "" }: BaseProps) {
 export function SkeletonAvatar({ size = 32, className = "" }: BaseProps & { size?: number }) {
   return (
     <div
-      className={`animate-pulse bg-slate-200 rounded-full ${className}`}
+      className={`animate-pulse bg-surface-strong rounded-full ${className}`}
       style={{ width: size, height: size }}
       aria-hidden
     />
@@ -87,7 +87,7 @@ export function SkeletonStack({
 export function SkeletonPill({ className = "" }: BaseProps) {
   return (
     <div
-      className={`animate-pulse bg-slate-200 rounded-full ${className || "h-4 w-16"}`}
+      className={`animate-pulse bg-surface-strong rounded-full ${className || "h-4 w-16"}`}
       aria-hidden
     />
   );

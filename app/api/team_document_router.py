@@ -12,14 +12,14 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
+from app.db.database import get_db
 from app.config.settings import settings
-from app.db.models import Category, Team, TeamDocument
+from app.db.models import TeamDocument
 from app.dependencies.auth import get_current_user
 from app.schemas.document_schema import TeamDocumentSchema
+from app.services import team_document_service
 from app.services.storage_service import storage
 from app.utils.logger import setup_logger
 
@@ -36,24 +36,6 @@ _ALLOWED_MIME_PREFIXES = (
     "text/",
 )
 _MAX_BYTES = 50 * 1024 * 1024
-
-
-def _team_in_user_org(db: Session, user, team_id: int) -> Team:
-    """Resolve a team and check it belongs to the caller's org via its parent
-    category. Returns 404 (not 403) on a cross-org access to avoid leaking
-    existence."""
-    team = (
-        db.query(Team)
-        .join(Category, Team.category_id == Category.id)
-        .filter(
-            Team.id == team_id,
-            Category.organization_id == user.organization_id,
-        )
-        .first()
-    )
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-    return team
 
 
 def _to_schema(doc: TeamDocument, with_url: bool = False) -> TeamDocumentSchema:
@@ -88,7 +70,7 @@ def upload_team_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    team = _team_in_user_org(db, user, team_id)
+    team = team_document_service.team_in_user_org(db, user, team_id)
 
     if not storage.is_configured:
         raise HTTPException(
@@ -124,24 +106,16 @@ def upload_team_document(
         logger.error("Storage upload failed: %s", exc)
         raise HTTPException(status_code=502, detail="Storage upload failed.") from exc
 
-    doc = TeamDocument(
-        organization_id=user.organization_id,
-        team_id=team.id,
-        uploaded_by_user_id=user.id,
+    doc = team_document_service.create_document(
+        db,
+        user,
+        team,
         name=file.filename or "untitled",
         original_filename=file.filename or "untitled",
         mime_type=file.content_type,
         size_bytes=size_bytes,
         storage_key=storage_key,
-        status="uploaded",
     )
-    db.add(doc)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Storage key collision; retry the upload.")
-    db.refresh(doc)
 
     _enqueue_processing(str(doc.id), background_tasks)
 
@@ -157,13 +131,7 @@ def list_team_documents(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _team_in_user_org(db, user, team_id)
-    docs = (
-        db.query(TeamDocument)
-        .filter(TeamDocument.team_id == team_id)
-        .order_by(TeamDocument.created_at.desc())
-        .all()
-    )
+    docs = team_document_service.list_documents(db, user, team_id)
     return [_to_schema(d, with_url=True) for d in docs]
 
 
@@ -177,17 +145,7 @@ def get_team_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _team_in_user_org(db, user, team_id)
-    doc = (
-        db.query(TeamDocument)
-        .filter(
-            TeamDocument.id == document_id,
-            TeamDocument.team_id == team_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = team_document_service.get_owned_document(db, user, team_id, document_id)
     return _to_schema(doc, with_url=True)
 
 
@@ -198,17 +156,7 @@ def delete_team_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _team_in_user_org(db, user, team_id)
-    doc = (
-        db.query(TeamDocument)
-        .filter(
-            TeamDocument.id == document_id,
-            TeamDocument.team_id == team_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = team_document_service.get_owned_document(db, user, team_id, document_id)
 
     try:
         if storage.is_configured:
@@ -216,8 +164,7 @@ def delete_team_document(
     except Exception as exc:
         logger.warning("Storage delete failed for %s: %s", doc.storage_key, exc)
 
-    db.delete(doc)
-    db.commit()
+    team_document_service.delete_document(db, doc)
     return {"status": "ok", "deleted_id": str(document_id)}
 
 
@@ -233,20 +180,7 @@ def retry_team_document_embedding(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _team_in_user_org(db, user, team_id)
-    doc = (
-        db.query(TeamDocument)
-        .filter(
-            TeamDocument.id == document_id,
-            TeamDocument.team_id == team_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    doc.embedding_status = "pending"
-    doc.error_message = None
-    db.commit()
+    team_document_service.mark_document_embedding_pending(db, user, team_id, document_id)
     from app.celery_tasks.document_ingest import dispatch_ingest_document
     dispatch_ingest_document("team", str(document_id))
     return {"status": "dispatched", "document_id": str(document_id), "stage": "embedding"}
@@ -259,27 +193,7 @@ def retry_team_document_graph(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _team_in_user_org(db, user, team_id)
-    doc = (
-        db.query(TeamDocument)
-        .filter(
-            TeamDocument.id == document_id,
-            TeamDocument.team_id == team_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if doc.embedding_status != "embedded":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Document embeddings aren't ready (embedding_status="
-                f"{doc.embedding_status}); cannot retry graph extraction yet."
-            ),
-        )
-    doc.graph_status = "pending"
-    db.commit()
+    team_document_service.mark_document_graph_pending(db, user, team_id, document_id)
     try:
         from app.celery_tasks.document_graph_tasks import (
             dispatch_extract_document_graph,

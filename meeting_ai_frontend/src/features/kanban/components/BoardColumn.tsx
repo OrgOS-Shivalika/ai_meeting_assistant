@@ -1,34 +1,21 @@
-// Phase 14 K3 — one column on the Kanban board.
-//
-// Acts as a droppable container; its sortable items are TaskCards.
-// Empty columns still need to accept drops, so we render a hidden
-// drop zone area beneath the cards.
+
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import TaskCard from "./TaskCard";
 import QuickAddCard from "./QuickAddCard";
 import type { BoardTaskSummary, ColumnWithTasks } from "../types";
+import { cn } from "@/lib/utils";
 
-const COLUMN_COLOR_BG: Record<string, string> = {
-  slate: "bg-slate-50",
-  indigo: "bg-indigo-50/60",
-  amber: "bg-amber-50/60",
-  emerald: "bg-emerald-50/60",
-  rose: "bg-rose-50/60",
-  cyan: "bg-cyan-50/60",
-  violet: "bg-violet-50/60",
-  pink: "bg-pink-50/60",
-};
 
-const COLUMN_COLOR_BAR: Record<string, string> = {
-  slate: "bg-slate-400",
-  indigo: "bg-indigo-500",
-  amber: "bg-amber-500",
-  emerald: "bg-emerald-500",
-  rose: "bg-rose-500",
-  cyan: "bg-cyan-500",
-  violet: "bg-violet-500",
-  pink: "bg-pink-500",
+const COLUMN_DOT: Record<string, string> = {
+  slate: "var(--vb-muted-soft)",
+  indigo: "var(--vb-info)",
+  amber: "var(--vb-ochre)",
+  emerald: "var(--vb-success)",
+  rose: "var(--vb-pink)",
+  cyan: "var(--vb-mint)",
+  violet: "var(--vb-lavender)",
+  pink: "var(--vb-coral)",
 };
 
 interface Props {
@@ -54,8 +41,7 @@ export default function BoardColumn({
   });
 
   const colorKey = column.color || "slate";
-  const bg = COLUMN_COLOR_BG[colorKey] || COLUMN_COLOR_BG.slate;
-  const bar = COLUMN_COLOR_BAR[colorKey] || COLUMN_COLOR_BAR.slate;
+  const dot = COLUMN_DOT[colorKey] || COLUMN_DOT.slate;
 
   // SortableContext expects string IDs — we prefix with "task-" so they
   // never collide with column IDs (e.g. "column-3").
@@ -67,19 +53,21 @@ export default function BoardColumn({
     column.wip_limit != null && visibleTasks.length > column.wip_limit;
 
   return (
-    <div className={`shrink-0 w-72 ${bg} rounded-lg flex flex-col max-h-full`}>
+    <div className="flex max-h-full w-75 shrink-0 flex-col rounded-lg bg-surface-soft p-3.5">
       {/* Column header */}
-      <div className="px-3 py-2.5 flex items-center gap-2 border-b border-slate-200/70">
-        <div className={`w-1.5 h-1.5 rounded-full ${bar} shrink-0`} />
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 truncate">
+      <div className="flex items-center gap-2.5 px-1.5 pb-3">
+        <span
+          className="size-2.5 shrink-0 rounded-full"
+          style={{ background: dot }}
+        />
+        <h3 className="truncate text-[13px] font-semibold text-ink">
           {column.name}
         </h3>
         <span
-          className={`ml-auto text-[10px] font-black px-1.5 py-0.5 rounded ${
-            overLimit
-              ? "bg-rose-100 text-rose-700"
-              : "bg-white/70 text-slate-500"
-          }`}
+          className={cn(
+            "ml-auto rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold",
+            overLimit ? "bg-error/12 text-error" : "bg-canvas text-muted-ink",
+          )}
           title={
             column.wip_limit != null
               ? `${visibleTasks.length} / ${column.wip_limit} WIP`
@@ -94,13 +82,14 @@ export default function BoardColumn({
       {/* Card list — droppable area */}
       <div
         ref={setNodeRef}
-        className={`flex-1 overflow-y-auto px-2 py-2 space-y-1.5 transition-colors [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${
-          isOver ? "bg-indigo-50/40" : ""
-        }`}
+        className={cn(
+          "vb-no-scrollbar flex-1 space-y-2.5 overflow-y-auto rounded-md p-0.5 transition-colors",
+          isOver && "bg-surface-strong/60",
+        )}
       >
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {visibleTasks.length === 0 ? (
-            <div className="text-center py-6 text-[11px] text-slate-400 italic">
+            <div className="py-6 text-center text-[11px] text-muted-soft">
               {isOver ? "Drop here…" : "No cards"}
             </div>
           ) : (

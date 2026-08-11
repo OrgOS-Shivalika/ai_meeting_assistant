@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, FileText, MessageSquare } from "lucide-react";
 import type { CitationDTO } from "../types";
+import { apiUrl } from "../../../services/config";
 
 interface Props {
   citation: CitationDTO;
@@ -24,18 +25,15 @@ interface Props {
   runId?: string | null;
 }
 
-const BASE_URL = import.meta.env.VITE_API_URL || "";
-
 function beaconClick(runId: string, citationIndex: number): void {
   // Fire-and-forget. `keepalive` ensures the request survives the
   // navigation that follows. Beacon failure must never block UX —
   // we don't await or surface errors.
-  const token = localStorage.getItem("token");
-  const url = `${BASE_URL.replace(/\/$/, "")}/rag/runs/${runId}/citations/${citationIndex}/click`;
+  const url = apiUrl(`/rag/runs/${runId}/citations/${citationIndex}/click`);
   try {
     fetch(url, {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
       keepalive: true,
     }).catch(() => {
       /* silent */
@@ -84,39 +82,39 @@ export default function CitationChip({ citation, runId }: Props) {
       <Link
         to={href}
         onClick={onClickChip}
-        className="inline-flex items-center align-baseline mx-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+        className="mx-0.5 inline-flex items-center rounded-full bg-info/12 px-2 py-0.5 align-baseline font-mono text-[10px] font-semibold text-info transition-colors hover:bg-info/20"
       >
         [{citation.index}]
       </Link>
       {open && (
         <span
           role="tooltip"
-          className="absolute z-50 left-0 top-full mt-1 w-72 bg-white shadow-xl border border-slate-200 rounded-lg p-3 text-left whitespace-normal pointer-events-auto"
+          className="pointer-events-auto absolute top-full left-0 z-50 mt-1.5 w-72 rounded-lg border border-hairline bg-canvas p-3.5 text-left whitespace-normal shadow-raised"
         >
-          <span className="flex items-start gap-2">
+          <span className="flex items-start gap-2.5">
             {isDoc ? (
-              <FileText className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+              <FileText className="mt-0.5 size-4 shrink-0 text-info" />
             ) : (
-              <MessageSquare className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+              <MessageSquare className="mt-0.5 size-4 shrink-0 text-pink" />
             )}
             <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <span className="vb-label-caps block">
                 {isDoc ? "Document" : "Meeting"}
               </span>
-              <span className="block text-xs font-semibold text-slate-800 truncate">
+              <span className="mt-1 block truncate text-[13px] font-semibold text-ink">
                 {label}
               </span>
               {subline && (
-                <span className="block text-[10px] text-slate-500 mt-0.5">
+                <span className="mt-0.5 block font-mono text-[10px] text-muted-ink">
                   {subline}
                 </span>
               )}
               <Link
                 to={href}
                 onClick={onClickChip}
-                className="inline-flex items-center gap-1 mt-2 text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-800"
+                className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-ink hover:underline"
               >
-                Open source <ExternalLink className="w-3 h-3" />
+                Open source <ExternalLink className="size-3" />
               </Link>
             </span>
           </span>

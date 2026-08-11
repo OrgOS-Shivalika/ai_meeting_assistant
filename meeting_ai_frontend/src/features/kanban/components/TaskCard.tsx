@@ -5,39 +5,15 @@
 // K4 — this component only renders + signals drag handles.
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CheckCircle2, MessageSquare, User } from "lucide-react";
+import { Calendar, CheckCircle2, MessageSquare, User } from "lucide-react";
 import type { BoardTaskSummary } from "../types";
+import { Avatar } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 
 const PRIORITY_STYLE: Record<string, string> = {
-  high: "bg-rose-50 text-rose-700 ring-rose-200",
-  medium: "bg-amber-50 text-amber-700 ring-amber-200",
-  low: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-};
-
-const AVATAR_COLORS = [
-  "bg-indigo-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-rose-500",
-  "bg-violet-500",
-  "bg-pink-500",
-  "bg-cyan-500",
-  "bg-orange-500",
-  "bg-teal-500",
-  "bg-fuchsia-500",
-];
-
-const colorFor = (name: string) => {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-};
-
-const getInitials = (name: string) => {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
+  high: "bg-error/10 text-error",
+  medium: "bg-warning/12 text-warning",
+  low: "bg-success/12 text-success",
 };
 
 const formatDateShort = (iso: string | null): string | null => {
@@ -89,71 +65,74 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
         if (isDragging) return;
         onOpen?.(task);
       }}
-      className={`
-        px-3 py-2.5 bg-white rounded-lg border text-xs cursor-grab active:cursor-grabbing
-        ${isDragging ? "opacity-30" : ""}
-        ${isOverlay ? "shadow-lg ring-2 ring-indigo-400 cursor-grabbing" : ""}
-        ${unassigned ? "border-l-2 border-l-amber-400 border-amber-100 bg-amber-50/40" : "border-slate-200 hover:border-slate-300 hover:shadow-sm"}
-        transition-all
-      `}
+      className={cn(
+        // Floating card — the one place the system allows a soft shadow.
+        "cursor-grab rounded-md border border-hairline bg-canvas p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all active:cursor-grabbing",
+        isDragging && "opacity-30",
+        isOverlay && "cursor-grabbing shadow-raised",
+        unassigned
+          ? "border-l-2 border-l-warning bg-warning/5"
+          : "hover:border-muted-soft",
+      )}
     >
       {/* Title + priority */}
-      <div className="flex items-start justify-between gap-2 mb-2">
+      <div className="mb-2.5 flex items-start justify-between gap-2">
         <h4
-          className={`font-semibold leading-snug ${
-            task.is_completed
-              ? "text-slate-400 line-through"
-              : "text-slate-800"
-          }`}
+          className={cn(
+            "text-[13px] leading-snug font-medium",
+            task.is_completed ? "text-muted-soft line-through" : "text-ink",
+          )}
         >
           {task.task}
         </h4>
         <span
-          className={`shrink-0 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${priorityClass}`}
+          className={cn(
+            "shrink-0 rounded-xs px-2 py-0.5 text-[9px] font-semibold tracking-[0.3px] uppercase",
+            priorityClass,
+          )}
         >
           {priorityKey}
         </span>
       </div>
 
       {/* Footer: owner + due + comments + status icon */}
-      <div className="flex items-center justify-between gap-1 text-xs">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {task.owner ? (
-            <div
-              className={`w-4 h-4 text-white text-[7px] font-black rounded flex items-center justify-center shrink-0 ${colorFor(task.owner)}`}
-            >
-              {getInitials(task.owner)}
-            </div>
+            <Avatar size="xs" name={task.owner} className="size-[18px] text-[8px]" />
           ) : (
-            <div className="w-4 h-4 rounded bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-              <User className="w-2.5 h-2.5" />
-            </div>
+            <span className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-[6px] bg-warning/15 text-warning">
+              <User className="size-2.5" />
+            </span>
           )}
           <span
-            className={`truncate font-medium ${
-              unassigned ? "text-amber-700 italic" : "text-slate-500"
-            }`}
+            className={cn(
+              "truncate text-[11px] font-medium",
+              unassigned ? "text-warning" : "text-muted-ink",
+            )}
             title={task.owner || "Unassigned"}
           >
             {task.owner || "Unassigned"}
           </span>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 text-[10px] text-slate-400">
-          {due ? (
-            <span className="font-semibold">{due}</span>
-          ) : (
-            <span className="italic text-amber-600">No date</span>
-          )}
+        <div className="flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-soft">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1",
+              !due && "text-warning",
+            )}
+          >
+            <Calendar className="size-2.5" />
+            {due ?? "No date"}
+          </span>
           {task.comment_count > 0 && (
-            <span className="flex items-center gap-0.5">
-              <MessageSquare className="w-2.5 h-2.5" />
+            <span className="inline-flex items-center gap-0.5">
+              <MessageSquare className="size-2.5" />
               {task.comment_count}
             </span>
           )}
-          {task.is_completed && (
-            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-          )}
+          {task.is_completed && <CheckCircle2 className="size-3 text-success" />}
         </div>
       </div>
     </div>

@@ -38,6 +38,12 @@ openai==2.32.0
 # LLM tracing/observability. v2 API is stable and well-documented; v3
 # has breaking changes we'll adopt as a chore later.
 langfuse>=2.60.0,<3.0.0
+# Memory layer (see MEM0_IMPLEMENTATION_PLAN.md). Pinned — the config/API
+# keys drift across releases; 2.0.13 verified against our pgvector + 1536-d
+# embedder. Pulls qdrant-client/posthog/portalocker/pywin32 as additive
+# transitives (no downgrades to our existing pins). mem0 telemetry is
+# disabled via MEM0_TELEMETRY=false (data residency).
+mem0ai==2.0.13
 passlib==1.7.4
 proto-plus==1.27.2
 protobuf==5.29.6

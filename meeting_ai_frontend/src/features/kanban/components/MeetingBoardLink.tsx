@@ -39,7 +39,7 @@ export default function MeetingBoardLink({ meetingId }: Props) {
     <button
       onClick={handleClick}
       disabled={loading}
-      className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 px-1.5 py-0.5 hover:bg-indigo-50 rounded disabled:opacity-50"
+      className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-700 px-1.5 py-0.5 hover:bg-indigo-50 rounded disabled:opacity-50"
       title="Open this meeting's tasks on the Kanban board"
     >
       {loading ? (

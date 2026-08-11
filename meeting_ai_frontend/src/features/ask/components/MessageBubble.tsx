@@ -6,10 +6,12 @@
  * streaming we show progress badges (planning -> retrieving -> streaming
  * -> validating). Final state shows the per-stage timing summary.
  */
-import { AlertTriangle, Loader2, Sparkles, User } from "lucide-react";
+import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { Fragment, useMemo } from "react";
 import CitationChip from "./CitationChip";
 import type { ChatTurn, CitationDTO, TurnStatus } from "../types";
+import { Badge } from "@/components/ui/badge";
+import { IconChip } from "@/components/ui/icon-chip";
 
 interface Props {
   turn: ChatTurn;
@@ -64,20 +66,14 @@ function StatusBadge({ status, error }: { status: TurnStatus; error: string | nu
   const inFlight = !failed && !noCtx;
 
   return (
-    <div
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
-        failed
-          ? "bg-red-50 text-red-700 border-red-200"
-          : noCtx
-          ? "bg-slate-50 text-slate-600 border-slate-200"
-          : "bg-amber-50 text-amber-700 border-amber-200"
-      }`}
+    <Badge
+      variant={failed ? "error" : noCtx ? "secondary" : "warning"}
       title={error || undefined}
     >
-      {inFlight && <Loader2 className="w-3 h-3 animate-spin" />}
-      {failed && <AlertTriangle className="w-3 h-3" />}
+      {inFlight && <Loader2 className="size-3 animate-spin" />}
+      {failed && <AlertTriangle className="size-3" />}
       {STATUS_LABEL[status]}
-    </div>
+    </Badge>
   );
 }
 
@@ -99,9 +95,7 @@ function RetrievalSummary({ turn }: { turn: ChatTurn }) {
   }
   if (!parts.length) return null;
   return (
-    <p className="text-[10px] text-slate-400 font-medium tracking-wide">
-      {parts.join(" · ")}
-    </p>
+    <p className="font-mono text-[10px] text-muted-soft">{parts.join(" · ")}</p>
   );
 }
 
@@ -112,30 +106,36 @@ export default function MessageBubble({ turn }: Props) {
   );
 
   return (
-    <div className="space-y-3">
-      {/* User message */}
-      <div className="flex items-start gap-3 justify-end">
-        <div className="max-w-[80%] bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{turn.query_text}</p>
-        </div>
-        <div className="w-7 h-7 bg-slate-200 rounded-full flex items-center justify-center shrink-0">
-          <User className="w-3.5 h-3.5 text-slate-600" />
+    <div className="space-y-5">
+      {/* User message — ink bubble, tail on the bottom-right. */}
+      <div className="flex justify-end">
+        <div className="max-w-[75%] rounded-[18px] rounded-br-[4px] bg-ink px-[18px] py-3.5 text-on-ink">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+            {turn.query_text}
+          </p>
         </div>
       </div>
 
-      {/* Assistant reply */}
+      {/* Assistant reply — cream bubble, tail on the top-left. */}
       <div className="flex items-start gap-3">
-        <div className="w-7 h-7 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center shrink-0">
-          <Sparkles className="w-3.5 h-3.5 text-white" />
-        </div>
-        <div className="max-w-[80%] flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <StatusBadge status={turn.status} error={turn.error} />
-            <RetrievalSummary turn={turn} />
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+        <IconChip
+          size="sm"
+          color="var(--vb-lavender)"
+          strength={22}
+          className="rounded-[10px]"
+        >
+          <Sparkles />
+        </IconChip>
+        <div className="min-w-0 flex-1">
+          {(turn.status !== "completed" || turn.retrieval_summary) && (
+            <div className="mb-2 flex items-center gap-2">
+              <StatusBadge status={turn.status} error={turn.error} />
+              <RetrievalSummary turn={turn} />
+            </div>
+          )}
+          <div className="rounded-[18px] rounded-tl-[4px] bg-surface-card px-5 py-[18px]">
             {turn.answer_text ? (
-              <p className="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap break-words">
+              <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-body-strong">
                 {tokens.map((t, i) =>
                   typeof t === "string" ? (
                     <Fragment key={i}>{t}</Fragment>
@@ -148,18 +148,18 @@ export default function MessageBubble({ turn }: Props) {
                   ),
                 )}
                 {turn.status === "streaming" && (
-                  <span className="inline-block w-1.5 h-4 bg-indigo-400 ml-0.5 animate-pulse align-text-bottom" />
+                  <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-pink align-text-bottom" />
                 )}
               </p>
             ) : (
-              <p className="text-sm text-slate-400 italic">
+              <p className="text-sm text-muted-soft">
                 {turn.status === "failed"
                   ? turn.error ?? "Something went wrong."
                   : "Thinking…"}
               </p>
             )}
             {turn.status === "failed" && turn.error && turn.answer_text && (
-              <p className="mt-2 text-xs text-red-600">{turn.error}</p>
+              <p className="mt-2 text-xs text-error">{turn.error}</p>
             )}
           </div>
         </div>

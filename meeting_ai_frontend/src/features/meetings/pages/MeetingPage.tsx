@@ -1,4 +1,5 @@
 import Layout from "../../../shared/components/Layout";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import { Skeleton } from "../../../shared/components/Skeleton";
 import { useMeetings } from "../hooks/useMeetings";
 import { useGroupedLatestMeetings } from "../hooks/useGroupedLatestMeetings";
@@ -31,6 +32,19 @@ import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import MeetingList from "../components/MeetingList";
 import { deleteMeeting } from "../api";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/input";
+import { Segmented } from "@/components/ui/segmented";
+import { IconChip } from "@/components/ui/icon-chip";
+import { Logo, isBrandName } from "@/components/ui/logo";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageContainer, PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { Category, Meeting } from "../types";
 
@@ -113,79 +127,42 @@ function FilterBar({
   };
 
   return (
-    <div className="flex flex-col gap-2.5" style={{ fontFamily: "var(--vb-font-sans)" }}>
+    <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-2.5">
-        {/* Search input — vibrant style */}
-        <div className="relative flex-1 min-w-50 max-w-xs">
-          <Search
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ width: 15, height: 15, color: "var(--vb-muted-soft)" }}
-          />
-          <input
-            type="text"
+        <div className="relative min-w-50 max-w-xs flex-1">
+          <SearchInput
+            icon={Search}
             placeholder="Search meetings…"
             value={searchQuery}
             onChange={(e) => onSearch(e.target.value)}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "10px 32px 10px 38px",
-              fontFamily: "var(--vb-font-sans)",
-              fontSize: 14,
-              background: "var(--vb-canvas)",
-              border: "1px solid var(--vb-hairline)",
-              borderRadius: 12,
-              color: "var(--vb-ink)",
-              outline: "none",
-              transition: "border-color 160ms ease, box-shadow 160ms ease",
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = "var(--vb-ink)";
-              e.currentTarget.style.boxShadow = "0 0 0 3px var(--focus-ring)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = "var(--vb-hairline)";
-              e.currentTarget.style.boxShadow = "none";
-            }}
+            className={cn("h-10", searchQuery && "pr-9")}
           />
           {searchQuery && (
             <button
               onClick={() => onSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors"
-              style={{ color: "var(--vb-muted-soft)" }}
+              className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-soft transition-colors hover:text-ink"
               aria-label="Clear search"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="size-3.5" />
             </button>
           )}
         </div>
 
-        {/* Status filter — cream pill container */}
-        <PillGroup>
-          {STATUS_OPTIONS.map(({ value, label, dot }) => (
-            <PillOption
-              key={value}
-              active={statusFilter === value}
-              dotColor={dot}
-              onClick={() => onStatusFilter(value)}
-            >
-              {label}
-            </PillOption>
-          ))}
-        </PillGroup>
+        <Segmented
+          options={STATUS_OPTIONS.map(({ value, label, dot }) => ({
+            value,
+            label,
+            dotColor: dot || undefined,
+          }))}
+          value={statusFilter}
+          onChange={onStatusFilter}
+        />
 
-        {/* Date filter — same pill treatment */}
-        <PillGroup>
-          {DATE_OPTIONS.map(({ value, label }) => (
-            <PillOption
-              key={value}
-              active={dateFilter === value}
-              onClick={() => onDateFilter(value)}
-            >
-              {label}
-            </PillOption>
-          ))}
-        </PillGroup>
+        <Segmented
+          options={DATE_OPTIONS}
+          value={dateFilter}
+          onChange={onDateFilter}
+        />
 
         {/* Custom date range inputs */}
         {dateFilter === "custom" && (
@@ -195,82 +172,44 @@ function FilterBar({
               value={customFrom}
               onChange={(e) => onCustomFrom(e.target.value)}
               title="From date"
-              style={{
-                padding: "6px 10px",
-                fontSize: 11,
-                fontFamily: "var(--vb-font-sans)",
-                fontWeight: 500,
-                background: "var(--vb-canvas)",
-                border: "1px solid var(--vb-hairline)",
-                borderRadius: 10,
-                color: "var(--vb-ink)",
-                outline: "none",
-                cursor: "pointer",
-              }}
+              className="cursor-pointer rounded-sm border border-hairline bg-canvas px-2.5 py-1.5 text-[11px] font-medium text-ink outline-none focus-visible:border-ink"
             />
-            <span
-              className="select-none"
-              style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}
-            >
-              →
-            </span>
+            <span className="text-[11px] text-muted-soft select-none">→</span>
             <input
               type="date"
               value={customTo}
               min={customFrom || undefined}
               onChange={(e) => onCustomTo(e.target.value)}
               title="To date"
-              style={{
-                padding: "6px 10px",
-                fontSize: 11,
-                fontFamily: "var(--vb-font-sans)",
-                fontWeight: 500,
-                background: "var(--vb-canvas)",
-                border: "1px solid var(--vb-hairline)",
-                borderRadius: 10,
-                color: "var(--vb-ink)",
-                outline: "none",
-                cursor: "pointer",
-              }}
+              className="cursor-pointer rounded-sm border border-hairline bg-canvas px-2.5 py-1.5 text-[11px] font-medium text-ink outline-none focus-visible:border-ink"
             />
           </div>
         )}
 
-        {/* Clear filters */}
         {hasActive && (
-          <button
-            onClick={clearAll}
-            className="flex items-center gap-1 transition-colors"
-            style={{
-              padding: "6px 10px",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "var(--vb-muted-soft)",
-              borderRadius: 10,
-            }}
-          >
-            <X className="w-3 h-3" />
+          <Button variant="ghost" size="xs" onClick={clearAll}>
+            <X />
             Clear
-          </button>
+          </Button>
         )}
       </div>
 
       {/* Results summary */}
       {hasActive && (
-        <p style={{ fontSize: 11, color: "var(--vb-muted-soft)" }}>
+        <p className="text-[11px] text-muted-soft">
           {filteredCount === 0 ? (
-            <span style={{ color: "var(--vb-muted)" }}>
+            <span className="text-muted-ink">
               No meetings match your filters.
             </span>
           ) : filteredCount === totalCount ? (
             `${totalCount} ${totalCount === 1 ? "meeting" : "meetings"}`
           ) : (
             <>
-              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+              <span className="font-semibold text-body-strong">
                 {filteredCount}
               </span>
               {" of "}
-              <span style={{ fontWeight: 600, color: "var(--vb-body-strong)" }}>
+              <span className="font-semibold text-body-strong">
                 {totalCount}
               </span>
               {" meetings"}
@@ -279,67 +218,6 @@ function FilterBar({
         </p>
       )}
     </div>
-  );
-}
-
-// ─── Pill toggle primitives (used by FilterBar) ──────────────────────────────
-
-function PillGroup({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="flex items-center"
-      style={{
-        gap: 2,
-        padding: 3,
-        background: "var(--vb-surface-card)",
-        borderRadius: 9999,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function PillOption({
-  active,
-  dotColor,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  dotColor?: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="inline-flex items-center whitespace-nowrap transition-all"
-      style={{
-        gap: 6,
-        padding: "7px 14px",
-        borderRadius: 9999,
-        fontSize: 12,
-        fontFamily: "var(--vb-font-sans)",
-        fontWeight: active ? 600 : 500,
-        background: active ? "var(--vb-canvas)" : "transparent",
-        color: active ? "var(--vb-ink)" : "var(--vb-muted)",
-        boxShadow: active ? "0 1px 2px rgba(10,10,10,0.05)" : "none",
-        border: "none",
-      }}
-    >
-      {dotColor && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: dotColor,
-          }}
-        />
-      )}
-      {children}
-    </button>
   );
 }
 
@@ -444,10 +322,19 @@ function CategorySection({ category, meetings, onDelete, deletingId }: CategoryS
   const color = category.color || "var(--vb-lavender)";
   const Icon = (category.icon && CATEGORY_ICONS[category.icon]) || Tag;
   return (
-    <section style={{ marginBottom: 40 }}>
+    <section className="mb-10">
       <SectionHeader
-        chipBg={`color-mix(in srgb, ${color} 12%, white)`}
-        icon={<Icon className="w-4 h-4" style={{ color }} />}
+        color={color}
+        // The imagine.bo section is headed by the brand mark instead of a
+        // generic category glyph. Decorative (alt="") — the heading text
+        // right beside it already names the section.
+        icon={
+          isBrandName(category.name) ? (
+            <Logo variant="mark" alt="" className="h-[19px]" />
+          ) : (
+            <Icon />
+          )
+        }
         title={category.name}
         meta={
           <>
@@ -472,21 +359,15 @@ interface UncategorizedSectionProps {
 
 function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedSectionProps) {
   return (
-    <section
-      style={{
-        marginTop: 40,
-        paddingTop: 32,
-        borderTop: "1px solid var(--vb-hairline)",
-      }}
-    >
+    <section className="mt-10 border-t border-hairline pt-8">
       <SectionHeader
-        chipBg="var(--vb-surface-card)"
-        icon={<Inbox className="w-4 h-4" style={{ color: "var(--vb-muted)" }} />}
+        color="var(--vb-muted)"
+        icon={<Inbox />}
         title="Uncategorized"
         meta={
           <>
             {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
-            <span style={{ color: "var(--vb-muted-soft)" }}> · not yet classified</span>
+            <span className="text-muted-soft"> · not yet classified</span>
           </>
         }
         viewAllHref="/?uncategorized=1"
@@ -499,74 +380,35 @@ function UncategorizedSection({ meetings, onDelete, deletingId }: UncategorizedS
 // ─── SectionHeader (shared by CategorySection + UncategorizedSection) ────────
 
 function SectionHeader({
-  chipBg,
+  color,
   icon,
   title,
   meta,
   viewAllHref,
 }: {
-  chipBg: string;
+  color: string;
   icon: React.ReactNode;
   title: string;
   meta: React.ReactNode;
   viewAllHref: string;
 }) {
   return (
-    <div
-      className="flex items-end justify-between gap-3"
-      style={{ marginBottom: 18 }}
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <span
-          className="inline-flex items-center justify-center shrink-0"
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: chipBg,
-          }}
-        >
+    <div className="mb-[18px] flex items-end justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <IconChip color={color} className="size-9 rounded-[10px] [&_svg]:size-4">
           {icon}
-        </span>
+        </IconChip>
         <div className="min-w-0">
-          <h2
-            className="truncate"
-            style={{
-              fontFamily: "var(--vb-font-display)",
-              fontWeight: 500,
-              fontSize: 18,
-              letterSpacing: "-0.3px",
-              color: "var(--vb-ink)",
-              margin: 0,
-            }}
-          >
-            {title}
-          </h2>
-          <p
-            style={{
-              fontSize: 12,
-              color: "var(--vb-muted)",
-              margin: "3px 0 0",
-            }}
-          >
-            {meta}
-          </p>
+          <h2 className="vb-title-md truncate">{title}</h2>
+          <p className="mt-0.5 text-xs text-muted-ink">{meta}</p>
         </div>
       </div>
       <Link
         to={viewAllHref}
-        className="inline-flex items-center transition-colors whitespace-nowrap shrink-0"
-        style={{
-          gap: 2,
-          fontSize: 13,
-          fontWeight: 500,
-          color: "var(--vb-muted)",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--vb-ink)")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--vb-muted)")}
+        className="inline-flex shrink-0 items-center gap-0.5 text-[13px] font-medium whitespace-nowrap text-muted-ink transition-colors hover:text-ink"
       >
         View all
-        <ChevronRight className="w-3.5 h-3.5" />
+        <ChevronRight className="size-3.5" />
       </Link>
     </div>
   );
@@ -576,27 +418,28 @@ function SectionHeader({
 
 function NoFilterResults({ onClear }: { onClear: () => void }) {
   return (
-    <div className="text-center py-14 bg-white rounded-lg border border-slate-200 border-dashed">
-      <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center mx-auto mb-3">
-        <SlidersHorizontal className="w-4 h-4 text-slate-400" />
-      </div>
-      <h3 className="text-sm font-semibold text-slate-900 mb-1">No meetings match</h3>
-      <p className="text-xs text-slate-500 mb-4 max-w-xs mx-auto">
-        Try adjusting your search or filters.
-      </p>
-      <button
-        onClick={onClear}
-        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
-      >
-        Clear all filters
-      </button>
-    </div>
+    <EmptyState
+      icon={SlidersHorizontal}
+      color="var(--vb-ochre)"
+      title="No meetings match"
+      description="Try adjusting your search or filters."
+      className="border-dashed"
+      action={
+        <Button variant="outline" size="sm" onClick={onClear}>
+          Clear all filters
+        </Button>
+      }
+    />
   );
 }
 
 // ─── MeetingsPage ─────────────────────────────────────────────────────────────
 
 export default function MeetingsPage() {
+  // Scheduling a meeting files it into a category, which the API only
+  // allows for that category's admins. Members get the list without the
+  // button rather than a button that always 403s.
+  const { canCreateMeeting } = usePermissions();
   const [searchParams] = useSearchParams();
   const categoryId = searchParams.get("category_id");
   const teamId = searchParams.get("team_id");
@@ -808,52 +651,55 @@ export default function MeetingsPage() {
   if (loading && meetings.length === 0 && !isSearching) {
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-8 py-10 space-y-8">
+        <PageContainer width="wide" className="space-y-8">
           <div className="flex items-end justify-between gap-4">
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-8 w-40" />
+              <Skeleton className="h-10 w-40" />
               <Skeleton className="h-4 w-56" />
             </div>
-            <Skeleton className="h-9 w-32 shrink-0" />
+            <Skeleton className="h-11 w-32 shrink-0 rounded-md" />
           </div>
           {/* Filter bar skeleton */}
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-9 w-48 rounded-lg" />
-            <Skeleton className="h-9 w-72 rounded-lg" />
-            <Skeleton className="h-9 w-56 rounded-lg" />
+          <div className="flex items-center gap-2.5">
+            <Skeleton className="h-10 w-48 rounded-md" />
+            <Skeleton className="h-10 w-72 rounded-full" />
+            <Skeleton className="h-10 w-56 rounded-full" />
           </div>
           {[0, 1].map((section) => (
             <section key={section}>
-              <div className="flex items-end justify-between gap-3 mb-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <Skeleton className="w-8 h-8 rounded-md shrink-0" />
-                  <div className="space-y-1.5 min-w-0">
+              <div className="mb-[18px] flex items-end justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Skeleton className="size-9 shrink-0 rounded-[10px]" />
+                  <div className="min-w-0 space-y-2">
                     <Skeleton className="h-4 w-40" />
                     <Skeleton className="h-3 w-28" />
                   </div>
                 </div>
                 <Skeleton className="h-3 w-16 shrink-0" />
               </div>
-              <div className="flex gap-3 overflow-hidden pb-2 px-1">
+              <div className="flex gap-3.5 overflow-hidden px-0.5 pb-2">
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="shrink-0 w-[20rem] md:w-[22rem] h-[280px] rounded-lg bg-white border border-slate-200 p-4 animate-pulse"
+                    className="h-[270px] w-[20rem] shrink-0 animate-pulse rounded-lg border border-hairline bg-canvas p-5 md:w-[22rem]"
                   >
-                    <div className="h-4 w-16 bg-slate-200 rounded mb-3" />
-                    <div className="space-y-2 mb-3">
-                      <div className="h-4 w-full bg-slate-200 rounded" />
-                      <div className="h-4 w-3/5 bg-slate-200 rounded" />
+                    <div className="mb-3 h-5 w-20 rounded-full bg-surface-card" />
+                    <div className="mb-3.5 space-y-2">
+                      <div className="h-4 w-full rounded bg-surface-card" />
+                      <div className="h-4 w-3/5 rounded bg-surface-card" />
                     </div>
-                    <div className="space-y-2 mb-5">
-                      <div className="h-3 w-32 bg-slate-200 rounded" />
-                      <div className="h-3 w-24 bg-slate-200 rounded" />
+                    <div className="mb-5 space-y-2">
+                      <div className="h-3 w-32 rounded bg-surface-card" />
+                      <div className="h-3 w-24 rounded bg-surface-card" />
                     </div>
-                    <div className="flex items-center gap-2 pt-3">
+                    <div className="flex items-center gap-2 border-t border-hairline-soft pt-3.5">
                       <div className="flex -space-x-1.5">
                         {[0, 1, 2].map((a) => (
-                          <div key={a} className="h-5 w-5 rounded-full bg-slate-200 ring-2 ring-white" />
+                          <div
+                            key={a}
+                            className="size-[22px] rounded-full bg-surface-card ring-2 ring-canvas"
+                          />
                         ))}
                       </div>
                     </div>
@@ -862,7 +708,7 @@ export default function MeetingsPage() {
               </div>
             </section>
           ))}
-        </div>
+        </PageContainer>
       </Layout>
     );
   }
@@ -880,26 +726,20 @@ export default function MeetingsPage() {
       : "You haven't scheduled any meetings yet.";
     return (
       <Layout>
-        <div className="max-w-6xl mx-auto px-8 py-10 space-y-6">
-          <header>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
-              Overview
-            </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Meetings</h1>
-          </header>
+        <PageContainer width="default" className="space-y-6">
+          <PageHeader eyebrow="Overview" title="Meetings" className="mb-0" />
           <ScheduleMeetingForm
             defaultCategoryId={filter.category_id}
             defaultTeamId={filter.team_id}
             onScheduled={handleScheduled}
           />
-          <div className="text-center py-14 bg-white rounded-lg border border-slate-200">
-            <div className="w-11 h-11 bg-slate-50 rounded-md flex items-center justify-center mx-auto mb-3">
-              <Calendar className="w-5 h-5 text-slate-400" />
-            </div>
-            <h3 className="text-sm font-semibold text-slate-900 mb-1">No meetings found</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">{emptyMessage}</p>
-          </div>
-        </div>
+          <EmptyState
+            icon={Calendar}
+            color="var(--vb-pink)"
+            title="Nothing captured yet"
+            description={emptyMessage}
+          />
+        </PageContainer>
       </Layout>
     );
   }
@@ -910,65 +750,63 @@ export default function MeetingsPage() {
   if (isFiltered) {
     return (
       <Layout>
-        <div className="max-w-7xl mx-auto px-8 py-10 space-y-6">
-          <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div className="flex items-start gap-2 min-w-0">
+        <PageContainer width="wide" className="space-y-6">
+          <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+            <div className="flex min-w-0 items-start gap-2">
               <button
                 onClick={() => navigate("/")}
-                className="mt-1 p-1.5 rounded-md hover:bg-slate-100 transition-colors"
+                className="mt-2 rounded-sm p-1.5 text-muted-ink transition-colors hover:bg-surface-card hover:text-ink"
                 title="Back to all meetings"
               >
-                <ChevronLeft className="w-4 h-4 text-slate-600" />
+                <ChevronLeft className="size-4" />
               </button>
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600 mb-1.5">
-                  Filtered view
-                </p>
-                <h1 className="text-3xl font-semibold tracking-tight text-slate-900 truncate">
-                  {headerTitle}
-                </h1>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="vb-eyebrow mb-2.5">Filtered view</p>
+                <h1 className="vb-display-md truncate">{headerTitle}</h1>
+                <p className="mt-2.5 text-[15px] text-muted-ink">
                   {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="inline-flex bg-slate-100 rounded-md p-0.5">
+            <div className="flex shrink-0 items-center gap-2.5">
+              <div className="inline-flex rounded-full bg-surface-card p-[3px]">
                 <button
                   onClick={() => setView("table")}
                   className={cn(
-                    "p-1.5 rounded transition-colors",
-                    view === "table" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    "rounded-full p-2 transition-colors",
+                    view === "table"
+                      ? "bg-canvas text-ink"
+                      : "text-muted-ink hover:text-ink",
                   )}
                   title="Table view"
                 >
-                  <List className="w-4 h-4" />
+                  <List className="size-4" />
                 </button>
                 <button
                   onClick={() => setView("grid")}
                   className={cn(
-                    "p-1.5 rounded transition-colors",
-                    view === "grid" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    "rounded-full p-2 transition-colors",
+                    view === "grid"
+                      ? "bg-canvas text-ink"
+                      : "text-muted-ink hover:text-ink",
                   )}
                   title="Grid view"
                 >
-                  <LayoutGrid className="w-4 h-4" />
+                  <LayoutGrid className="size-4" />
                 </button>
               </div>
-              <Button
-                size="sm"
-                onClick={() => setShowScheduleForm(!showScheduleForm)}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New meeting
-              </Button>
+              {canCreateMeeting && (
+                <Button onClick={() => setShowScheduleForm(!showScheduleForm)}>
+                  <Plus />
+                  New meeting
+                </Button>
+              )}
             </div>
           </header>
 
           {showScheduleForm && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <div className="rounded-lg border border-hairline bg-surface-soft p-5">
               <ScheduleMeetingForm
                 defaultCategoryId={filter.category_id}
                 defaultTeamId={filter.team_id}
@@ -995,42 +833,28 @@ export default function MeetingsPage() {
           {filteredMeetings.length === 0 && hasActiveFilters ? (
             <NoFilterResults onClear={clearFilters} />
           ) : view === "table" ? (
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Source
-                    </th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Meeting
-                    </th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      When
-                    </th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Participants
-                    </th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredMeetings.map((meeting) => (
-                    <MeetingRow
-                      key={meeting.id}
-                      meeting={meeting}
-                      onDelete={handleDelete}
-                      isDeleting={deletingId === meeting.id}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="px-4">Source</TableHead>
+                  <TableHead className="px-4">Meeting</TableHead>
+                  <TableHead className="px-4">When</TableHead>
+                  <TableHead className="px-4">Participants</TableHead>
+                  <TableHead className="px-4">Status</TableHead>
+                  <TableHead className="px-4 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredMeetings.map((meeting) => (
+                  <MeetingRow
+                    key={meeting.id}
+                    meeting={meeting}
+                    onDelete={handleDelete}
+                    isDeleting={deletingId === meeting.id}
+                  />
+                ))}
+              </TableBody>
+            </Table>
           ) : (
             <MeetingList
               meetings={filteredMeetings}
@@ -1046,7 +870,7 @@ export default function MeetingsPage() {
             loading={loadingMore}
             onClick={loadMore}
           />
-        </div>
+        </PageContainer>
       </Layout>
     );
   }
@@ -1056,96 +880,34 @@ export default function MeetingsPage() {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Layout>
-      <div
-        style={{
-          maxWidth: 1180,
-          margin: "0 auto",
-          padding: "44px 44px 72px",
-          // Override the cream canvas token → white for this whole page,
-          // so every child using var(--vb-canvas) (cards, filter bar, …)
-          // inherits white without editing each one.
-          ["--vb-canvas" as string]: "#ffffff",
-          background: "#ffffff",
-          minHeight: "100vh",
-          fontFamily: "var(--vb-font-sans)",
-          color: "var(--vb-body)",
-        } as React.CSSProperties}
-      >
-        <header
-          className="flex items-end justify-between flex-wrap"
-          style={{ gap: 24, marginBottom: 28 }}
-        >
-          <div>
-            <p
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: "1.5px",
-                textTransform: "uppercase",
-                color: "var(--vb-pink)",
-                margin: "0 0 10px",
-              }}
-            >
-              Overview
-            </p>
-            <h1
-              style={{
-                fontFamily: "var(--vb-font-display)",
-                fontWeight: 500,
-                fontSize: 40,
-                letterSpacing: "-1.4px",
-                color: "var(--vb-ink)",
-                margin: 0,
-              }}
-            >
-              Meetings
-            </h1>
-            <p
-              style={{
-                fontSize: 15,
-                color: "var(--vb-muted)",
-                margin: "10px 0 0",
-              }}
-            >
-              {isSearching
-                ? `Search: "${searchTrimmed}" · ${total} match${total === 1 ? "" : "es"} across the organization`
-                : `Showing latest ${groupedLatest?.per_category ?? 10} per category` +
-                  (groupedForRender.sections.length > 0
-                    ? ` · ${groupedForRender.sections.length} ${
-                        groupedForRender.sections.length === 1 ? "category" : "categories"
-                      }`
-                    : "")}
-              .
-            </p>
-          </div>
-          <button
-            onClick={() => setShowScheduleForm(!showScheduleForm)}
-            className="inline-flex items-center transition-colors"
-            style={{
-              gap: 8,
-              height: 44,
-              padding: "0 18px",
-              background: "var(--vb-ink)",
-              color: "var(--vb-on-ink)",
-              border: "none",
-              borderRadius: 12,
-              fontFamily: "var(--vb-font-sans)",
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-            onMouseDown={(e) =>
-              (e.currentTarget.style.background = "var(--vb-ink-active)")
-            }
-            onMouseUp={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--vb-ink)")}
-          >
-            <Plus className="w-4 h-4" />
-            New meeting
-          </button>
-        </header>
+      <PageContainer width="wide">
+        <PageHeader
+          eyebrow="Overview"
+          title="Meetings"
+          description={
+            isSearching
+              ? `Search: "${searchTrimmed}" · ${total} match${total === 1 ? "" : "es"} across the organization.`
+              : `Showing latest ${groupedLatest?.per_category ?? 10} per category` +
+                (groupedForRender.sections.length > 0
+                  ? ` · ${groupedForRender.sections.length} ${
+                      groupedForRender.sections.length === 1
+                        ? "category"
+                        : "categories"
+                    }`
+                  : "") +
+                "."
+          }
+          actions={
+            canCreateMeeting && (
+              <Button onClick={() => setShowScheduleForm(!showScheduleForm)}>
+                <Plus />
+                New meeting
+              </Button>
+            )
+          }
+        />
 
-        <div className="mb-8">
+        <div className="mb-9">
           <FilterBar
             searchQuery={searchQuery}
             onSearch={setSearchQuery}
@@ -1163,7 +925,7 @@ export default function MeetingsPage() {
         </div>
 
         {showScheduleForm && (
-          <div className="mb-8 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <div className="mb-9 rounded-lg border border-hairline bg-surface-soft p-5">
             <ScheduleMeetingForm
               defaultCategoryId={filter.category_id}
               defaultTeamId={filter.team_id}
@@ -1177,16 +939,17 @@ export default function MeetingsPage() {
         {isSearching ? (
           <>
             {loading && meetings.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-8">Searching…</p>
+              <p className="py-8 text-center text-sm text-muted-soft">
+                Searching…
+              </p>
             ) : filteredMeetings.length === 0 ? (
-              <div className="text-center py-14 bg-white rounded-lg border border-slate-200 border-dashed">
-                <h3 className="text-sm font-semibold text-slate-900 mb-1">
-                  No matches
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Nothing in the organization matches "{searchTrimmed}".
-                </p>
-              </div>
+              <EmptyState
+                icon={Search}
+                color="var(--vb-lavender)"
+                title="No matches"
+                description={`Nothing in the organization matches "${searchTrimmed}".`}
+                className="border-dashed"
+              />
             ) : (
               <>
                 <MeetingList
@@ -1231,11 +994,13 @@ export default function MeetingsPage() {
             )}
 
             {groupedLoading && groupedForRender.totalRendered === 0 && !hasActiveFilters && (
-              <p className="text-sm text-slate-400 text-center py-8">Loading meetings…</p>
+              <p className="py-8 text-center text-sm text-muted-soft">
+                Loading meetings…
+              </p>
             )}
           </>
         )}
-      </div>
+      </PageContainer>
     </Layout>
   );
 }
@@ -1256,19 +1021,13 @@ function LoadMoreBar({
   if (loaded === 0) return null;
   return (
     <div className="mt-6 flex items-center justify-center gap-4">
-      <span className="text-xs text-slate-500">
-        {total > 0
-          ? `Showing ${loaded} of ${total}`
-          : `Showing ${loaded}`}
+      <span className="font-mono text-xs text-muted-ink">
+        {total > 0 ? `Showing ${loaded} of ${total}` : `Showing ${loaded}`}
       </span>
       {hasMore && (
-        <button
-          onClick={onClick}
-          disabled={loading}
-          className="text-xs font-medium px-3 py-1.5 rounded-md bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 disabled:opacity-50"
-        >
+        <Button variant="outline" size="xs" onClick={onClick} disabled={loading}>
           {loading ? "Loading…" : "Load more"}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 
 
 class MeetingRequest(BaseModel):
@@ -19,6 +20,21 @@ class MeetingAssignRequest(BaseModel):
     team_id: Optional[int] = None
 
 
+class ParticipantLinkRequest(BaseModel):
+    """Attach a meeting attendee to a user account, or detach them.
+
+    This is an ACCESS decision, not a cosmetic one: a trusted link is what
+    makes someone a member of the meeting, so it hands them the transcript,
+    its tasks and its cards. Hence manage rights on the meeting, and hence
+    `match_source='manual'` on the way in — the resulting row is trusted
+    precisely because a human vouched for it.
+
+    `user_id=null` detaches, which is also the only way to correct a bad
+    match: it revokes the access the link conferred.
+    """
+    user_id: Optional[UUID] = None
+
+
 class TaskUpdateRequest(BaseModel):
     """Inline edits from the Action Items page / Kanban card drawer.
     Any subset may be provided.
@@ -31,6 +47,10 @@ class TaskUpdateRequest(BaseModel):
     """
     task: Optional[str] = None           # the task text itself — for AI-extracted tasks the user wants to correct
     owner_name: Optional[str] = None
+    # Real assignee, as opposed to `owner_name`, which is whatever the
+    # analyzer wrote down. Setting it grants that user access to the
+    # task, so only admins may change it. Pass null to unassign.
+    assignee_user_id: Optional[UUID] = None
     priority: Optional[str] = None
     is_completed: Optional[bool] = None
     due_date: Optional[datetime] = None

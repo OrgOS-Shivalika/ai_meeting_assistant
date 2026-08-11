@@ -179,6 +179,15 @@ def build_context_blocks(bundle: RetrievalBundle) -> tuple[str, dict[int, Citati
         lines.append(live_block.strip())
         lines.append("")
 
+    # Memory Phase 4 — session/chat memory: relevant turns from earlier in
+    # THIS conversation (run_id-scoped). Rendered right after live state so
+    # follow-up questions ("what about the second one?") resolve against
+    # prior turns before any retrieved evidence. NOT citable.
+    session_block = getattr(bundle, "session_block", "") or ""
+    if session_block:
+        lines.append(session_block.strip())
+        lines.append("")
+
     # Memory Phase 1E — render distilled facts ABOVE chunks. Facts are
     # NOT citable (no [N] tag); the LLM treats them as authoritative
     # org context. Citation validator only looks at chunks → index_map

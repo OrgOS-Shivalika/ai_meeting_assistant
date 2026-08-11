@@ -19,19 +19,15 @@ of the org can edit. This is documented in the plan.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
-from sqlalchemy import desc
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
-from app.db.models import (
-    AgentEvalRun, AgentProfile, AgentPromptConfig, PromptVersion, User,
-)
+from app.db.database import get_db
+from app.db.models import User
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 from app.dependencies.auth import get_current_user
@@ -40,7 +36,7 @@ from app.schemas.agent_api_schema import (
     AgentProfilePatchRequest, AgentProfileResponse,
     AgentTypeDescriptor,
 )
-from app.services.agents.audit import write_event as _audit
+from app.services.agents import crud as agent_crud
 from app.services.agents.eval_gate import (
     EvalGateError, list_runs_for_agent, run_eval_for_version,
 )
@@ -110,26 +106,6 @@ _AGENT_TYPE_CATALOG: list[AgentTypeDescriptor] = [
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _get_owned_profile(
-    db: Session, *, profile_id: UUID, organization_id: UUID,
-) -> AgentProfile:
-    row = (
-        db.query(AgentProfile)
-        .filter(
-            AgentProfile.id == profile_id,
-            AgentProfile.organization_id == organization_id,
-        )
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="Agent profile not found")
-    return row
-
-
-# ---------------------------------------------------------------------------
 # Read endpoints
 # ---------------------------------------------------------------------------
 
@@ -150,17 +126,10 @@ def list_agent_profiles(
 ):
     """List agent profiles for the user's org. Default returns active
     profiles, newest first. Pass `status=archived` to see archived ones."""
-    q = db.query(AgentProfile).filter(
-        AgentProfile.organization_id == user.organization_id,
+    return agent_crud.list_profiles(
+        db, organization_id=user.organization_id,
+        agent_type=agent_type, status=status, limit=limit,
     )
-    if agent_type is not None:
-        q = q.filter(AgentProfile.agent_type == agent_type)
-    if status is not None:
-        q = q.filter(AgentProfile.status == status)
-    else:
-        q = q.filter(AgentProfile.status == "active")
-    rows = q.order_by(desc(AgentProfile.created_at)).limit(limit).all()
-    return rows
 
 
 @router.get("/{profile_id}", response_model=AgentProfileResponse)
@@ -169,7 +138,7 @@ def get_agent_profile(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return _get_owned_profile(
+    return agent_crud.get_owned_profile(
         db, profile_id=profile_id, organization_id=user.organization_id,
     )
 
@@ -190,41 +159,7 @@ def create_agent_profile(
 ):
     """Create a draft profile. Subsequent slices (7B) add prompt
     versions; 7A only persists the profile shell."""
-    default_prompt = {}
-    if payload.default_modular_prompt is not None:
-        default_prompt = payload.default_modular_prompt.to_modular_prompt().to_dict()
-
-    row = AgentProfile(
-        organization_id=user.organization_id,
-        slug=payload.slug,
-        display_name=payload.display_name,
-        description=payload.description,
-        agent_type=payload.agent_type,
-        status="active",
-        default_modular_prompt_json=default_prompt,
-        eval_gate_required=payload.eval_gate_required,
-        eval_fixture_set_id=payload.eval_fixture_set_id,
-        eval_min_score=payload.eval_min_score,
-        created_by=user.id,
-    )
-    db.add(row)
-    try:
-        db.commit()
-    except IntegrityError as e:
-        db.rollback()
-        # The soft-active unique on (org, slug) is the most likely cause.
-        raise HTTPException(
-            status_code=409,
-            detail="An active agent profile with this slug already exists.",
-        ) from e
-    db.refresh(row)
-    _audit(
-        db, organization_id=user.organization_id, actor_user_id=user.id,
-        entity_type="agent_profile", entity_id=row.id, action="create",
-        after={"slug": row.slug, "agent_type": row.agent_type,
-               "display_name": row.display_name},
-    )
-    return row
+    return agent_crud.create_profile(db, user=user, payload=payload)
 
 
 @router.patch("/{profile_id}", response_model=AgentProfileResponse)
@@ -236,41 +171,9 @@ def patch_agent_profile(
 ):
     """Partial update. Slug and agent_type are immutable post-create —
     duplicate the profile if you need a new slug."""
-    row = _get_owned_profile(
-        db, profile_id=profile_id, organization_id=user.organization_id,
+    return agent_crud.patch_profile(
+        db, user=user, profile_id=profile_id, payload=payload,
     )
-    if row.status != "active":
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot edit an archived profile. Duplicate it first.",
-        )
-
-    if payload.display_name is not None:
-        row.display_name = payload.display_name
-    if payload.description is not None:
-        row.description = payload.description
-    if payload.default_modular_prompt is not None:
-        row.default_modular_prompt_json = (
-            payload.default_modular_prompt.to_modular_prompt().to_dict()
-        )
-    if payload.eval_gate_required is not None:
-        row.eval_gate_required = payload.eval_gate_required
-    if payload.eval_fixture_set_id is not None:
-        row.eval_fixture_set_id = payload.eval_fixture_set_id
-    if payload.eval_min_score is not None:
-        row.eval_min_score = payload.eval_min_score
-
-    row.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(row)
-    _audit(
-        db, organization_id=user.organization_id, actor_user_id=user.id,
-        entity_type="agent_profile", entity_id=row.id, action="update",
-        after={"display_name": row.display_name,
-               "description": row.description,
-               "eval_gate_required": row.eval_gate_required},
-    )
-    return row
 
 
 @router.post(
@@ -286,21 +189,9 @@ def archive_agent_profile(
     they stay active until 7B's deactivation flow handles them. For 7A
     the archive is profile-only; admins archiving a profile mid-7B
     workflow should re-archive bindings explicitly."""
-    row = _get_owned_profile(
-        db, profile_id=profile_id, organization_id=user.organization_id,
+    return agent_crud.archive_profile(
+        db, user=user, profile_id=profile_id,
     )
-    if row.status == "archived":
-        return row  # idempotent
-    row.status = "archived"
-    row.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(row)
-    _audit(
-        db, organization_id=user.organization_id, actor_user_id=user.id,
-        entity_type="agent_profile", entity_id=row.id, action="archive",
-        before={"status": "active"}, after={"status": "archived"},
-    )
-    return row
 
 
 @router.post(
@@ -318,38 +209,9 @@ def duplicate_agent_profile(
     prompt + eval settings, but NOT scope bindings or prompt versions
     (those land in 7B). The duplicate starts fresh — a clean editing
     surface for experimentation."""
-    src = _get_owned_profile(
-        db, profile_id=profile_id, organization_id=user.organization_id,
+    return agent_crud.duplicate_profile(
+        db, user=user, profile_id=profile_id, payload=payload,
     )
-    new_row = AgentProfile(
-        organization_id=user.organization_id,
-        slug=payload.new_slug,
-        display_name=payload.new_display_name,
-        description=src.description,
-        agent_type=src.agent_type,
-        status="active",
-        default_modular_prompt_json=dict(src.default_modular_prompt_json or {}),
-        eval_gate_required=src.eval_gate_required,
-        eval_fixture_set_id=src.eval_fixture_set_id,
-        eval_min_score=src.eval_min_score,
-        created_by=user.id,
-    )
-    db.add(new_row)
-    try:
-        db.commit()
-    except IntegrityError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="An active agent profile with this slug already exists.",
-        ) from e
-    db.refresh(new_row)
-    _audit(
-        db, organization_id=user.organization_id, actor_user_id=user.id,
-        entity_type="agent_profile", entity_id=new_row.id, action="duplicate",
-        after={"slug": new_row.slug, "duplicated_from": str(src.id)},
-    )
-    return new_row
 
 
 # ===========================================================================
@@ -452,42 +314,14 @@ def trigger_eval_run(
     """Manually trigger an eval run for a profile. Defaults to the
     profile's currently-active version + stub mode. Persists an
     `agent_eval_runs` row and returns the full result."""
-    prof = _get_owned_profile(
+    prof = agent_crud.get_owned_profile(
         db, profile_id=profile_id, organization_id=user.organization_id,
     )
-
-    # Pick the version. If the request didn't specify one, use the
-    # profile's first org-scoped binding's active_version_id.
-    version_id = payload.prompt_version_id
-    if version_id is None:
-        cfg = (
-            db.query(AgentPromptConfig)
-            .filter(
-                AgentPromptConfig.organization_id == user.organization_id,
-                AgentPromptConfig.agent_profile_id == prof.id,
-                AgentPromptConfig.scope_type == "organization",
-                AgentPromptConfig.status == "active",
-            )
-            .first()
-        )
-        if cfg is None or cfg.active_version_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "No active version found for this profile. Pass "
-                    "prompt_version_id explicitly or publish a version first."
-                ),
-            )
-        version_id = cfg.active_version_id
-
-    # Sanity-check tenancy on the version (rejects cross-org or
-    # cross-profile version_ids).
-    ver = db.query(PromptVersion).filter(
-        PromptVersion.id == version_id,
-        PromptVersion.organization_id == user.organization_id,
-    ).first()
-    if ver is None:
-        raise HTTPException(status_code=404, detail="Prompt version not found")
+    version_id = agent_crud.resolve_eval_version_id(
+        db, organization_id=user.organization_id,
+        agent_profile_id=prof.id,
+        requested_version_id=payload.prompt_version_id,
+    )
 
     try:
         run = run_eval_for_version(
@@ -520,7 +354,7 @@ def list_eval_runs(
     """Most-recent first eval-run history for one profile.
     Cross-org access returns an empty list (because the profile
     lookup 404s before we get here)."""
-    _get_owned_profile(
+    agent_crud.get_owned_profile(
         db, profile_id=profile_id, organization_id=user.organization_id,
     )
     rows = list_runs_for_agent(

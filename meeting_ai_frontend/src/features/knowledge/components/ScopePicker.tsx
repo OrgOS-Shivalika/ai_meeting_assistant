@@ -59,9 +59,9 @@ export default function ScopePicker({
               key={s}
               type="button"
               onClick={() => handleScopeChange(s)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-all ${
                 active
-                  ? "bg-white text-indigo-600 shadow-sm"
+                  ? "bg-canvas text-indigo-600 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
@@ -88,7 +88,7 @@ export default function ScopePicker({
             }
           }}
           disabled={loading}
-          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-canvas text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
         >
           <option value="">Choose a meeting type…</option>
           {categories.map((c) => (
@@ -111,7 +111,7 @@ export default function ScopePicker({
             })
           }
           disabled={!activeCategory || teams.length === 0}
-          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-canvas text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
         >
           <option value="">
             {!activeCategory

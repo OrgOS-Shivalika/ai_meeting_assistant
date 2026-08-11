@@ -10,17 +10,17 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.db_dependency import get_db
+from app.db.database import get_db
 from app.config.settings import settings
-from app.db.models import Category, CategoryDocument
+from app.db.models import CategoryDocument
 from app.dependencies.auth import get_current_user
 from app.schemas.document_schema import CategoryDocumentSchema
+from app.services import document_service
 from app.services.storage_service import storage, StorageNotConfigured
 from app.utils.logger import setup_logger
 
@@ -39,20 +39,6 @@ _ALLOWED_MIME_PREFIXES = (
     "text/",  # txt, markdown, csv
 )
 _MAX_BYTES = 50 * 1024 * 1024  # 50 MB hard cap
-
-
-def _category_in_user_org(db: Session, user, category_id: int) -> Category:
-    category = (
-        db.query(Category)
-        .filter(
-            Category.id == category_id,
-            Category.organization_id == user.organization_id,
-        )
-        .first()
-    )
-    if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
-    return category
 
 
 def _to_schema(doc: CategoryDocument, with_url: bool = False) -> CategoryDocumentSchema:
@@ -96,7 +82,7 @@ def upload_category_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    category = _category_in_user_org(db, user, category_id)
+    category = document_service.category_in_user_org(db, user, category_id)
 
     if not storage.is_configured:
         raise HTTPException(
@@ -138,26 +124,16 @@ def upload_category_document(
         logger.error("Storage upload failed: %s", exc)
         raise HTTPException(status_code=502, detail="Storage upload failed.") from exc
 
-    doc = CategoryDocument(
-        organization_id=user.organization_id,
-        category_id=category.id,
-        uploaded_by_user_id=user.id,
+    doc = document_service.create_document(
+        db,
+        user,
+        category,
         name=file.filename or "untitled",
         original_filename=file.filename or "untitled",
         mime_type=file.content_type,
         size_bytes=size_bytes,
         storage_key=storage_key,
-        status="uploaded",
     )
-    db.add(doc)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        # Storage_key is UUID-suffixed, so this should never happen in practice;
-        # if it does, surface a clean error rather than a 500.
-        raise HTTPException(status_code=409, detail="Storage key collision; retry the upload.")
-    db.refresh(doc)
 
     # Async-first: kick off processing without blocking the response.
     _enqueue_processing(str(doc.id), background_tasks)
@@ -174,13 +150,7 @@ def list_category_documents(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _category_in_user_org(db, user, category_id)
-    docs = (
-        db.query(CategoryDocument)
-        .filter(CategoryDocument.category_id == category_id)
-        .order_by(CategoryDocument.created_at.desc())
-        .all()
-    )
+    docs = document_service.list_documents(db, user, category_id)
     return [_to_schema(d, with_url=True) for d in docs]
 
 
@@ -194,17 +164,7 @@ def get_category_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _category_in_user_org(db, user, category_id)
-    doc = (
-        db.query(CategoryDocument)
-        .filter(
-            CategoryDocument.id == document_id,
-            CategoryDocument.category_id == category_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = document_service.get_owned_document(db, user, category_id, document_id)
     return _to_schema(doc, with_url=True)
 
 
@@ -215,17 +175,7 @@ def delete_category_document(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _category_in_user_org(db, user, category_id)
-    doc = (
-        db.query(CategoryDocument)
-        .filter(
-            CategoryDocument.id == document_id,
-            CategoryDocument.category_id == category_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = document_service.get_owned_document(db, user, category_id, document_id)
 
     # Best-effort storage cleanup. If the object is already gone, the row
     # is still removed — orphan storage objects are reclaimable later.
@@ -235,8 +185,7 @@ def delete_category_document(
     except Exception as exc:
         logger.warning("Storage delete failed for %s: %s", doc.storage_key, exc)
 
-    db.delete(doc)
-    db.commit()
+    document_service.delete_document(db, doc)
     return {"status": "ok", "deleted_id": str(document_id)}
 
 
@@ -254,20 +203,7 @@ def retry_category_document_embedding(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _category_in_user_org(db, user, category_id)
-    doc = (
-        db.query(CategoryDocument)
-        .filter(
-            CategoryDocument.id == document_id,
-            CategoryDocument.category_id == category_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    doc.embedding_status = "pending"
-    doc.error_message = None
-    db.commit()
+    document_service.mark_document_embedding_pending(db, user, category_id, document_id)
     from app.celery_tasks.document_ingest import dispatch_ingest_document
     dispatch_ingest_document("category", str(document_id))
     return {"status": "dispatched", "document_id": str(document_id), "stage": "embedding"}
@@ -280,27 +216,7 @@ def retry_category_document_graph(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    _category_in_user_org(db, user, category_id)
-    doc = (
-        db.query(CategoryDocument)
-        .filter(
-            CategoryDocument.id == document_id,
-            CategoryDocument.category_id == category_id,
-        )
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    if doc.embedding_status != "embedded":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Document embeddings aren't ready (embedding_status="
-                f"{doc.embedding_status}); cannot retry graph extraction yet."
-            ),
-        )
-    doc.graph_status = "pending"
-    db.commit()
+    document_service.mark_document_graph_pending(db, user, category_id, document_id)
     try:
         from app.celery_tasks.document_graph_tasks import (
             dispatch_extract_document_graph,
