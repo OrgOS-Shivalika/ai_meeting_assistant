@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 import os
 from app.api.auth_router import router as auth_router, public_router as auth_public_router
 from app.api.admin_router import router as admin_router
@@ -124,6 +124,23 @@ def health_check():
     return {"status": "healthy"}
 
 frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meeting_ai_frontend", "dist")
+
+
+# Registered BEFORE the catchall below, so it wins the route match.
+#
+# Browsers request /favicon.ico on their own, regardless of the
+# `<link rel="icon" href="/favicon.svg">` in index.html. We don't ship an
+# .ico, so that request fell through to the SPA catchall and came back as
+# index.html with `200 text/html` — which the browser accepts as a valid
+# favicon response, caches, then fails to decode as an image. The tab icon
+# silently stays blank and no error is logged anywhere.
+#
+# 404 is the correct answer: it tells the browser this format doesn't exist
+# so it falls back to the SVG the page actually declares.
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon_ico():
+    return Response(status_code=404)
+
 
 _API_HTML_PASSTHROUGH: set[str] = {
     "/docs",

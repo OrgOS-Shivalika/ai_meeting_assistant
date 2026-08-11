@@ -289,6 +289,31 @@ Append newest at the bottom. One line per meaningful change: what, where, how ve
   worker AND beat, then verify with the `langfuse_context.client_instance.base_url`
   diagnostic (§3) — the boot log is NOT proof, that's the wrong-client bug.
 
+### 2026-08-11 — DEPLOYED. Prod tracing to self-hosted Langfuse, verified.
+- `continum` merged to `main` (pure fast-forward, merge-base == main tip,
+  23 commits / 266 files) and deployed. Railway's own `frontend_path` fix
+  (`3aa570c`, cwd → `__file__`) was already an ancestor, nothing to pull.
+- Prod alembic run BEFORE the deploy: `g3o7j9k1l2m` → `ae05rbac`, verified by
+  outcome (roles uppercased in place, row counts unchanged). Snapshot at
+  `scratchpad/prod_users_before_migration.json`.
+- `LANGFUSE_HOST`/`_PUBLIC_KEY`/`_SECRET_KEY` set on web+worker+beat.
+  **VERIFIED with real traffic**: trace count 3 → 31. The 28 new ones are
+  gpt-4o-mini calls from `live_summary/live_summary_tracker.py` (the live
+  rolling summariser) on an actual prod meeting. Prod → Railway is live.
+- **`LANGFUSE_TRACING_ENVIRONMENT` IS INERT ON v2.** I recommended it; it is
+  wrong. Proved it: the SDK reads the var (`client.environment` is set) but
+  the trace comes back `environment: None`. It is a v3 feature. Don't set it —
+  use separate projects, or separate hosts, to split dev from prod.
+- **Known gap, not blocking:** those 28 are ORPHAN root traces — no parent, no
+  `userId`, no metadata, 1 observation each. `live_summary_tracker` calls the
+  `langfuse.openai` wrapper OUTSIDE any `@observe` scope, so every summariser
+  tick becomes its own trace. Cost is visible; provenance is not (can't tie a
+  generation to a meeting/org). Fix = wrap the tick in `@observe` and set
+  trace metadata.
+- Local/prod now share ONE Langfuse project with no way to tell them apart.
+  Cleanest fix is to point local `.env` back at `http://localhost:3000` (the
+  compose service is still running) and leave Railway to prod.
+
 ---
 
 ## 7. Open threads
