@@ -36,7 +36,7 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
 | Local DB | `localhost:5433/meeting_ai`, alembic head `ae05rbac` |
-| Prod (Railway) | **4 migrations behind** (`g3o7j9k1l2m`). URL is commented out in `.env`. |
+| Prod (Railway) | **at head `ae05rbac`** as of 2026-08-11. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
 | mem0 | OSS self-hosted, table `mem0_facts`, 112 rows |
 | Langfuse | self-hosted v2. **Local `.env` now points at RAILWAY** (`https://langfuse-production-d9d4.up.railway.app`), not `localhost:3000`. The docker-compose `langfuse` service still runs but nothing traces to it — stop it or repoint `LANGFUSE_BASE_URL` to use it again. |
 | Celery in dev | host worker via `make celery` (`--pool=solo`), NOT the container |
@@ -293,8 +293,12 @@ Append newest at the bottom. One line per meaningful change: what, where, how ve
 
 ## 7. Open threads
 
-**Blocking:** run `alembic upgrade head` on Railway before deploying this branch —
-participant INSERTs will fail otherwise (missing `user_id`/`match_source`).
+**Blocking:** ~~run `alembic upgrade head` on Railway~~ — DONE 2026-08-11,
+prod is at `ae05rbac`. **Prod DB is now AHEAD of prod CODE.** All 7 users are
+`ORG_ADMIN` (uppercase) while the deployed code still compares lowercase
+`'org_admin'`, so every user currently reads as least-privileged on the
+agent-prompt surfaces. Fails CLOSED, not open — but it does not clear until
+the new code ships. Deploy is now time-sensitive.
 
 **Decisions owed by the user, do not pick unilaterally:**
 - capture-mode flag shape (per-meeting / per-category / per-room) before `diarize:True`
