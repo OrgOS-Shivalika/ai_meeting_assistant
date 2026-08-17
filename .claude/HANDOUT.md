@@ -314,16 +314,46 @@ Append newest at the bottom. One line per meaningful change: what, where, how ve
   Cleanest fix is to point local `.env` back at `http://localhost:3000` (the
   compose service is still running) and leave Railway to prod.
 
+### 2026-08-17 — read-only orientation pass (no code changed)
+
+- Nothing edited except this file. Working tree CLEAN at `ea10699`; the user
+  committed the entire §6 handoff backlog between sessions in `ea137f8` /
+  `6df9441` / `ea10699`. §7's "Uncommitted" list was stale and is now removed.
+- Branch state (after `git fetch neworigin`): `neworigin/main` = `26eccfc`
+  (PR #15 merged continum). **`continum` is ahead of `main` by exactly one
+  commit — `ea10699 favicon changes`.** That is the only unshipped work.
+  Note local `main` is a dead stale ref at `0d2f2ec`; `neworigin` is the real
+  remote, `origin` is a personal fork.
+- Verified against the live system, not notes: all six offline suites PASS
+  (rbac 28 / speaker 17 / participant 8 / memory 4 / importance 6 / profile 4);
+  `main:app` imports, 209 routes; containers postgres+redis+minio+langfuse+
+  worker all up; alembic `ae05rbac`.
+- Live DB counts: meetings 210, participants 165, tasks 1246, users 61,
+  meeting_chunks 387, entities 1055, mem0_facts 112, org_memory_facts 99
+  (still frozen), agents_v2 1, cc_clients 1, cc_runs 6.
+- `.env` confirms `MEMORY_BACKEND=mem0`, `MEM0_API_KEY` commented → OSS mode;
+  `USE_CELERY=true`; `TRANSCRIPTION_PROVIDER=deepgram`; `LANGFUSE_BASE_URL`
+  points at Railway.
+- **`prof` NameError re-verified FIXED in source** (`meeting_pipeline.py:497`,
+  hoisted above the `has_agent_for_scope` fork). `TECHNICAL_REFERENCE.md`
+  §14.1 still calls it "OPEN BUG" and §14.11 still says Railway is 4
+  migrations behind — both are now WRONG. Not corrected; flagged only.
+- Closing-briefing docstring lie re-confirmed live: header lines 7/11 claim
+  `winding_down → _prerender` and `ended → _speak_and_leave`, but `_on_event`
+  (:355) routes `winding_down → _speak_and_leave` (:367) and
+  `ended → _record_post_facto_ended` (:369). Trust `_on_event`.
+
 ---
 
 ## 7. Open threads
 
-**Blocking:** ~~run `alembic upgrade head` on Railway~~ — DONE 2026-08-11,
-prod is at `ae05rbac`. **Prod DB is now AHEAD of prod CODE.** All 7 users are
-`ORG_ADMIN` (uppercase) while the deployed code still compares lowercase
-`'org_admin'`, so every user currently reads as least-privileged on the
-agent-prompt surfaces. Fails CLOSED, not open — but it does not clear until
-the new code ships. Deploy is now time-sensitive.
+**Blocking:** none. ~~`alembic upgrade head` on Railway~~ DONE 2026-08-11
+(prod at `ae05rbac`); ~~prod DB ahead of prod code~~ CLEARED — the uppercase-role
+code shipped in PR #15, so the "every user reads as least-privileged" window
+is closed.
+
+**Only unshipped commit:** `ea10699 favicon changes` on `continum`, not yet
+on `neworigin/main`.
 
 **Decisions owed by the user, do not pick unilaterally:**
 - capture-mode flag shape (per-meeting / per-category / per-room) before `diarize:True`
@@ -331,15 +361,16 @@ the new code ships. Deploy is now time-sensitive.
 - whether the product must support in-room meetings at all (decides ~80% of the
   manager's diarization spec)
 
-**Ready to do, not started:** `prof` NameError fix; participant backfill for the
-62+58 damaged meetings + 35 dup cleanup (replayable from `transcript_raw`);
-re-format the 71 meetings with `None:` in stored `transcript_text`;
-`add_facts` default `infer=True` → `False`; delete/redirect the duplicate
-`extract_transcript_fields` in `ws_router.py`.
+**Ready to do, not started:** ~~`prof` NameError fix~~ DONE. Participant
+backfill for the 62+58 damaged meetings + 35 dup cleanup (replayable from
+`transcript_raw`); re-format the 71 meetings with `None:` in stored
+`transcript_text`; `add_facts` default `infer=True` → `False`;
+delete/redirect the duplicate `extract_transcript_fields` in `ws_router.py`;
+wrap the `live_summary_tracker` tick in `@observe` so its ~28 orphan root
+traces get a meeting/org parent; correct `TECHNICAL_REFERENCE.md` §14.1 and
+§14.11, which now describe fixed problems.
 
-**Uncommitted:** the §6 handoff list PLUS `app/db/database.py`,
-`app/services/importance/scorer.py`, `tests/test_importance_bulk_write.py`
-(the between-sessions scorer fix). 5 modified, 6 untracked.
+**Uncommitted:** nothing. Working tree clean as of 2026-08-17.
 
 **Unverified claim to close:** the scorer fix targets a *production* symptom
 (`SSL SYSCALL error` on a remote DB). It is only proven offline. Either time a
