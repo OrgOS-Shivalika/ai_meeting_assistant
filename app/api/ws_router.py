@@ -8,6 +8,7 @@ from app.db.database import SessionLocal
 from app.db.models import User
 from app.dependencies.auth import resolve_user_from_token
 from app.services import permissions
+from app.services.live_stream.participant_presence import participant_presence_log
 from app.services.transcript_persistence import schedule_transcript_save
 from app.config.settings import settings
 
@@ -103,6 +104,45 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+
+async def _send_participant_snapshot(websocket: WebSocket, meeting_id: int) -> None:
+    """Replay this meeting's join/leave notices to a freshly connected socket.
+
+    This is what makes the notices persist across a browser refresh. They
+    are never written to the DB, so without a replay the only copy is the
+    viewer's React state, which a reload wipes — the reported symptom was
+    exactly that: someone leaves, everyone sees it, then a refresh and the
+    notice is gone.
+
+    Sent only to the new socket, never broadcast: the other viewers already
+    have these events. Each carries the `seq` the client dedupes on, so a
+    reconnect replay does not double lines that are still in state.
+
+    Best-effort by design — a snapshot failure must not sink the socket,
+    which is still perfectly good for live transcript. Logged at warning
+    (not swallowed silently) because a dead replay is invisible otherwise:
+    the UI just looks like it forgot again.
+    """
+    try:
+        snapshot = participant_presence_log.snapshot(str(meeting_id))
+        if not snapshot["events"] and not snapshot["present"]:
+            return
+        await websocket.send_text(json.dumps({
+            "type": "participant_snapshot",
+            **snapshot,
+        }))
+        logger.info(
+            f"[WS SNAPSHOT] meeting={meeting_id} replayed "
+            f"{len(snapshot['events'])} participant events, "
+            f"present={len(snapshot['present'])}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            f"[WS SNAPSHOT] meeting={meeting_id} replay failed: {exc}",
+            exc_info=True,
+        )
+
+
 # --- Shared Parsing Logic ---
 def extract_transcript_fields(payload: dict, event: str) -> tuple:
     """Extract speaker, text, is_final from Recall.ai payload."""
@@ -162,6 +202,7 @@ async def websocket_endpoint(
     if user is None:
         return
     await manager.connect(websocket, meeting_id)
+    await _send_participant_snapshot(websocket, meeting_id)
     try:
         while True:
             await websocket.receive_text()

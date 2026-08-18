@@ -6,6 +6,7 @@ from app.config.settings import settings
 from app.dependencies.auth import get_current_user
 from app.services import permissions
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
+from app.services.live_stream.participant_presence import participant_presence_log
 from app.services.transcript_persistence import schedule_transcript_save
 from app.utils.logger import setup_logger
 from typing import Optional
@@ -350,6 +351,11 @@ async def process_status_change_event(meeting_id: int, payload: dict) -> None:
         # for the lifetime of the process.
         _SPEAKER_LABELS.pop(meeting_id, None)
         _LAST_EVENT_AT.pop(meeting_id, None)
+        # Same for the join/leave replay log. Safe to drop here: `done`
+        # means the bot has fully left, so there is no live view left to
+        # refresh, and the transcript is now persisted for the after-the-fact
+        # read.
+        participant_presence_log.drop(str(meeting_id))
 
     # All other codes are no-ops (joining_call, in_call_recording, etc.)
 
@@ -378,16 +384,29 @@ async def process_participant_event(meeting_id: int, event: str, payload: dict) 
 
     # Surface the join/leave inline in the live-transcript UI. Best-effort:
     # a broadcast failure must never affect lifecycle handling above.
-    # ponytail: no bot-self / duplicate-event filtering — add if it reads noisy.
+    #
+    # The event is recorded in `participant_presence_log` FIRST, then
+    # broadcast. That ordering is what makes the notices survive a browser
+    # refresh: the log is replayed to every socket on connect (see
+    # `websocket_endpoint`), so a viewer who reloads mid-meeting — or opens
+    # the page late — gets the notices it never received live. Nothing is
+    # written to the DB; the log lives only for the duration of the meeting
+    # in this process.
     try:
-        name = (
-            participant.get("name")
-            or (f"Participant {participant.get('id')}" if participant.get("id") else "Someone")
-        )
+        action = "leave" if event.endswith("leave") else "join"
+        recorded = participant_presence_log.record(str(meeting_id), action, participant)
+        if recorded is None:
+            # Duplicate re-delivery from Recall — already shown, and
+            # re-broadcasting would double the line in every open viewer.
+            return
         await manager.broadcast(meeting_id, {
             "type": "participant_event",
-            "action": "leave" if event.endswith("leave") else "join",
-            "name": name,
+            "action": recorded["action"],
+            "name": recorded["name"],
+            # `seq` lets the client dedupe a live event against the same
+            # event arriving again in a reconnect replay.
+            "seq": recorded["seq"],
+            "at": recorded["at"],
         })
     except Exception as exc:  # noqa: BLE001
         logger.debug(

@@ -1,11 +1,14 @@
 /**
  * Live transcript subscription for a single meeting.
  *
- * Opens a WebSocket to `/ws/{meetingId}` and listens for the two
- * message types the backend broadcasts (see `app/api/ws_router.py`):
+ * Opens a WebSocket to `/ws/{meetingId}` and listens for the message
+ * types the backend sends (see `app/api/ws_router.py`):
  *
- *   { type: "transcript_update", speaker, text, is_final }
- *   { type: "status_update",     status }
+ *   { type: "transcript_update",     speaker, text, is_final }
+ *   { type: "status_update",         status }
+ *   { type: "cognitive_event",       ... }
+ *   { type: "participant_event",     action, name, seq, at }
+ *   { type: "participant_snapshot",  events[], present[], truncated }
  *
  * Finals accumulate into `finals[]`. Partials (`is_final=false`)
  * replace `partial` until a final or new partial arrives.
@@ -13,6 +16,12 @@
  * Reconnects with exponential backoff (capped at 30s) so a flaky
  * connection during a live meeting doesn't permanently silence the
  * transcript.
+ *
+ * Join/leave notices are NOT stored in the DB and so are not part of
+ * `seed()`'s transcript history. They survive a refresh because the
+ * backend keeps the log in memory for the duration of the meeting and
+ * sends `participant_snapshot` on every connect; `seq` dedupes the
+ * replay against notices already in state.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_PREFIX } from "../../../services/config";
@@ -25,6 +34,18 @@ export interface LiveFinal {
   // Present = a participant join/leave notice, not a spoken line.
   // Consumers render these as an inline system notice.
   kind?: "join" | "leave";
+  // Server-assigned sequence number, participant notices only. Used to
+  // dedupe a live event against the same event replayed on reconnect.
+  seq?: number;
+}
+
+// One join/leave as the backend records it
+// (app/services/live_stream/participant_presence.py).
+interface ParticipantEventMsg {
+  seq: number;
+  action: "join" | "leave";
+  name: string;
+  at: number;
 }
 
 export interface LiveCognitiveEvent {
@@ -92,6 +113,14 @@ export function useLiveTranscript(
   const statusCbRef = useRef(opts.onStatusUpdate);
   const eventCbRef = useRef(opts.onCognitiveEvent);
 
+  // Participant-notice `seq` values already in `finals`. The backend
+  // replays its whole join/leave log on every socket connect, so without
+  // this a reconnect (the backoff below fires on any transient drop)
+  // would re-append notices that are still on screen. A ref, not state:
+  // it must be readable synchronously inside onmessage and must never
+  // trigger a render of its own.
+  const seenSeqRef = useRef<Set<number>>(new Set());
+
   useEffect(() => {
     statusCbRef.current = opts.onStatusUpdate;
     eventCbRef.current = opts.onCognitiveEvent;
@@ -104,15 +133,49 @@ export function useLiveTranscript(
     }
 
     // Reset state when the meeting id changes so we don't bleed
-    // previous-meeting finals into the new view.
+    // previous-meeting finals into the new view. `seq` is per-meeting on
+    // the server, so the seen-set has to be cleared alongside finals or
+    // the new meeting's notices would collide with the old one's numbers.
     setFinals([]);
     setPartial(null);
     setLiveEvents([]);
+    seenSeqRef.current = new Set();
 
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
     let cancelled = false;
+
+    /**
+     * Turn one backend participant event into a transcript line, or return
+     * null if this client has already rendered it.
+     *
+     * Claims the `seq` as a side effect, so it is safe to call on both the
+     * live frame and the reconnect replay — whichever arrives first wins
+     * and the other is dropped. Events with no `seq` (an older backend, or
+     * a malformed frame) are always rendered: a rare duplicate line reads
+     * better than a silently missing one.
+     */
+    const participantLine = (msg: ParticipantEventMsg): LiveFinal | null => {
+      const seq = typeof msg?.seq === "number" ? msg.seq : null;
+      if (seq !== null) {
+        if (seenSeqRef.current.has(seq)) return null;
+        seenSeqRef.current.add(seq);
+      }
+      const action = msg?.action === "leave" ? "leave" : "join";
+      const name = msg?.name || "Someone";
+      return {
+        // Attributed to the assistant, not the participant, so the
+        // bubble reads "OrgOS / <name> joined the meeting".
+        speaker: "OrgOS",
+        text: `${name} ${action === "join" ? "joined" : "left"} the meeting`,
+        // Server time when it actually happened, so a replayed notice
+        // isn't stamped with the moment the page reloaded.
+        timestamp: typeof msg?.at === "number" ? msg.at : Date.now(),
+        kind: action,
+        ...(seq !== null ? { seq } : {}),
+      };
+    };
 
     const connect = () => {
       if (cancelled) return;
@@ -153,19 +216,20 @@ export function useLiveTranscript(
             setLiveEvents((prev) => [...prev, event]);
             eventCbRef.current?.(event);
           } else if (msg.type === "participant_event") {
-            const action = msg.action === "leave" ? "leave" : "join";
-            const name = msg.name || "Someone";
-            setFinals((prev) => [
-              ...prev,
-              {
-                // Attributed to the assistant, not the participant, so the
-                // bubble reads "OrgOS / <name> joined the meeting".
-                speaker: "OrgOS",
-                text: `${name} ${action === "join" ? "joined" : "left"} the meeting`,
-                timestamp: Date.now(),
-                kind: action,
-              },
-            ]);
+            const line = participantLine(msg as ParticipantEventMsg);
+            if (line) setFinals((prev) => [...prev, line]);
+          } else if (msg.type === "participant_snapshot") {
+            // Sent once per connect: the join/leave notices this client
+            // missed, either because it just loaded the page mid-meeting
+            // or because a refresh wiped its state. Already-seen `seq`s
+            // are filtered out, so on a reconnect this is usually a no-op.
+            const events: ParticipantEventMsg[] = Array.isArray(msg.events)
+              ? msg.events
+              : [];
+            const fresh = events
+              .map(participantLine)
+              .filter((l): l is LiveFinal => l !== null);
+            if (fresh.length) setFinals((prev) => [...prev, ...fresh]);
           }
         } catch {
           /* malformed payload — ignore */

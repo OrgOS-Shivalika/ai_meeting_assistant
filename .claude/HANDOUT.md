@@ -289,6 +289,43 @@ Append newest at the bottom. One line per meaningful change: what, where, how ve
   worker AND beat, then verify with the `langfuse_context.client_instance.base_url`
   diagnostic (§3) — the boot log is NOT proof, that's the wrong-client bug.
 
+### 2026-08-17 — participant join/leave notices survive a refresh
+- **Symptom:** a join/leave notice showed once and vanished on reload.
+  Cause was not a bug in one place, it was that no place held the state:
+  `process_participant_event` broadcast `participant_event` fire-and-forget,
+  and the ONLY copy was `finals[]` in `useLiveTranscript`, which the
+  meeting-id effect clears on mount (`setFinals([])`) before re-seeding from
+  `meeting.transcript` — and the DB transcript never contains join/leave
+  lines. Same hole made a late-joining viewer see nothing earlier.
+- **Fix, no DB by product decision:** new
+  `app/services/live_stream/participant_presence.py` — per-meeting deque of
+  events + live roster, held in process memory. Webhook records BEFORE
+  broadcasting; `websocket_endpoint` replays the log to each new socket as
+  `participant_snapshot`. Dropped on the terminal `done` status next to
+  `_SPEAKER_LABELS`.
+- Deliberately a separate module from `MeetingLifecycleMonitor` even though
+  both count participants: that one owns the ≤1-for-30s closing-briefing
+  trigger and drops state on `done`. Keeping the UI replay buffer out of it
+  means a display change cannot perturb briefing timing.
+- Client dedupe is a server-assigned per-meeting `seq` (`seenSeqRef`), which
+  is what makes the replay safe on the exponential-backoff reconnect — that
+  path does NOT clear `finals`, so a replay without dedupe would double
+  every notice on screen.
+- Nameless leaves resolve to the name remembered from the join (Recall sends
+  `name: null`, landmine #6), so notices read "Ravi left", not
+  "Participant 200 left". Keyed on participant ID throughout.
+- Bounded: 250 events/meeting (`truncated` flag on the wire when the ring
+  starts dropping), 500 meetings LRU with a warning log on eviction.
+- Verified: `tests/test_participant_presence.py` 30/30 offline;
+  scratchpad e2e drove the real `process_participant_event` with both Recall
+  payload nestings → 3 broadcasts (dup suppressed) → fresh socket replayed
+  all 3 with `present=["Asha"]` → `done` released the log and a second socket
+  got no frame. `main:app` still 210 routes, frontend `tsc -b` clean.
+- **`tests/test_phase12a.py` is 14 PASS / 9 FAIL — pre-existing, NOT this
+  change** (confirmed by stashing). All 9 assert the linguistic grace period
+  that `meeting_lifecycle.py:311` deliberately deleted when the trigger
+  became the explicit "iris summarize this" command. The test is stale.
+
 ---
 
 ## 7. Open threads
@@ -315,6 +352,23 @@ re-format the 71 meetings with `None:` in stored `transcript_text`;
 **Uncommitted:** the §6 handoff list PLUS `app/db/database.py`,
 `app/services/importance/scorer.py`, `tests/test_importance_bulk_write.py`
 (the between-sessions scorer fix). 5 modified, 6 untracked.
+
+**Known limits of the presence log (accepted, not bugs):**
+- Single web process only. It is a process-local dict, exactly like
+  `ConnectionManager.active_connections` — the whole WS surface already
+  assumes one web process. Adding uvicorn workers breaks live transcript AND
+  this together, and the fix for both is Redis pub/sub, not a patch here.
+- A backend restart mid-meeting loses the log; earlier notices are gone.
+- Notices land at the BOTTOM of the transcript on refresh, not in true
+  chronological position, because `seed()` prepends the stored transcript as
+  one block and stored lines carry no per-line timestamps. Fixing that needs
+  timestamps in `transcript_text`, i.e. a format change — not attempted.
+- `snapshot()` also returns `present` (the live roster). It is on the wire and
+  tested but no UI consumes it yet; it is there if a "N in call" chip is wanted.
+
+**Stale test to fix or delete:** `tests/test_phase12a.py` grace-period block,
+9 failures, asserts behaviour intentionally removed. It makes the suite read
+red for no reason.
 
 **Unverified claim to close:** the scorer fix targets a *production* symptom
 (`SSL SYSCALL error` on a remote DB). It is only proven offline. Either time a
