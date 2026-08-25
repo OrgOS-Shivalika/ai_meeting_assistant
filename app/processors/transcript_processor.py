@@ -1,4 +1,5 @@
 import re
+from app.utils.admin_enums import CaptureMode
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -75,7 +76,10 @@ class TranscriptProcessor:
         return labels
 
     @staticmethod
-    def incremental_speaker_label(p_id, name, seen: dict, dia_speaker=None) -> str:
+    def incremental_speaker_label(
+        p_id, name, seen: dict, dia_speaker=None,
+        *, capture_mode: str = CaptureMode.ONLINE.value,
+    ) -> str:
         """Label one speaker when the rest of the conversation isn't known yet.
 
         `seen` is a per-meeting {participant_id: label} map the caller owns
@@ -94,22 +98,32 @@ class TranscriptProcessor:
         # `.strip()` on an int and raise. Names are strings, always.
         real = name.strip() if isinstance(name, str) else ""
 
-        # Identity precedence, mirroring the roster-beats-acoustic rule:
+        # Identity precedence. `capture_mode` is the tiebreaker for the ONE
+        # conflict this cannot resolve alone: the roster says "one person",
+        # diarization says "several voices".
         #
-        #   name present  -> the platform roster knows this person; the
-        #                    participant id is the identity and any
-        #                    diarization index is ignored. Roster data is
-        #                    exact; diarization is a guess.
-        #   no name + dia -> in-room capture: N people share ONE account,
-        #                    so the participant id is the same for all of
-        #                    them and the diarization index is the only
-        #                    thing telling them apart. Identity must be
-        #                    the PAIR.
-        #   neither       -> fall back to the participant id alone.
-        if real:
-            key = ("p", p_id)
-        elif dia_speaker is not None:
+        #   ONLINE, name present   -> roster wins outright, diarization index
+        #                             ignored. The roster is exact; diarization
+        #                             is a guess, and letting a guess split one
+        #                             named participant would render them as
+        #                             "Asha" and "Asha (2)".
+        #   IN_ROOM, dia present   -> the index wins EVEN IF a name exists.
+        #                             This is the whole fix. A laptop in a room
+        #                             joins under one account that DOES carry a
+        #                             name — often not even a person's
+        #                             ("Conference Room 2") — so the name
+        #                             belongs to the account, not the speaker.
+        #                             Before this branch, `real` was truthy and
+        #                             the index was discarded, so turning
+        #                             diarization on changed nothing at all.
+        #   no name + dia          -> the pre-existing in-room case (dial-ins,
+        #                             profiles Recall cannot read). Unchanged.
+        #   neither                -> the participant id alone.
+        in_room = CaptureMode.coerce(capture_mode) is CaptureMode.IN_ROOM
+        if dia_speaker is not None and (in_room or not real):
             key = ("d", p_id, dia_speaker)
+        elif real:
+            key = ("p", p_id)
         elif p_id is not None:
             key = ("p", p_id)
         else:
@@ -118,18 +132,25 @@ class TranscriptProcessor:
         if key in seen:
             return seen[key]
 
-        if real:
+        # Branch on the KEY SHAPE, not on `real` again. The key already
+        # encodes the precedence decision above, and re-deriving it from
+        # `real` here would silently undo it: an in-room cluster whose account
+        # happens to be named would take the roster label, so all three
+        # clusters would render as the same name and the split would be
+        # invisible.
+        if key[0] == "d":
+            # Anonymous by nature — diarization separates voices, it does
+            # not identify them. Naming these is the job of the mapping
+            # ladder (roll-call / enrollment / manual reassignment), which
+            # runs on the batch pass where the whole meeting is in hand.
+            label = f"Speaker {dia_speaker}"
+        elif real:
             # How many OTHER ids already claim this same base name?
             taken = sum(
                 1 for other in seen.values()
                 if other == real or other.startswith(f"{real} (")
             )
             label = real if taken == 0 else f"{real} ({taken + 1})"
-        elif dia_speaker is not None:
-            # Anonymous by nature — diarization separates voices, it does
-            # not identify them. Naming these is the job of the mapping
-            # ladder (roll-call / enrollment / manual reassignment).
-            label = f"Speaker {dia_speaker}"
         else:
             label = f"{UNNAMED_SPEAKER_PREFIX} {p_id}"
 
@@ -137,7 +158,98 @@ class TranscriptProcessor:
         return label
 
     @staticmethod
-    def format(transcript_json: list) -> str:
+    def format(
+        transcript_json: list,
+        *,
+        capture_mode: str = CaptureMode.ONLINE.value,
+        calendar_attendees=None,
+    ) -> str:
+        """Compiled transcript -> the flat "Speaker: text" string.
+
+        THE chokepoint. Every downstream consumer — the World-A analyzer,
+        agents_v2, Continuum, chunking, embedding, memory distillation, tasks,
+        the closing briefing — reads this string and nothing else, which is why
+        in-room attribution is fixed here instead of in a parallel pipeline.
+
+        `capture_mode` decides which of two routes runs; see
+        :meth:`format_detailed`. Defaults to ONLINE so every existing caller
+        keeps its exact behaviour.
+        """
+        text, _, _ = TranscriptProcessor.format_detailed(
+            transcript_json,
+            capture_mode=capture_mode,
+            calendar_attendees=calendar_attendees,
+        )
+        return text
+
+    @staticmethod
+    def format_detailed(
+        transcript_json: list,
+        *,
+        capture_mode: str = CaptureMode.ONLINE.value,
+        calendar_attendees=None,
+    ):
+        """Same as :meth:`format` but also returns what it learned.
+
+        Returns ``(text, resolutions, diagnostics)``. The extras are ``{}`` and
+        ``None`` on the online route, which has nothing to resolve. They exist
+        so the pipeline can persist `label_mappings` and act on the
+        under-clustering flag without deriving turns a second time.
+
+        Two routes, and the split is deliberate:
+
+        ONLINE — the pre-existing code path, character for character. It is not
+        merely equivalent, it is the same function. Online attribution works
+        today and there is no requirement to change it, so it does not go
+        through turn derivation at all and stays byte-identical. (Turn merging
+        would otherwise alter 26 of the 164 stored transcripts — same words and
+        same speakers, different line breaks. Harmless, but unrequested.)
+
+        IN_ROOM — delegates to `speaker_attribution`, which separates the
+        account into voice clusters and names them from the roll-call.
+
+        The import is function-local because `speaker_attribution` imports THIS
+        class for `clean_text` and `build_speaker_labels`; a module-level import
+        here would close the cycle.
+        """
+        if CaptureMode.coerce(capture_mode) is CaptureMode.IN_ROOM:
+            from app.processors.speaker_attribution import (
+                derive_turns, render, resolve_labels,
+            )
+            turns = derive_turns(
+                transcript_json, capture_mode=CaptureMode.IN_ROOM.value,
+            )
+            resolutions, diagnostics = resolve_labels(
+                turns,
+                calendar_attendees=calendar_attendees,
+                capture_mode=CaptureMode.IN_ROOM.value,
+            )
+            logger.info(
+                "Formatted in-room transcript: %d turns, %d speaker(s) "
+                "(%d named by roll-call, %d unresolved)%s",
+                len(turns), len(resolutions),
+                diagnostics.resolved_rollcall, diagnostics.unresolved,
+                " ⚠ UNDER-CLUSTERING SUSPECTED"
+                if diagnostics.under_clustering_suspected else "",
+            )
+            if diagnostics.under_clustering_suspected:
+                # Loud on purpose. Two people introducing themselves into one
+                # voice cluster means the diarizer merged them, and the whole
+                # meeting's attribution is unreliable. This log line is the
+                # only signal until the review flag reaches the UI.
+                logger.warning(
+                    "Speaker separation looks wrong: %s. Mic placement is the "
+                    "usual cause. Attribution needs manual review.",
+                    diagnostics.multi_name_clusters,
+                )
+            return render(turns, resolutions), resolutions, diagnostics
+
+        return TranscriptProcessor._format_online(transcript_json), {}, None
+
+    @staticmethod
+    def _format_online(transcript_json: list) -> str:
+        """The original `format` body, unchanged. Do not "improve" it — it is
+        the reference behaviour the corpus replay asserts against."""
         logger.info(f"Formatting transcript with {len(transcript_json)} blocks.")
 
         blocks = transcript_json or []

@@ -69,6 +69,11 @@ export const injectBot = (
     title?: string | null;
     scheduled_at?: string | null;
     meeting_platform?: string | null;
+    // "online" (one person per account) or "in_room" (a laptop in a room
+    // with several people). Decides whether voices get separated, and it
+    // cannot be changed after the meeting starts — the audio is either
+    // analysed for distinct voices or it isn't. Omitted => "online".
+    capture_mode?: "online" | "in_room" | null;
   } = {},
 ) =>
   apiClient("/inject-bot", {
@@ -81,6 +86,7 @@ export const injectBot = (
       title: opts.title ?? null,
       scheduled_at: opts.scheduled_at ?? null,
       meeting_platform: opts.meeting_platform ?? null,
+      capture_mode: opts.capture_mode ?? null,
     }),
   });
 

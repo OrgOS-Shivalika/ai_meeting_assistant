@@ -35,6 +35,36 @@ class Meeting(Base):
     duration_minutes = Column(Integer, nullable=True)
     meeting_platform = Column(String, nullable=True)  # google_meet | zoom | teams | webex
 
+    # In-room speaker attribution — how this meeting's audio was captured.
+    # See SPEAKER_ATTRIBUTION_PLAN.md.
+    #
+    #   'online'   — one human per meeting account. Recall's roster IS the
+    #                speaker identity. The default, and every meeting before
+    #                this column existed.
+    #   'in_room'  — a laptop in a room, so N humans share ONE account.
+    #                Recall correctly reports one participant, which is why
+    #                everything collapsed onto the account holder.
+    #
+    # NOT merely a cost switch, though it does scope Deepgram's diarization
+    # charge to the meetings that need it. It is read in two places that
+    # decide different things:
+    #
+    #   1. BEFORE the bot exists — `RecallService.create_bot` asks the
+    #      provider for diarization only when this is 'in_room'. That is why
+    #      the value has to be set at creation time and cannot be changed
+    #      retroactively: the audio was either analysed for distinct voices
+    #      or it wasn't.
+    #   2. AFTER the meeting — it is the tiebreaker for the one conflict
+    #      attribution can't resolve alone: the roster says "one person",
+    #      diarization says "several voices". In a room, believe diarization;
+    #      online, believe the roster.
+    #
+    # String rather than an Enum type to match `status` / `meeting_platform`
+    # and to avoid a Postgres enum that needs a migration per new value.
+    capture_mode = Column(
+        String(16), nullable=False, default="online", server_default="online",
+    )
+
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user = relationship("User", back_populates="meetings")
 
@@ -441,6 +471,81 @@ class TaskActivity(Base):
 
     task = relationship("Task", back_populates="activity")
     actor = relationship("User", foreign_keys=[actor_user_id])
+
+
+class SpeakerLabelMapping(Base):
+    """Which person a voice belongs to, for one meeting.
+
+    In-room speaker attribution. See SPEAKER_ATTRIBUTION_PLAN.md.
+
+    Written by the pipeline after every in-room meeting, and editable by a
+    human. It exists because the mapping is the ONE thing in this feature that
+    cannot be re-derived: turns come back out of `meetings.transcript_raw` any
+    time, but "voice cluster 1 is Karthik" is either evidence we captured at
+    the time or a correction somebody made.
+
+    Deliberately NOT an authorization surface. `matched_email` may be set from
+    a calendar match, but no row here ever confers access to the meeting, and
+    `confidence` must never be compared against a threshold to decide access —
+    a name spoken into a room mic is not authentication. Access still comes
+    only from `participants.user_id` plus a trusted `match_source`.
+    """
+    __tablename__ = "label_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+
+    # The in-memory identity tuple, serialized — "p:100" or "d:100:2".
+    # A single text column rather than two nullable ones, because Postgres
+    # treats NULLs as DISTINCT in a unique index: (meeting_id, participant_id,
+    # diarization_label) would happily accept duplicate rows for the same
+    # roster speaker. Same trap the paired partial indexes elsewhere in this
+    # schema exist to dodge. See `speaker_attribution.serialize_key`.
+    speaker_key = Column(String(64), nullable=False)
+
+    # Denormalized for display and for joining to `participants`. String, not
+    # Integer, to match `participants.recall_id` — Recall sends an int and that
+    # column is String, so an Integer here would make the join awkward.
+    participant_id = Column(String, nullable=True)
+    diarization_label = Column(Integer, nullable=True)
+
+    display_name = Column(String, nullable=False)
+    # 'roster' | 'rollcall' | 'manual' | 'unresolved'  ('voiceprint' reserved)
+    method = Column(String(16), nullable=False)
+    confidence = Column(Float, nullable=False, default=0.0, server_default="0")
+    matched_email = Column(String, nullable=True)
+    # True when a human should look: an unresolved cluster, or a name accepted
+    # without calendar corroboration.
+    needs_review = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+
+    # Set once a human fixes the mapping. A pipeline re-run must NOT overwrite
+    # a corrected row — same reasoning as `save_participants` being
+    # skip-not-replace: wiping a hand-made link destroys the only recovery
+    # path from a failed automatic match.
+    corrected_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    corrected_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "meeting_id", "speaker_key", name="uq_label_mappings_meeting_key",
+        ),
+    )
 
 
 class Organization(Base):

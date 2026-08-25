@@ -12,7 +12,8 @@
       "Bash(./venv/Scripts/python.exe -c ' *)",
       "Bash(./venv/Scripts/alembic.exe heads *)",
       "Bash(./venv/Scripts/alembic.exe current *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:docs.recall.ai)"
     ]
   }
 }

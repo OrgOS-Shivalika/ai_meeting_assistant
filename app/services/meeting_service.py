@@ -246,6 +246,25 @@ def find_recent_duplicate_meeting(db: Session, user, meeting_url: str) -> Option
     )
 
 
+VALID_CAPTURE_MODES = ("online", "in_room")
+
+
+def normalize_capture_mode(value) -> str:
+    """Coerce a client-supplied capture mode to a value we recognize.
+
+    Anything unrecognized — None, empty, a typo, a stale client sending an
+    old field — becomes 'online'. Deliberately permissive rather than a 422:
+    this is called on the path that starts a meeting somebody is about to
+    join, and refusing the request would cost them the recording. The cost
+    of guessing wrong is one meeting attributed the way it is today, which
+    is the status quo, not a regression.
+    """
+    if not isinstance(value, str):
+        return "online"
+    candidate = value.strip().lower()
+    return candidate if candidate in VALID_CAPTURE_MODES else "online"
+
+
 def create_processing_meeting(db: Session, user, request: MeetingRequest) -> Meeting:
     meeting = Meeting(
         meeting_url=request.meeting_url,
@@ -259,6 +278,7 @@ def create_processing_meeting(db: Session, user, request: MeetingRequest) -> Mee
         title=request.title,
         scheduled_at=request.scheduled_at,
         meeting_platform=request.meeting_platform or _detect_platform(request.meeting_url),
+        capture_mode=normalize_capture_mode(request.capture_mode),
     )
     db.add(meeting)
     db.commit()

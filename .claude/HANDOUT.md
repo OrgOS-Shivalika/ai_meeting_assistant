@@ -343,23 +343,490 @@ Append newest at the bottom. One line per meaningful change: what, where, how ve
   (:355) routes `winding_down → _speak_and_leave` (:367) and
   `ended → _record_post_facto_ended` (:369). Trust `_on_event`.
 
+### 2026-08-17 — in-room speaker attribution planned (no code yet)
+
+- Wrote `SPEAKER_ATTRIBUTION_PLAN.md` (root, matches the
+  `MEM0_IMPLEMENTATION_PLAN.md` convention). Reconciles a manager-supplied dev
+  spec against this codebase. Nothing built — plan only, one gating test owed.
+- **Requirement:** one Google account joins the Meet from a laptop in a room
+  with ~3 people; each says their name at the start; everything downstream must
+  behave exactly as it does today but with per-person attribution.
+- **The capture-mode taxonomy in the supplied spec is wrong for us.** It gates
+  on bot-vs-local-mic; the real discriminator is humans-per-audio-channel.
+  Our case (in-room via bot + link, N humans : 1 Recall participant) is in
+  neither of its two rows, so it prescribed audio archival + a direct Deepgram
+  batch call that we do not need and cannot do (no Deepgram key — provider key
+  is `deepgram_streaming`, Recall authenticates on our behalf).
+- **THE FINDING:** flipping `diarize:True` fixes nothing on its own.
+  `incremental_speaker_label` (~L109) discards `dia_speaker` whenever a roster
+  name is present — and the in-room laptop account ALWAYS has one, so all
+  speech still keys to `("p", 100)`. The 2026-08-07 "diarization prep" covers
+  the *unnamed* room-account case only. Precedence must become
+  capture-mode-aware, not name-presence-aware. `format()` (~L140, the BATCH
+  path that feeds the notes) reads no diarization index at all — fix that first.
+- Verified live: `participants` has NO unique constraint on
+  `(meeting_id, recall_id)` — only pk + `ix_participants_user_meeting`. So the
+  35 historical dup pairs were pure application-level dedup misses, and room
+  speakers can reuse `recall_id='dia:<label>'` with zero migration.
+- Verified live: a real `transcript_raw` block carries `words[]` with per-word
+  relative timestamps, `participant{id,name,is_host,platform,extra_data}` and
+  `language_code` (`"hi"` confirmed) — but **no `confidence` field**, so the
+  spec's `low_confidence` flag has no data source here and was dropped.
+  Timestamps being present means turns are derivable from stored data today.
+  `extra_data.google_meet.static_participant_id` is a stable cross-meeting
+  identity — useful later for voiceprint joins.
+- **Security constraint recorded in §11 of the plan:** roll-call/voiceprint
+  attribution must NEVER enter `TRUSTED_MATCH_SOURCES`. A spoken name is not
+  authentication and `_attended_meeting_ids` gates meeting READ access on it.
+- Nice property that fell out: roll-call doubles as a clustering self-test.
+  3 names resolving to 2 labels proves the diarizer merged two people — the
+  only detection path for the dangerous under-clustering failure mode.
+
+### 2026-08-18 — Stage 1 of in-room attribution BUILT (nothing wired)
+
+- New `app/processors/speaker_attribution.py` (~330 lines) +
+  `tests/test_speaker_attribution_turns.py` (33 checks, all pass). Pure
+  functions: `derive_turns`, `resolve_labels`, `render`, `build_attendee_index`.
+  **No DB, no network, no migration, and NOTHING CALLS IT** — cannot affect a
+  live meeting. `test_speaker_attribution.py` left untouched as an independent
+  online guard. Full suite green (rbac 28 / speaker 17 / participant 8 /
+  memory 4 / importance 6 / profile 4 / turns 33); `main:app` 209 routes.
+- Separate module, not inside `transcript_processor.py`, because that file is
+  on the per-utterance live webhook path and all of this is batch-only.
+- **Corpus replay (164 stored `transcript_raw`, script in scratchpad):
+  0 crashes, 0 `"None"` labels, 0 ATTRIBUTION CHANGES.** 138 byte-identical to
+  `TranscriptProcessor.format`, 26 differ ONLY by turn merging
+  (4133 blocks → 3663 turns).
+- **I had the acceptance criterion wrong.** Plan §14.6 said online replay must
+  be "byte-identical"; that is unachievable by design once turns merge, and
+  would have forbidden the merge rule the spec asks for. Corrected to
+  "identical ordered (speaker, word) sequence" — which holds at 0/164 broken.
+- **Two design bugs the tests caught, both now fixed and guarded:**
+  1. `resolve_labels` DOES need `capture_mode`. I had dropped it, arguing
+     `derive_turns` already encoded the decision in the key shape. Wrong in the
+     worst case: total merge → one dia index → `derive_turns` correctly does
+     not split → key stays `("p", id)` with the account's roster name → roster
+     would win and the merge would be INVISIBLE. Roll-call is now scanned for
+     roster keys too in `in_room` mode and outranks the roster there.
+     `test_total_merge_is_still_flagged`.
+  2. Calendar-corroborated candidates must outrank uncorroborated ones.
+     "sorry I am late this is Priya" yields both `Late` and `Priya`; treating
+     that as ambiguity threw away a good name.
+     `test_junk_token_loses_to_calendar_corroborated_name`.
+- Identity rule needs BOTH conditions: an account is shared only when
+  `capture_mode == in_room` AND it produced >1 dia index. Index-count alone
+  would split a remote participant the diarizer clustered twice ("Asha" +
+  "Asha (2)"); capture_mode alone would split remote participants in a MIXED
+  meeting. Guarded by `test_online_never_splits_on_diarization_index` and
+  `test_mixed_roster_and_rollcall_resolve_in_one_pass`.
+- `_dia_index()` is the ONLY place that knows where the diarization index
+  lives. Fixtures inject it at block level (where the realtime payload carries
+  it); the COMPILED shape is still unverified — that is the Stage 0 test below.
+  Bool-guarded because `isinstance(True, int)` and `diarize: True` sits one
+  field away in the provider config.
+
+### 2026-08-18 — Stage 2 BUILT + migration applied locally. Levels 2/3 planned.
+
+- **Alembic is no longer at `ae05rbac` locally — new head `af06capture`**
+  (`alembic/versions/af06capture_mode.py`, adds `meetings.capture_mode`
+  varchar(16) NOT NULL server_default 'online'). Applied to the LOCAL db only;
+  **Railway is now one migration behind again.** Verified by outcome: single
+  head, all 210 meetings backfilled to 'online', i.e. unchanged behaviour.
+- Touched: `db/models.py` (Meeting.capture_mode), `schemas/meeting_schema.py`
+  (MeetingRequest.capture_mode), `services/meeting_service.py`
+  (`normalize_capture_mode` + create_processing_meeting),
+  `services/recall_ai_service.py` (create_bot capture_mode param + warning),
+  `services/transcription/{base,deepgram_provider,assemblyai_provider}.py`
+  (`diarize` kwarg + `supports_diarization` attr),
+  `pipelines/meeting_pipeline.py` (passes meeting.capture_mode),
+  frontend `meetings/api.ts` + `JoinMeetingModal.tsx` (toggle).
+- `tests/test_capture_mode.py` 14/14. Full suite green (rbac 28 / speaker 17 /
+  participant 8 / memory 4 / importance 6 / profile 4 / turns 33 / capture 14).
+  `main:app` 209 routes. Frontend `tsc -b` clean. Corpus replay still
+  0 attribution changes / 0 crashes / 0 "None" labels.
+- **`diarize: False` is no longer hardcoded** in `deepgram_provider` — it is
+  now caller-driven and defaults False. Landmine 14.9 in
+  `TECHNICAL_REFERENCE.md` describes the old hardcoded state and is now stale.
+- `supports_diarization` is a DECLARED provider attribute, not inferred from
+  `provider.name` — a fourth provider must not silently look in-room capable.
+  AssemblyAI accepts `diarize` and IGNORES it (v3 streaming has no such option
+  via Recall); `create_bot` logs a WARNING when capture_mode='in_room' meets a
+  provider that cannot diarize. Ignoring beats raising: a rejected create_bot
+  payload loses the meeting, which is worse than a one-speaker transcript.
+- Test-authoring trap worth remembering: `create_bot` does
+  `from app.services.transcription import get_active_provider` at CALL time, so
+  a test must patch the **package** attribute. Patching
+  `registry.get_active_provider` does nothing — the package `__init__` bound its
+  own reference at import. My first version of the test passed only because
+  `.env` happens to select deepgram.
+- **Plan gained Levels 2 and 3 as stages.** Level 2 (live voice separation) is
+  FREE inside Stage 3 — the live path already extracts `dia_speaker` and
+  `incremental_speaker_label` already renders `Speaker N`; both are blocked by
+  the same name-presence precedence bug, so one fix serves batch and live.
+  Level 3 (live provisional NAMES) is now Stage 8, explicitly out of the first
+  release: streaming clusters re-shuffle, so a name bound at minute 2 can drift
+  to the wrong voice by minute 40. Must be styled provisional.
+- Live and batch numbering will NOT agree (different diarization models), which
+  is an argument for Stage 8 — a name is stable where an index is not.
+
+### 2026-08-18 — Stage 3 BUILT. In-room separation is now LIVE + in notes.
+
+- `CaptureMode` enum added to `app/utils/admin_enums.py` (leaf module, so both
+  `transcript_processor` and `speaker_attribution` can import it without a
+  cycle). `transcript_processor.format()` gained `capture_mode` +
+  `calendar_attendees`; new `format_detailed()` returns
+  `(text, resolutions, diagnostics)` so Stage 4 need not re-derive turns.
+  `_format_online()` holds the ORIGINAL body verbatim — do not "improve" it,
+  it is the reference the corpus replay asserts against.
+- `incremental_speaker_label` now takes `capture_mode`; the label block was
+  changed to branch on the KEY SHAPE (`key[0] == "d"`) rather than re-testing
+  `real`. I initially left that block alone and it silently undid the fix —
+  an in-room cluster whose account has a name took the roster label, so all
+  three clusters rendered identically.
+- `recall_webhook` caches capture_mode per meeting (`_CAPTURE_MODES`), one
+  query per meeting not per utterance; dropped on terminal `done` beside
+  `_SPEAKER_LABELS`. A FAILED lookup is deliberately NOT cached — caching it
+  would pin an in-room meeting to online labelling for its whole duration.
+- Suites: speaker 28, turns 38, capture 14, all others unchanged. 209 routes.
+- **ONLINE IS BYTE-IDENTICAL ON ALL 164 STORED TRANSCRIPTS**, verified by
+  `exec`-ing `HEAD:app/processors/transcript_processor.py` out of git and
+  diffing outputs — not by reasoning that the body was copied. Script at
+  `scratchpad/replay_stage3.py`. Online does not go through turn derivation
+  at all, so the merge caveat only ever applies to in-room meetings.
+- **THE CORPUS CAUGHT A BUG MY SYNTHETIC TESTS COULD NOT.** Replaying real
+  transcripts in in_room mode renamed **"Divyansh Bhardwaj" → "Basically"** on
+  36 meetings, from "I'm basically proposing…". Uncorroborated roll-call was
+  outranking a real roster name — inventing a confident wrong name, worse than
+  the collapsed speaker it replaced. Then measured the noise floor instead of
+  guessing: real speech yields a junk candidate on 15 keys and **2+ distinct
+  junk candidates on 24 more** ("I'm more concerned", "I'm excited"). So
+  flagging on uncorroborated pairs would fire on ~15% of meetings.
+- **Rule now: only CALENDAR-CORROBORATED evidence may override or flag.**
+  ≥2 corroborated → under-clustering flag. 1 corroborated → wins over the
+  roster. 0 corroborated → a diarization CLUSTER may take a single guess
+  (needs_review, beats "Speaker 1"); a ROSTER key keeps the platform's name.
+  Present participles rejected on the uncorroborated path.
+- **Known limitation, asserted by a test named for it:** automatic
+  under-clustering detection now needs the roll-call names on the calendar
+  invite. Without it a merge can go undetected — but no name is ever invented,
+  and the Stage 5 correction UI is the backstop.
+- Corpus regressions pinned offline so they cannot come back:
+  `test_uncorroborated_rollcall_never_overrides_a_roster_name`,
+  `test_several_junk_candidates_do_not_flag_under_clustering`,
+  `test_present_participles_are_never_names`,
+  `test_format_in_room_never_renames_a_roster_speaker_from_junk`.
+- **Still NOT verified:** that Recall passes `diarize` through and that the
+  index reaches the COMPILED transcript. Every stored blob predates the flag,
+  so `_dia_index` has never seen real data. One in-room test meeting answers
+  it — and can now be run from the UI toggle instead of a hardcode.
+
+### 2026-08-18 — Stage 4 BUILT. In-room attribution is now feature-complete.
+
+- **New migration `ag07labelmap` → table `label_mappings`. Local head is now
+  `ag07labelmap`** (chain `ae05rbac → af06capture → ag07labelmap`). Applied
+  locally only. Verified table shape column-for-column against the ORM.
+- New `app/db/models.py::SpeakerLabelMapping`, new
+  `app/services/speaker_labels.py` (persist_resolutions, save_room_speakers,
+  mappings_for_meeting, apply_correction). Pipeline now calls
+  `format_detailed()` and persists after `save_participants`.
+  `tests/test_speaker_labels.py` 19/19.
+- All nine suites green (rbac 28 / speaker 28 / participant 8 / memory 4 /
+  importance 6 / profile 4 / turns 38 / capture 14 / labels 19). 209 routes.
+  Corpus replay still 164/164 online byte-identical, 0 in_room drift.
+- **End-to-end verified against the LIVE DB** with a synthetic in-room
+  transcript: one named account + 3 voices + roll-call → 3 corroborated names
+  (conf 0.95), 3 mapping rows, 3 attendee rows, **0 inserts on re-run**,
+  **0 rows granting access**. Rows cleaned up afterwards.
+- **`speaker_key` is a serialized string** (`"p:100"` / `"d:100:2"`) with
+  `UNIQUE(meeting_id, speaker_key)`. Chose that over
+  `(meeting_id, participant_id, diarization_label)` specifically because of
+  landmine 14.15 — Postgres treats NULLs as DISTINCT, so the three-column shape
+  would silently accept duplicate rows for the same roster speaker.
+  `serialize_key`/`parse_key` live adjacent in `speaker_attribution`.
+- **`persist_resolutions` NEVER overwrites a row with `corrected_by` set.**
+  Same reasoning as 14.18 (save_participants skip-not-replace): the manual fix
+  is the only recovery from a bad automatic match.
+- Room speakers become `participants` rows with `recall_id='dia:<n>'` — Recall
+  ids are ints so the prefix cannot collide, and the existing skip-not-replace
+  logic then gives idempotency with NO schema change to `participants`.
+  Written as a separate pass; `save_participants` itself untouched (three
+  landmines live in it).
+- **Those rows keep `user_id` AND `match_source` NULL even when a calendar
+  match was found.** `permissions._attended_meeting_ids` gates meeting READ
+  access on exactly those two fields. A name spoken into a room mic is not
+  authentication. Asserted offline AND by a live query in the e2e check.
+- Persistence is non-fatal but logged at ERROR — names are already in
+  `transcript_text` by then, so a failure costs the correction UI its data, not
+  the meeting its notes; ERROR because the loss is otherwise invisible.
+- `apply_correction` already implemented (Stage 5 needs only endpoint + UI) and
+  deliberately does NOT re-render `transcript_text`: regenerating notes costs
+  LLM calls and can overwrite hand-edited summaries/tasks.
+
+### 2026-08-18 — FIRST REAL IN-ROOM TEST (meeting 4899). Two bugs found.
+
+Test was valid: 3 people round one laptop, transcript literally contains
+"Everyone's sitting in one room" and "कितना लोग का voice का differentiate कैसे
+होता है?" — all under one speaker.
+
+**Our whole chain worked. Recall was the blocker.**
+- toggle → `capture_mode='in_room'` ✓ · `create_bot` sent `diarize: true` ✓
+  (confirmed against the Recall API) · `format_detailed` ran in in_room mode ✓
+  (1 `label_mappings` row written) · roster name preserved, NO junk name
+  invented ✓ — the Stage 3 corroboration rule did its job on real data.
+- **0 of 10 compiled blocks carried a `speaker` field.** Live transcript: 1
+  distinct speaker. So the index arrived NOWHERE, not live and not compiled.
+
+**BUG 1 — `diarize: true` on the provider does NOTHING on its own.** Recall
+runs its OWN diarization layer in front of the provider and injected a block we
+never sent:
+`recording_config.transcript.diarization.use_separate_streams_when_available: true`
+= "attribute by per-participant audio STREAM when streams exist". Meet gives one
+stream per ACCOUNT; there was one account; so everything resolved to participant
+100 and the acoustic result was discarded. FIXED by sending that key as `false`
+for in-room only (`recall_ai_service.create_bot`; note it is a sibling of
+`provider` under `transcript`, NOT inside the provider block). Online keeps
+Recall's default — per-participant streams are exactly what makes online
+attribution exact. **Still needs a second test meeting to confirm.**
+
+**BUG 2 — the Phase 12E lost-webhook fallback was DEAD.** The 401 in the log
+(`Missing required headers`, from 127.0.0.1) is
+`self_deliver_call_ended_if_pending` POSTing unsigned while
+`_verify_recall_signature` enforces Svix whenever `RECALL_WEBHOOK_SECRET` is
+set — i.e. broken in exactly the production-like deployments it exists to
+protect, and silent (the poll logs success; the 401 only shows in uvicorn's
+access log). FIXED: new `_sign_webhook_payload()` signs with
+`svix.Webhook.sign` and posts the body VERBATIM (`data=`, never `json=` — the
+signature covers exact bytes). Unsigned still when no secret is set.
+Verified in-test with the same svix call the endpoint uses.
+- **Do NOT "optimize" that HTTP hop into a direct call.** The briefing
+  orchestrator subscribes to the live event bus in the WEB process; this poll
+  runs in the Celery worker. An in-process call emits where nothing listens.
+  Comment added at the call site.
+
+`tests/test_capture_mode.py` now 19/19 (4 new). All nine suites green, 209 routes.
+
+### 2026-08-18 — NO CALENDAR EVER (instant meetings). Roll-call reworked.
+
+User clarified: these are **instant meetings, so there is NEVER a calendar
+event**. `calendar_attendees` will always be empty in production. That broke a
+load-bearing assumption — the corroboration-only rule I added earlier the same
+day would have left under-clustering detection **permanently inert**, since it
+required ≥2 CALENDAR-CONFIRMED names.
+
+Verified their two expectations directly (both already held):
+- 3 voices, no roll-call, no calendar → `Speaker 0/1/2` in batch AND live ✓
+- 3 voices, roll-call, no calendar → real names ✓
+  (`test_no_rollcall_no_calendar_still_separates_voices`)
+
+**Replacement for corroboration: `ROLLCALL_MAX_TURN_WORDS = 12`.** A
+self-introduction is a SHORT utterance. Measured over all 165 stored
+transcripts:
+
+| filter | junk candidates |
+|---|---|
+| none | **86** (37 distinct) |
+| turn ≤ 12 words | **0** |
+| turn ≤ 8 words | **0** |
+| SENTENCE ≤ 12 words | 32 |
+| SENTENCE ≤ 8 words | 22 |
+
+Applied to the whole TURN, not the matching sentence — the sentence-scoped
+variant lets "But this is does seem strange" through. 12 leaves room for "hi
+everyone this is Karthik from finance" (7 words) at zero false positives.
+
+**Because the filter scores zero, uncorroborated under-clustering detection is
+safe again and has been re-enabled.** ≥2 distinct short-turn names in one key
+now flags regardless of calendar backing, which is what makes the self-test
+work at all for instant meetings. Still never adopts either name.
+
+Residual gap found by my own adversarial fixture, then closed: a single short
+turn CAN carry several intro patterns ("I'm more concerned but I'm excited and
+I'm curious" = 9 words). The corpus says real speech never does this, but
+stopwords were extended with the measured offenders (concerned, excited,
+curious, cautious, responsible, does, can, always, exactly, headed, …) as
+belt-and-braces.
+
+Also changed: a NAMED roster key in in-room mode with exactly one
+uncorroborated name now keeps the platform's name but sets `needs_review` —
+we cannot tell one self-introducer from a total merge, so we neither invent nor
+stay silent.
+
+Suites now: speaker 28 / turns 41 / capture 19 / labels 19. Corpus 165/165
+online byte-identical, 0 in-room drift.
+
+**Consequence to remember:** with no calendar, `matched_email` will essentially
+always be NULL and every roll-call name lands at confidence 0.8 with
+`needs_review=True`. That is correct, not a bug — but it means the Stage 5
+correction UI is not optional polish, it is the primary quality mechanism.
+
+**Better Stage 6 signal for THIS deployment:** ask "how many people are in the
+room?" in the toggle UI and compare against the cluster count. Deterministic,
+needs no calendar, catches both under- and over-clustering. Not built — proposed
+only, and worth doing once separation is confirmed working.
+
+### 2026-08-18 — ROOT CAUSE FOUND IN RECALL'S DOCS. Two wrong guesses first.
+
+Meeting 4903, second in-room test. `use_separate_streams_when_available: false`
+WAS sent and stored, `diarize: true` stored — and still 0/4 blocks with a
+`speaker` field, one participant id, one live speaker. My hypothesis was wrong
+at the root. Stopped guessing from field names and read the docs
+(https://docs.recall.ai/docs/diarization).
+
+**Recall has THREE diarization modes. We had the one that explicitly cannot do
+this.**
+
+1. **Perfect diarization** (DEFAULT, what we had): a separate audio stream per
+   participant. The docs say it *"does not distinguish between multiple people
+   speaking from the same audio stream, such as multiple participants joining
+   together from a conference room or shared device"* — our exact scenario,
+   named as unsupported. `use_separate_streams_when_available` is the knob for
+   THIS feature; it was never the gate on acoustic diarization.
+2. **Machine diarization** (realtime): provider separates by voice.
+   Config = `diarization.use_separate_streams_when_available: false` +
+   `provider.deepgram_streaming.diarize: true` — **exactly what we are now
+   sending, so our bot config is CORRECT.** But the label lands in
+   **`transcript.provider_data`** on realtime webhook events, NOT in a
+   top-level `speaker` field and NOT in the compiled transcript.
+   → `extract_transcript_fields` reads `source["speaker"]` / `data_block["speaker"]`.
+     **Wrong location.** That alone explains the dead live path.
+3. **Hybrid diarization** (ASYNC): `provider.deepgram_async` +
+   `use_separate_streams_when_available: true`. Label arrives as
+   **`participant.name = "{participant_id}-{anonymous_label}"`** (e.g. `"200-0"`)
+   with `participant.id = null`. This is the only mode that puts the label in a
+   COMPILED transcript, i.e. the only one that can fix the NOTES.
+
+**Async is a separate API call AFTER the meeting**, not a bot-creation option:
+`POST /api/v1/recording/{RECORDING_ID}/create_transcript/` with
+`{"provider": {"deepgram_async": {}}, "diarization": {"use_separate_streams_when_available": true}}`,
+triggered on `recording.done`, then wait for `transcript.done`/`transcript.failed`.
+Costs a SECOND transcription pass and adds post-meeting latency (relevant to
+plan §14.7's 3-minute criterion).
+
+**Design validation:** our identity key `("d", p_id, dia)` maps exactly onto
+Recall's `"{pid}-{label}"` composite. And `_dia_index()` being a single isolated
+accessor is what keeps this a small change rather than a rewrite — but note it
+must now parse `participant.name`, not look for a `speaker` field.
+
+Nothing changed in code this round. `use_separate_streams_when_available: false`
+is retained: it is correct for machine diarization per the docs.
+
+### 2026-08-18 — LIVE fix: read the diarization label from `provider_data`.
+
+- `recall_webhook` gained `_clean_dia_label()` + `_diarization_label()`;
+  `extract_transcript_fields` now delegates instead of reading
+  `source["speaker"]` / `data_block["speaker"]`. That flat read is why meetings
+  4899 and 4903 showed one speaker despite a CORRECT bot config — per Recall's
+  docs the machine-diarization label appears in `transcript.provider_data`.
+- The docs do NOT name the key inside `provider_data`, so the search covers, in
+  order: `provider_data.speaker`, `provider_data.speaker_label`,
+  `provider_data[.channel].alternatives[0].words[].speaker` (Deepgram's own
+  streaming layout, in case the fragment is forwarded verbatim),
+  `provider_data.words[].speaker`, then the old flat locations last.
+- **SELF-DIAGNOSING:** when capture_mode is in_room and no label is found,
+  `process_transcript_event` logs `[DIARIZATION SHAPE]` ONCE per meeting with
+  the `data` keys, inner keys and the raw `provider_data` (1200 chars). Grep
+  that on the next test meeting — it reports the real key rather than us
+  guessing a third time. Cleared on terminal `done` with the other per-meeting
+  maps (`_DIA_SHAPE_LOGGED`).
+- Labels may be ints OR short strings ("A"/"B") per the docs; digit-strings are
+  normalized to int so `"0"` and `0` cannot become two speakers. `bool` rejected
+  first (subclasses `int`, and `diarize: true` sits one field away).
+  Length/alphanumeric guard stops a sentence being adopted as a label.
+- `tests/test_realtime_diarization.py` 15/15. All ten suites green, 209 routes,
+  corpus 0 online drift.
+- Deliberately did NOT touch `ws_router.py`'s stale duplicate of
+  `extract_transcript_fields` (landmine 14.10) — the label search lives in its
+  own function so that dormant copy cannot inherit a half-fix.
+- **NOTES still broken** and will stay broken until hybrid/async transcription
+  is wired: machine diarization surfaces the label in realtime events ONLY, and
+  the compiled transcript has no slot for it (verified: block keysets are
+  exactly `{language_code, participant, words}` on both test meetings).
+
+### 2026-08-18 — REAL root cause: `transcript.provider_data` is a SEPARATE EVENT.
+
+Meeting 4905 still one speaker. Read
+https://docs.recall.ai/docs/bot-real-time-transcription and the documented
+`transcript.data` payload is `data.data.{words, language_code, participant}` —
+**no `speaker` slot anywhere, and no `provider_data` field**. The docs say
+provider-specific data "is accessed via separate `transcript.provider_data`
+events".
+
+**We never subscribed to that event.** `create_bot` registered only
+`transcript.data`, `transcript.partial_data`, `participant_events.join/leave`.
+So Recall never sent the only event that carries an acoustic label. Four
+in-room meetings (4899, 4903, 4905 + the first) were spent before reading this.
+It also means `deepgram_provider.extract_language_code`, which reads
+`provider_data.language`, has NEVER had anything to read.
+
+Changes:
+- `create_bot` now appends `"transcript.provider_data"` to
+  `realtime_endpoints[0].events` **for in-room only** (it is a second stream of
+  raw provider payloads; online gets exact roster attribution without it).
+- New `process_provider_data_event()` in `recall_webhook`, routed BEFORE the
+  generic `"transcript" in event` branch (which early-returns and would swallow
+  it — the generic branch is now an `elif`, and a test asserts that).
+- **It OBSERVES, it does not act.** Writes up to 5 samples per meeting to
+  `.cache/diarization_samples.jsonl` AND logs `[PROVIDER DATA]`. Wiring the
+  label into live display needs correlating two independent event streams by
+  timing, and that is not worth building on an assumed shape — four meetings
+  have already gone that way. One meeting with this handler yields the true
+  structure and the design follows from it.
+- `label_in_provider_payload()` factored out of `_diarization_label()`: the same
+  object arrives both nested under `provider_data` AND as the entire body of a
+  provider_data event. My first version only handled the nested form and
+  reported None for a valid label at
+  `data.data.channel.alternatives[0].words[0].speaker`. Five plausible Deepgram
+  layouts now resolve, verified.
+- `tests/test_realtime_diarization.py` 19/19. All ten suites green, 209 routes.
+
+Test bug worth recording (§4.6 again): my routing-order assertion compared
+`source.index()` positions and matched the text inside my own COMMENT rather
+than the code. Fixed by asserting on `elif "transcript" in event:` — structure,
+not position.
+
+**NEXT TEST IS DEFINITIVE EITHER WAY.** After one in-room meeting, read
+`.cache/diarization_samples.jsonl`: if labels are present, live display can be
+wired to the real shape; if the event never arrives or carries no label, then
+Deepgram is not separating the room audio and machine diarization is a dead end
+— go to hybrid/async (`deepgram_async`, label as
+`participant.name = "{pid}-{label}"`) which is the notes path anyway.
+
 ---
 
 ## 7. Open threads
 
-**Blocking:** none. ~~`alembic upgrade head` on Railway~~ DONE 2026-08-11
-(prod at `ae05rbac`); ~~prod DB ahead of prod code~~ CLEARED — the uppercase-role
-code shipped in PR #15, so the "every user reads as least-privileged" window
-is closed.
+**Blocking:** **Railway is TWO MIGRATIONS BEHIND local** — local head is
+`ag07labelmap`; chain is `ae05rbac → af06capture → ag07labelmap`. Prod is still
+`ae05rbac`. Deploying without `alembic upgrade head` makes every meeting INSERT
+fail on the missing NOT-NULL `meetings.capture_mode` → meetings marked
+`failed`, and any in-room meeting would additionally 500 on the absent
+`label_mappings` table. Same class of trap as the old landmine 14.11. Not urgent
+while nothing is deployed, but it MUST precede the next deploy.
+
+~~prod DB ahead of prod code~~ CLEARED — the uppercase-role code shipped in
+PR #15, so the "every user reads as least-privileged" window is closed.
 
 **Only unshipped commit:** `ea10699 favicon changes` on `continum`, not yet
 on `neworigin/main`.
 
 **Decisions owed by the user, do not pick unilaterally:**
-- capture-mode flag shape (per-meeting / per-category / per-room) before `diarize:True`
+- ~~whether the product must support in-room meetings~~ ANSWERED 2026-08-17:
+  **YES, required** — and specifically in-room *with* a meeting link, bot still
+  joins. Plan in `SPEAKER_ATTRIBUTION_PLAN.md`.
+- ~~capture-mode flag shape~~ RESOLVED in the plan as per-meeting
+  `meetings.capture_mode` + optional `categories.default_capture_mode`; must
+  resolve BEFORE `create_bot` since it changes `build_recording_config`.
+  Per-category default is still an open sub-question (§15 of the plan).
+- what the notes should say for an UNRESOLVED speaker — literal "Speaker 2 said
+  X" vs omitting attribution. Changes the notes prompt contract, so decide
+  before that prompt is written.
 - `knowledge_block_max_chars` 3500→5000 (facts currently displace ~10 open tasks)
-- whether the product must support in-room meetings at all (decides ~80% of the
-  manager's diarization spec)
+
+**Gating test owed (needs one real in-room meeting):** set `diarize:True`, then
+check whether stored `transcript_raw` blocks gain a `speaker` field, or whether
+the index only ever appears in realtime webhook payloads. Decides whether the
+plan is buildable as written or needs Recall's async provider. Build step 1
+(pure turn-derivation + roll-call functions) does NOT depend on the answer.
 
 **Ready to do, not started:** ~~`prof` NameError fix~~ DONE. Participant
 backfill for the 62+58 damaged meetings + 35 dup cleanup (replayable from

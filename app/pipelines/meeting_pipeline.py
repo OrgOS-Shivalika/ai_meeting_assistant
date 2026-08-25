@@ -420,7 +420,14 @@ class MeetingPipeline:
                     return
 
                 logger.info(f"🤖 Creating bot for URL: {meeting_url}")
-                bot = self.recall.create_bot(meeting_url, meeting.id)
+                # capture_mode decides whether Recall asks the transcription
+                # provider to separate voices. It has to be known BEFORE the
+                # bot exists — audio that was not analysed for distinct
+                # voices cannot be re-analysed from the transcript later.
+                bot = self.recall.create_bot(
+                    meeting_url, meeting.id,
+                    capture_mode=meeting.capture_mode or "online",
+                )
                 bot_id = bot["id"]
                 meeting.bot_id = bot_id
                 db.commit()
@@ -440,6 +447,10 @@ class MeetingPipeline:
             # JSON shape that gives us speaker-perfect attribution.
             transcript_json = None
             formatted = None
+            # Bound before the try because the live-transcript fallback below
+            # produces no attribution at all — there is no `transcript_raw` to
+            # derive voices from, so nothing to persist.
+            label_resolutions: dict = {}
             try:
                 transcript_url = self.recall.wait_for_transcript(
                     bot_id, meeting_id=meeting.id,
@@ -450,7 +461,20 @@ class MeetingPipeline:
                 db.commit()
 
                 logger.info("🧾 Formatting transcript...")
-                formatted = TranscriptProcessor.format(transcript_json)
+                # capture_mode routes in-room meetings through voice-cluster
+                # attribution; online meetings take the identical path they
+                # always have. The calendar attendee list is what turns a
+                # roll-call name from a guess into a corroborated match — see
+                # `speaker_attribution._validate_candidate`.
+                formatted, label_resolutions, _diag = (
+                    TranscriptProcessor.format_detailed(
+                        transcript_json,
+                        capture_mode=meeting.capture_mode or "online",
+                        calendar_attendees=(
+                            (meeting.google_event_data or {}).get("attendees")
+                        ),
+                    )
+                )
             except Exception as transcript_exc:
                 # Compiled-transcript path failed. Try the live fallback.
                 live_text = meeting.transcript or ""
@@ -483,6 +507,33 @@ class MeetingPipeline:
             except Exception:
                 bot_data = None
             self.save_participants(db, meeting, transcript_json, bot_data=bot_data)
+
+            # In-room attribution: persist "voice cluster N is Karthik" and
+            # give each separated voice an attendee row.
+            #
+            # Empty for every online meeting, so this is a no-op on the path
+            # that already works. Non-fatal because the names are ALREADY in
+            # `transcript_text` by this point — losing these rows costs the
+            # correction UI its data, not the meeting its notes. Logged at
+            # ERROR rather than warning precisely because the degradation is
+            # otherwise invisible.
+            if label_resolutions:
+                try:
+                    from app.services import speaker_labels
+                    speaker_labels.persist_resolutions(
+                        db, meeting.id, label_resolutions,
+                    )
+                    speaker_labels.save_room_speakers(
+                        db, meeting, label_resolutions,
+                    )
+                except Exception as label_err:
+                    db.rollback()
+                    logger.error(
+                        "Speaker label persistence failed for meeting %s — "
+                        "notes are correctly attributed but the correction UI "
+                        "will have nothing to edit: %s",
+                        meeting.id, label_err, exc_info=True,
+                    )
 
             # Resolve the behaviour profile ONCE, before the routing branch.
             #

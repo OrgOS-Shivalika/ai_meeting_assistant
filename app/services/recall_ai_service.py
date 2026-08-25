@@ -10,6 +10,8 @@ from app.config.settings import settings
 import base64
 import time
 import json
+import uuid
+from datetime import datetime, timezone
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -84,6 +86,37 @@ def _request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
     raise RuntimeError("retry loop fell through without raising")
 
 
+def _sign_webhook_payload(payload: dict) -> tuple[str, dict]:
+    """Serialize + Svix-sign a self-delivered webhook. Returns (body, headers).
+
+    Our own `/webhook/recall/{id}` endpoint verifies the Svix signature
+    whenever `RECALL_WEBHOOK_SECRET` is set, so a self-delivery has to be
+    signed like any other. With no secret configured the endpoint accepts
+    unsigned requests, and so do we — no headers, same as before.
+
+    The body is serialized ONCE and posted verbatim (`data=`, not `json=`),
+    because the signature covers the exact bytes. Re-serializing would change
+    key order or spacing and invalidate it.
+    """
+    body = json.dumps(payload)
+    secret = settings.RECALL_WEBHOOK_SECRET
+    if not secret:
+        return body, {"Content-Type": "application/json"}
+
+    from svix.webhooks import Webhook
+
+    msg_id = f"msg_selfdeliver_{uuid.uuid4().hex}"
+    timestamp = datetime.now(timezone.utc)
+    signature = Webhook(secret).sign(msg_id, timestamp, body)
+    return body, {
+        "Content-Type": "application/json",
+        "svix-id": msg_id,
+        # Svix expects whole seconds since the epoch.
+        "svix-timestamp": str(int(timestamp.timestamp())),
+        "svix-signature": signature,
+    }
+
+
 class RecallService:
     def __init__(self):
         self.base_url = settings.BASE_URL
@@ -100,6 +133,7 @@ class RecallService:
         bot_name: str = "OrgOS Note Taker",
         *,
         language: Optional[str] = None,
+        capture_mode: str = "online",
     ):
         url = f"{self.base_url}/bot/"
 
@@ -112,21 +146,75 @@ class RecallService:
 
         provider = get_active_provider()
         effective_language = language or settings.TRANSCRIPTION_LANGUAGE
-        transcript_provider_config = provider.build_recording_config(effective_language)
+
+        # In-room capture is the ONLY reason to ask for diarization. See
+        # `Meeting.capture_mode` and SPEAKER_ATTRIBUTION_PLAN.md.
+        #
+        # This decision is irreversible for this meeting: if the audio is
+        # not analysed for distinct voices now, nothing downstream can
+        # recover them later. Hence the config is built here, once, before
+        # the bot exists — and hence the warning below is at WARNING level
+        # rather than debug. An in-room meeting recorded by a provider that
+        # cannot diarize produces a transcript with exactly one speaker, and
+        # this repo's characteristic failure is precisely that kind of
+        # silent degradation.
+        wants_diarization = capture_mode == "in_room"
+        if wants_diarization and not getattr(provider, "supports_diarization", False):
+            logger.warning(
+                "⚠️  Bot %s: capture_mode='in_room' but transcription provider "
+                "%r cannot diarize — every speaker in the room will collapse "
+                "into one. Set TRANSCRIPTION_PROVIDER=deepgram for in-room "
+                "meetings.",
+                meeting_id, provider.name,
+            )
+
+        transcript_provider_config = provider.build_recording_config(
+            effective_language, diarize=wants_diarization,
+        )
         logger.info(
             f"Bot {meeting_id}: using transcription provider={provider.name!r} "
-            f"recall_key={provider.recall_provider_key!r} language={effective_language!r}"
+            f"recall_key={provider.recall_provider_key!r} "
+            f"language={effective_language!r} capture_mode={capture_mode!r} "
+            f"diarize={wants_diarization}"
         )
+
+        transcript_config: dict = {
+            "provider": {
+                provider.recall_provider_key: transcript_provider_config,
+            }
+        }
+
+        if wants_diarization:
+            # ⚠ WITHOUT THIS, `diarize: true` ON THE PROVIDER DOES NOTHING.
+            #
+            # Recall has its OWN diarization layer sitting in front of the
+            # transcription provider, and it defaults to
+            # `use_separate_streams_when_available: true` — meaning "attribute
+            # speech by per-participant audio stream whenever streams exist".
+            # That default is right for an ordinary online call and exactly
+            # wrong for a room.
+            #
+            # Measured on meeting 4899 (2026-08-18, three people around one
+            # laptop): Recall stored our `diarize: true` faithfully AND
+            # injected `use_separate_streams_when_available: true` that we
+            # never sent. Google Meet gives Recall one stream per participant
+            # ACCOUNT, there was one account, so every utterance resolved to
+            # participant 100 and the acoustic result was discarded. All ten
+            # transcript blocks came back with no `speaker` field at all —
+            # indistinguishable from diarization simply being off.
+            #
+            # Setting it False forces Recall to fall back to the provider's
+            # acoustic diarization, which is the only thing that can separate
+            # N humans sharing one account.
+            transcript_config["diarization"] = {
+                "use_separate_streams_when_available": False,
+            }
 
         payload = {
             "meeting_url": meeting_url,
             "bot_name": bot_name,
             "recording_config": {
-                "transcript": {
-                    "provider": {
-                        provider.recall_provider_key: transcript_provider_config,
-                    }
-                },
+                "transcript": transcript_config,
                 "participant_events": {},
                 "meeting_metadata": {
                     "capture_participant_list": True
@@ -154,7 +242,31 @@ class RecallService:
                         "transcript.partial_data",
                         "participant_events.join",
                         "participant_events.leave",
-                    ]
+                    ] + ([
+                        # ⚠ THE DIARIZATION LABEL IS ONLY IN THIS EVENT.
+                        #
+                        # Recall's realtime `transcript.data` payload is
+                        # participant-shaped — `{words, language_code,
+                        # participant}` — with no slot for an acoustic speaker
+                        # label. Per
+                        # https://docs.recall.ai/docs/bot-real-time-transcription
+                        # provider-specific data arrives as a SEPARATE
+                        # `transcript.provider_data` event, and machine
+                        # diarization puts the label there.
+                        #
+                        # Not subscribing to it is why in-room meetings 4899,
+                        # 4903 and 4905 all came back with one speaker despite a
+                        # correct bot config: Recall was never asked to send the
+                        # only event that carries the label. It also explains why
+                        # `deepgram_provider.extract_language_code` — which reads
+                        # `provider_data.language` — has never had anything to
+                        # read.
+                        #
+                        # Subscribed for in-room only: it is a second stream of
+                        # raw provider payloads, and online meetings get exact
+                        # attribution from the roster without it.
+                        "transcript.provider_data",
+                    ] if wants_diarization else [])
                 }
             ]
         else:
@@ -535,6 +647,12 @@ class RecallService:
 
         # Self-deliver. Use the internal URL (localhost) — bypasses ngrok,
         # avoids re-entering our own public endpoint via the tunnel.
+        #
+        # The HTTP hop is LOAD-BEARING and must not be "optimized" into a
+        # direct function call: the closing-briefing orchestrator subscribes to
+        # the live event bus in the WEB process (main.py startup), while this
+        # poll runs in the Celery worker. Calling the handler in-process would
+        # emit onto the worker's own bus, where nothing is listening.
         local_url = f"{settings.INTERNAL_WEBHOOK_BASE_URL}/webhook/recall/{meeting_id}"
         payload = {
             "event": "bot.status_change",
@@ -545,7 +663,18 @@ class RecallService:
             f"(ended_at={ended_status.get('created_at')})"
         )
         try:
-            response = requests.post(local_url, json=payload, timeout=10)
+            # Sign it exactly as Recall would. Observed on meeting 4899:
+            # this POST came back 401 "Missing required headers", because
+            # `_verify_recall_signature` enforces the Svix signature whenever
+            # RECALL_WEBHOOK_SECRET is set and we were sending none. So the
+            # entire Phase 12E fallback was DEAD in any deployment that
+            # configured the secret — i.e. exactly the production-like ones it
+            # exists to protect. Silent, too: the poll logged a success path
+            # and the 401 only surfaced in uvicorn's access log.
+            body, headers = _sign_webhook_payload(payload)
+            response = requests.post(
+                local_url, data=body, headers=headers, timeout=10,
+            )
             if response.status_code != 200:
                 logger.warning(
                     f"[POLL] self-deliver got {response.status_code}: {response.text[:200]}"
