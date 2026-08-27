@@ -14,6 +14,7 @@ import {
   Layers,
   Users,
   FileText,
+  Ruler,
   Network,
   Sparkles,
   Bot,
@@ -75,6 +76,7 @@ const NAV: NavSection[] = [
         roles: ["ADMIN", "ORG_ADMIN"],
       },
       { path: "/reports", label: "Reports", icon: FileText },
+      { path: "/size-set", label: "Size Set", icon: Ruler },
     ],
   },
 ];

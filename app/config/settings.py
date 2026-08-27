@@ -421,6 +421,31 @@ class Settings:
     # backend module also sets this env var before importing mem0.
     MEM0_TELEMETRY = os.getenv("MEM0_TELEMETRY", "false")
 
+    # ---------------------------------------------------------------------
+    # Size Set inspection service (the `sizeset` project)
+    # ---------------------------------------------------------------------
+    # A SEPARATE FastAPI process, not a library. It turns a garment size-set
+    # inspection recording into a filled inspection report (CSV + PDF), and it
+    # owns its own OpenAI key, its own venv (reportlab / pypdf / xlrd /
+    # imageio-ffmpeg) and its own `data/` directory of client spec sheets.
+    #
+    # We proxy to it rather than importing it, which keeps four things out of
+    # this codebase: its rendering dependencies, its top-level `services` /
+    # `api` / `pipeline` package names (which would collide badly here), the
+    # `fractions.Fraction` precision it maintains end-to-end, and a second
+    # settings system.
+    #
+    # Start it with:  python src/main.py serve --port 8100
+    SIZESET_API_URL = os.getenv("SIZESET_API_URL", "http://localhost:8100").rstrip("/")
+
+    # Meetings whose CATEGORY has this name may be turned into a Size Set
+    # report. Same mechanism as CONTINUUM_CATEGORY_NAME — a category name
+    # rather than a schema change, so the placement the client asked for
+    # ("Triburg org, Quality Team section") needs no migration.
+    #
+    # Set to an empty string to allow any category.
+    SIZESET_CATEGORY_NAME = os.getenv("SIZESET_CATEGORY_NAME", "Quality Team")
+
     # ---- Outbound email (SMTP) -------------------------------------------
     # Used for member invite emails. Plain SMTP via stdlib `smtplib` rather
     # than a provider SDK, so any of Gmail/SES/Postmark/Mailgun works by

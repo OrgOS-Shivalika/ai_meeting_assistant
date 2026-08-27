@@ -32,6 +32,7 @@ import BoardPage from "../features/kanban/pages/BoardPage";
 import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
 import SettingsPage from "../features/settings/pages/SettingsPage";
 import ContinuumBoardPage from "../features/continuum/pages/ContinuumBoardPage";
+import SizeSetPage from "../features/sizeset/pages/SizeSetPage";
 
 export const router = createBrowserRouter([
   {
@@ -144,6 +145,11 @@ export const router = createBrowserRouter([
       {
         path: "/reports",
         element: <ReportsPage />,
+      },
+      {
+        // Proxies to the separate `sizeset` service — see sizeset_router.py.
+        path: "/size-set",
+        element: <SizeSetPage />,
       },
       {
         path: "/settings",

@@ -791,6 +791,63 @@ Deepgram is not separating the room audio and machine diarization is a dead end
 — go to hybrid/async (`deepgram_async`, label as
 `participant.name = "{pid}-{label}"`) which is the notes path anyway.
 
+### 2026-08-25 — Size Set (Triburg) Stage 1: proxy to the `stt` project. DONE.
+
+New requirement: a "Size Set" module for the Triburg Quality Team — turn a
+garment size-set inspection recording into a filled inspection report. Turned
+out the user had ALREADY built the whole pipeline in a separate repo,
+`D:\Divyansh\Projects\Shivalika_AI\stt` (package name `sizeset`): FastAPI +
+OpenAI transcription with a garment/Hindi domain prompt + LLM extraction +
+CSV/PDF/JSON writers + spec-sheet grading + a confidence/review threshold.
+
+**Decision: PROXY to it, do not port it.** A separate FastAPI process on :8100;
+agentic adds the only two things it lacks (auth, a same-origin mount) and
+forwards the rest. Porting would have dragged in reportlab/pypdf/xlrd/
+imageio-ffmpeg, a second settings system, the top-level `services`/`api`/
+`pipeline` package names (which would collide here), and a
+`fractions.Fraction` serialization boundary that the sizeset README explicitly
+warns about ("rounding drift would be silent and wrong"). All of that stays on
+its side of an HTTP call.
+
+- New `app/api/sizeset_router.py` (5 routes, httpx 0.28.1 already in
+  requirements), `settings.SIZESET_API_URL` (default `http://localhost:8100`),
+  mounted in `main.py` → **214 routes** (was 209).
+- Frontend `features/sizeset/{api.ts,pages/SizeSetPage.tsx}`, route `/size-set`,
+  sidebar entry under Workspace. `tsc -b` clean, `vite build` clean.
+- `tests/test_sizeset_proxy.py` 14/14 (httpx stubbed, minimal app, no network).
+  All eleven suites green.
+- **VERIFIED against the RUNNING service, not stubs:** styles came back
+  `['2365','7147','9601','9662','9685']`, bogus job → 404 `no such job`,
+  `.txt` upload → 415 with sizeset's own message intact. Error passthrough works.
+
+Landmines recorded:
+- **`spa_shell_on_html_navigation` in `main.py` breaks file downloads.** It
+  intercepts ANY GET carrying `text/html` in Accept unless the path is in
+  `_API_HTML_PASSTHROUGH` (only /docs, /redoc, /openapi.json, /health). A plain
+  `<a href>` to a download endpoint therefore returns index.html instead of the
+  file. Worked around in the frontend by fetching a blob (fetch sends
+  `Accept: */*`); the real fix is to make the middleware skip `/api/`, which
+  touches every request in the app. **Pre-existing bug, affects any download
+  endpoint, not just this one.**
+- Job ids are validated `isalnum()` before interpolation into the forwarded URL.
+  `..` traversal is NOT the concern (the HTTP layer collapses it before routing
+  — my first test asserted the wrong thing); separators are.
+- **No tenancy.** sizeset has no users, so `GET /api/sizeset/jobs` returns ALL
+  jobs on the service to any authenticated agentic user. Fine for the demo,
+  first thing to fix for real use.
+- Jobs are in sizeset's memory and lost on restart; outputs persist in its
+  `data/output/`. Nothing touches our DB — deliberate, demo scope.
+- Two processes to run: agentic :8000, `python src\main.py serve --port 8100`.
+- Not Railway-deployable as-is (needs a second service + persistent disk).
+
+**Stage 2 (not built):** Option A, live meeting → Size Set. Needs ONE new
+endpoint on sizeset (`POST /api/jobs/from-transcript`) reusing
+`extract → validate → write`, since `extract_inspection()` already takes a
+plain string; plus `POST /api/meetings/{id}/sizeset` here. Open question first:
+the sample recordings are all `.m4a`/WhatsApp phone audio from a factory floor,
+so nobody may ever open a Meet link for a size-set review — Option A could have
+no real input.
+
 ---
 
 ## 7. Open threads

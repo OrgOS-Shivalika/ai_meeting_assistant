@@ -9,6 +9,7 @@ import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import AskAssistantPanel from "../components/AskAssistantPanel";
 import AttendeeAccessModal from "../components/AttendeeAccessModal";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
+import SizeSetAction from "../../sizeset/components/SizeSetAction";
 import {
   Calendar,
   Clock,
@@ -997,6 +998,12 @@ export default function MeetingDetailPage() {
                 </h3>
                 <div className="flex items-center gap-2">
                   {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
+                  {meeting?.id && (
+                    <SizeSetAction
+                      meetingId={meeting.id}
+                      categoryName={meeting.category?.name}
+                    />
+                  )}
                   <span
                     className="tabular-nums"
                     style={{

@@ -28,6 +28,7 @@ from app.api.behavior_router import router as behavior_router
 from app.api.closing_briefing_router import closing_briefing_router
 from app.api.kanban_router import kanban_router
 from app.api.continuum_router import router as continuum_router
+from app.api.sizeset_router import router as sizeset_router
 from app.services.briefing.closing_briefing_orchestrator import get_orchestrator
 from app.utils.logger import setup_logger
 from app.config.settings import settings
@@ -77,6 +78,7 @@ app.include_router(ws_router, prefix=_API)
 app.include_router(closing_briefing_router, prefix=_API)
 app.include_router(kanban_router,prefix=_API)
 app.include_router(continuum_router,prefix=_API)
+app.include_router(sizeset_router,prefix=_API)
 # Machine-to-machine endpoints Recall.ai calls directly — mounted at ROOT, NOT
 # under _API, because Recall posts to a fixed {APP_PUBLIC_URL}/webhook/recall/...
 # (and /ws/recall/...) URL that must not carry the /api prefix.
