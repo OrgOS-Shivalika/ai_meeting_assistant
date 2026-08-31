@@ -333,10 +333,17 @@ async def process_provider_data_event(meeting_id: int, payload: dict) -> None:
         # nested under a `provider_data` key — so search both levels directly
         # rather than going through `_diarization_label`, which looks for the
         # nested form.
-        label = (
-            label_in_provider_payload(inner)
-            or label_in_provider_payload(block)
-        )
+        # `is None`, NOT `or`. Diarization labels start at ZERO, and `0 or x`
+        # discards it — so the first speaker in every room, the most common
+        # label there is, was being reported as "no label found". That is the
+        # precise false negative this handler exists to rule out: it would
+        # write `"label": null` to the sample file and log `label=None` while
+        # diarization was in fact working perfectly.
+        #
+        # `_diarization_label` already gets this right; this path did not.
+        label = label_in_provider_payload(inner)
+        if label is None:
+            label = label_in_provider_payload(block)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[PROVIDER DATA] label probe failed: %s", exc)
 

@@ -186,6 +186,14 @@ export const updateCategory = (
     color?: string | null;
     description?: string | null;
     icon?: string | null;
+    /**
+     * Which board tasks from this meeting type land on. `null` means
+     * "inherit the org default", which is a real choice rather than an
+     * absent one — so the server only reads this when
+     * `default_board_id_set` is true. Send both or neither.
+     */
+    default_board_id?: number | null;
+    default_board_id_set?: boolean;
   },
 ): Promise<Category> =>
   apiClient(`/categories/${id}`, {
@@ -220,7 +228,13 @@ export const createTeam = (
 
 export const updateTeam = (
   id: number,
-  payload: { name?: string; description?: string | null },
+  payload: {
+    name?: string;
+    description?: string | null;
+    /** `null` = inherit the category's board. See `updateCategory`. */
+    default_board_id?: number | null;
+    default_board_id_set?: boolean;
+  },
 ): Promise<Team> =>
   apiClient(`/teams/${id}`, {
     method: "PATCH",

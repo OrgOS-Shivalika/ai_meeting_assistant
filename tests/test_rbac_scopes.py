@@ -19,6 +19,7 @@ site and looks like working code.
 
 Run: `python tests/test_rbac_scopes.py`
 """
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +55,17 @@ def sql(clause) -> str:
             compile_kwargs={"literal_binds": False},
         )
     )
+
+
+def _shape(text: str) -> str:
+    """SQL with bind-parameter NUMBERS erased, for structural comparison.
+
+    SQLAlchemy numbers binds per compilation, so the same subquery is
+    `%(user_id_1)s` standalone and `%(user_id_5)s` nested inside a larger
+    clause. Comparing raw text therefore fails on identical SQL — which it
+    did, and looked like a real authorization regression for a minute.
+    """
+    return re.sub(r"%\((\w+?)_\d+\)s", r"%(\1)s", text)
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +714,106 @@ def test_reset_password_mails_after_the_commit():
         "reset_password mails before committing — a failed save would send a "
         "password that does not work"
     )
+
+
+def test_board_view_follows_category_view_not_just_grants():
+    """A board scoped to a category you can SEE must be visible, empty or not.
+
+    The old clause used `_managed_category_ids` — whole-category grants only —
+    which was strictly narrower than being able to open the category itself.
+    A member who attended a meeting in it, or an admin holding one team inside
+    it, could reach the category and find none of its boards, and a
+    newly-created board was invisible to exactly the people it was made for
+    until someone else's card landed on it.
+
+    Asserted by substring rather than by eyeballing shape: the board clause
+    must contain the SAME reachability subquery `category_view_clause` uses.
+    That is what stops the two drifting apart again — a future edit to one has
+    to keep satisfying the other.
+    """
+    board = _shape(sql(permissions.board_view_clause(None, MEMBER)))
+
+    reachable = _shape(sql(permissions._reachable_category_ids(MEMBER)))
+    assert reachable in board, (
+        "board_view_clause does not use the same category reachability as "
+        "category_view_clause — a category you can open may hide its boards"
+    )
+
+    # And the team half. Asserted on the three distinguishing features rather
+    # than by substring: a scalar_subquery compiled on its own renders its
+    # FROM differently from the same subquery nested in a larger statement
+    # (verified — the assembled `select(KanbanBoard).where(clause)` has every
+    # FROM it needs), so substring matching gives false alarms here.
+    assert "meetings.team_id" in board, (
+        "board_view_clause lost the attendance arm for team boards — a team "
+        "you sat in a meeting with would hide its board"
+    )
+    assert "category_admins.team_id IS NOT NULL" in board, (
+        "board_view_clause lost the team-grant arm"
+    )
+    assert "teams.category_id IN" in board, (
+        "board_view_clause lost the whole-category-covers-its-teams arm"
+    )
+
+
+def test_board_view_includes_the_board_a_scope_routes_to():
+    """A category can point its tasks at ANY board, including an org-wide one.
+    Whoever can see that category has to be able to open where their work
+    lands, or the routing feature files cards somewhere they cannot follow."""
+    board = sql(permissions.board_view_clause(None, MEMBER))
+    assert "default_board_id" in board, (
+        "board_view_clause ignores default_board_id — a category pointed at "
+        "an empty org board leaves its members unable to open it"
+    )
+    # NULL pointers must be excluded: `id IN (NULL, ...)` is never true, so
+    # without this the arm would be silently dead rather than merely wrong.
+    assert "default_board_id IS NOT NULL" in board, (
+        "the routed-board arm does not exclude NULL pointers, so it can never "
+        "match anything"
+    )
+
+
+def test_board_view_is_not_a_blanket_true():
+    """The widening must not have turned into 'everyone sees every board'.
+    A clause that renders as TRUE reads as 'no filter' at every call site."""
+    clause = permissions.board_view_clause(None, MEMBER)
+    text = sql(clause).strip().lower()
+    assert text not in ("true", "1 = 1"), "board_view_clause fails open"
+    assert "kanban_boards.scope_type" in text, (
+        "board_view_clause no longer discriminates by scope"
+    )
+
+    # An org-scoped board must still not be visible from its SCOPE alone —
+    # org-wide means unbounded, so it stays reachable only through a card the
+    # viewer may see or a category of theirs routing to it.
+    #
+    # Asserted on the bind VALUES, not the SQL text: `scope_type` is
+    # parameterised, so the literal 'org' never appears in the string and any
+    # text-based check here is vacuous. (My first version "checked" this by
+    # substituting a bind name for 'org', which just manufactured a match.)
+    compiled = clause.compile(dialect=postgresql.dialect())
+    scope_values = {
+        str(v) for k, v in compiled.params.items() if k.startswith("scope_type")
+    }
+    assert scope_values == {"category", "team"}, (
+        f"board scope arms are {scope_values or 'empty'}; expected exactly "
+        f"category+team. 'org' here would publish every org-wide board."
+    )
+
+
+def test_widening_the_view_did_not_widen_the_write():
+    """Seeing a board must never imply changing it. The manage clause has to
+    stay grant-only: no attendance arm, no routed-pointer arm."""
+    for actor, label in ((MEMBER, "MEMBER"), (ADMIN, "ADMIN")):
+        text = sql(permissions.board_manage_clause(None, actor))
+        assert "default_board_id" not in text, (
+            f"board_manage_clause({label}) consults default_board_id — being "
+            f"routed a board would become the right to delete it"
+        )
+        assert "participants" not in text, (
+            f"board_manage_clause({label}) consults attendance — merely "
+            f"sitting in a meeting would become a write right"
+        )
 
 
 def main() -> None:

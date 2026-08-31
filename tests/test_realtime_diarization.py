@@ -279,6 +279,70 @@ def test_online_ignores_the_label_even_when_present():
     assert out == ["Asha", "Asha"], out
 
 
+def test_speaker_zero_survives_the_provider_data_handler():
+    """Label 0 must not be swallowed by a truthiness test.
+
+    `label_in_provider_payload` returns the label itself, and diarization
+    labels start at ZERO — so `a or b` discards a perfectly good 0 and falls
+    through to whatever b is. `process_provider_data_event` had exactly that,
+    which meant the FIRST speaker in every room (the commonest label there is)
+    was recorded as "no label found": `"label": null` in
+    .cache/diarization_samples.jsonl and `label=None` in the log, while
+    diarization was in fact working.
+
+    That handler is the instrument we read the in-room experiment off, so a
+    false negative there is worse than a plain bug — it would have condemned a
+    working setup. Asserted on 0 specifically; every other label is truthy and
+    would have passed either way.
+    """
+    import asyncio
+    import app.api.webhooks.recall_webhook as wh
+
+    payload = {
+        "event": "transcript.provider_data",
+        "data": {"data": {"channel": {"alternatives": [
+            {"words": [{"text": "hello", "speaker": 0}]}
+        ]}}},
+    }
+
+    # The probe the handler runs, in the handler's own shape.
+    block = payload["data"]
+    inner = block["data"]
+    direct = wh.label_in_provider_payload(inner)
+    assert direct == 0, f"extractor itself should find 0, got {direct!r}"
+    assert not direct, "precondition: 0 is falsy — that is the whole trap"
+
+    # Now the handler end to end, reading back what it actually recorded.
+    # Redirect the sample path rather than stubbing `open`: the handler writes
+    # through the builtin, and this also exercises the real makedirs/append.
+    import json as _json
+    import tempfile
+
+    meeting_id = 999_001
+    original_path = wh._DIA_SAMPLE_PATH
+    tmp = os.path.join(tempfile.mkdtemp(prefix="dia_test_"), "samples.jsonl")
+    wh._DIA_SAMPLE_PATH = tmp
+    wh._DIA_SAMPLES_WRITTEN.pop(meeting_id, None)
+    try:
+        asyncio.run(wh.process_provider_data_event(meeting_id, payload))
+        assert os.path.exists(tmp), "handler wrote no sample file at all"
+        lines = [l for l in open(tmp, encoding="utf-8").read().splitlines() if l.strip()]
+        assert lines, "sample file is empty"
+        record = _json.loads(lines[0])
+    finally:
+        wh._DIA_SAMPLE_PATH = original_path
+        wh._DIA_SAMPLES_WRITTEN.pop(meeting_id, None)
+        try:
+            os.remove(tmp)
+            os.rmdir(os.path.dirname(tmp))
+        except OSError:
+            pass
+
+    assert record["label"] == 0, (
+        f"handler recorded label={record['label']!r}; speaker 0 was swallowed"
+    )
+
+
 if __name__ == "__main__":
     checks = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

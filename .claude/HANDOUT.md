@@ -791,13 +791,324 @@ Deepgram is not separating the room audio and machine diarization is a dead end
 — go to hybrid/async (`deepgram_async`, label as
 `participant.name = "{pid}-{label}"`) which is the notes path anyway.
 
+### 2026-08-31 — Per-category / per-team task landing board. BUILT + migrated.
+
+New requirement: a category picks which kanban board its meetings' tasks land
+on; teams inherit that unless they pick their own.
+
+- **Migration `ah08boardroute`** → nullable `categories.default_board_id` +
+  `teams.default_board_id`, FK to `kanban_boards` **ON DELETE SET NULL**, one
+  partial index each. **Local head is now `ah08boardroute`**
+  (`ae05rbac → af06capture → ag07labelmap → ah08boardroute`). Applied LOCALLY
+  ONLY. Verified against the live DB column-for-column, including
+  `confdeltype='n'` on both FKs.
+- Ladder lives in `kanban/defaults.resolve_board`: team pointer → category
+  pointer → `ensure_default_board`. NULL at any level means "ask the layer
+  below", never "no board". `resolve_landing_for_meeting` gained keyword-only
+  `category_id` / `team_id` defaulting to None, so a caller that passes only
+  the org behaves exactly as before; all three insert paths
+  (`meeting_pipeline`, `create_task` tool, `live_tasks/persistence`) now pass
+  the meeting's scope.
+- **Inheritance is resolved at insert time and never denormalized onto the
+  team.** That is what makes re-pointing a category instantly re-route every
+  team under it that has not opted out — a copied value would strand them.
+- **Chose a pointer over `kanban_boards.is_default` + `scope_id`**, which
+  already exists and needs no migration. Rejected because it cannot express
+  the two cases the requirement implies: several categories sharing one board,
+  and a category pointing at an org-wide board. Worth revisiting only if
+  "each category owns its own board" turns out to be the real rule.
+- **Tenancy is checked TWICE and both are load-bearing.** The FK cannot do it
+  (board and category each carry their own `organization_id`), so
+  `category_service._checked_board_id` validates on write (404, not 403 —
+  a board in another tenant must not be distinguishable from a missing one)
+  and `resolve_board` re-filters on read. The read-side check is the one that
+  matters: it sits on the task-insert path, so without it a bad pointer files
+  one org's action items onto another org's board, silently.
+  Deliberately NOT gated on `board_view_clause` — a category admin usually
+  cannot "see" an EMPTY org-wide board (visibility there is derived from the
+  cards it holds) and that is the most natural board to point at.
+- API is the existing `PATCH /categories/{id}` and `PATCH /teams/{id}`; no new
+  endpoints. `default_board_id` is **tri-state** — `default_board_id_set`
+  distinguishes "leave alone" from "clear to inherit", because null is a
+  meaningful value here and `Optional[int] = None` would make a choice
+  impossible to undo.
+- Frontend: one shared `meetings/components/BoardPicker.tsx` in both
+  `CategoryModal` and `TeamModal` (team modal on EDIT only — `POST
+  /categories/{id}/teams` has no board field and a new team inherits anyway).
+  The picker keeps a board id it cannot resolve as a placeholder option, so an
+  untouched save never silently resets someone else's choice.
+- `tests/test_board_routing.py` 15/15, offline, no DB. **Mutation-checked**:
+  deleting the `organization_id` filter from `resolve_board` fails 3 checks.
+  First version of that test was WRONG — the fake asserted the org filter was
+  present, so the mutation crashed the stub instead of failing the tenancy
+  assertion; the fake now applies only the filters actually passed, like a
+  database would. §4.6 again.
+- Live end-to-end on meeting DB (category 4040 'Engineering' / team 3126
+  'Backend'): baseline→org board, category→probe, team override→org board,
+  team cleared→category again, and board DELETE→pointer NULL→org board. All
+  six OK, probe board and pointers cleaned up afterwards.
+- Green: `main:app` imports (211 routes), frontend `tsc -b` + `vite build`
+  clean, rbac 28 / participant 8 / profile 4 / kanban k1+k2+k4 / routing 15.
+- Trap for whoever runs the kanban suites: `test_kanban_k*.py` have NO
+  `sys.path` insert, so `python tests/test_kanban_k1.py` dies with
+  `ModuleNotFoundError: No module named 'app'`. Needs `PYTHONPATH=.`.
+  Pre-existing, unrelated to this change.
+- **Not built, and nobody asked for it:** no backfill or re-filing of tasks
+  already on a board (changing the pointer routes FUTURE cards only), and no
+  warning when deleting a board that categories point at — SET NULL handles it
+  and the resolver logs the fallback.
+
+### 2026-08-31 — in-room test armed. Found the falsy-zero bug FIRST.
+
+Setting up the fifth in-room attempt turned up a bug in the very instrument
+the previous four were going to be read with.
+
+**BUG: `process_provider_data_event` swallowed speaker 0.** It did
+
+    label = label_in_provider_payload(inner) or label_in_provider_payload(block)
+
+`label_in_provider_payload` returns the label ITSELF, diarization labels start
+at ZERO, and `0 or x` discards it. So the FIRST speaker in every room — the
+commonest label there is — was recorded as `"label": null` in
+`.cache/diarization_samples.jsonl` and logged as `label=None`, i.e. working
+diarization would have been reported as "no label found". `_diarization_label`
+already used `is not None` and was fine; only the observation path was wrong,
+and that is the one this experiment reads. Fixed to an explicit `is None`
+chain. `tests/test_realtime_diarization.py` 20/20 (was 19), new
+`test_speaker_zero_survives_the_provider_data_handler` drives the real handler
+with `_DIA_SAMPLE_PATH` redirected to a tempfile and asserts the RECORDED
+value is 0. **Mutation-checked**: restoring the `or` fails it with
+"handler recorded label=None; speaker 0 was swallowed".
+
+Not hypothetical for the earlier meetings: 4899/4903/4905 had no
+`transcript.provider_data` subscription at all, so they were dead for a
+different reason — but the next run would have hit this instead.
+
+**New `scripts/check_diarization.py`** — turns the sample file into a verdict
+instead of raw JSON. Reports, in order: did the event arrive; is a label
+present and at which literal key path; how many distinct labels; then
+cross-checks the DB for `capture_mode` and whether `_dia_index` finds anything
+in the COMPILED transcript (the half the NOTES need — a green live path with an
+empty compiled one is exactly the 4899/4903/4905 state). `--reset` clears
+before a run.
+
+Two wrong turns inside that script, both worth remembering because they are the
+same mistake in opposite directions. It first classified discovered paths
+against a hand-maintained `CANDIDATE_PATHS` list, and (1) literal comparison
+cried "NEW PATH" at a layout the code already handles — the two sides are
+rooted differently, one at `provider_data`, one at the envelope; then (2) the
+suffix match that fixed it made the bare `speaker` candidate match anything
+ending in `.speaker`, so it never reported a new path again. Both were
+answering a proxy question. **Replaced with a direct call to
+`label_in_provider_payload` on the stored payload** — less code, and it
+answers the actual question ("would our code find this?"). That call is what
+exposed the falsy-zero bug.
+
+State: `.cache/diarization_samples.jsonl` deleted, so anything there next is
+from the new run. In-room toggle confirmed present in source AND in the built
+`dist/` bundle that :8000 serves. Suites green (realtime-diarization 20,
+speaker 28, capture 19, labels 19, turns, routing 15, rbac 28), 211 routes.
+
+**Read the result with:** `python -m scripts.check_diarization`
+
+### 2026-08-31 — "tasks aren't going to the selected board": routing was fine, the meeting had no category.
+
+User report. Investigated against data, not the code.
+
+**Not a bug in the ladder.** Meeting 4922 has `category_id = NULL`, so there
+was no pointer to follow and its task correctly took the org default (board 61).
+The join modal HAS a category picker and sends `category_id`, but it defaults
+to none. Proved routing works through the REAL pipeline function, not a stub:
+`MeetingPipeline.save_tasks` on meeting 4921 (category 4548 -> pointer 62)
+created a card on board 62. Probe deleted. The running uvicorn also has the new
+code — `/openapi.json` carries `default_board_id` on all four schemas.
+
+**The real gap, now fixed: re-filing a meeting did not move its cards.**
+Routing is decided once, at task-creation time, so a meeting filed into a
+category AFTER it ran left its cards on the old board forever — set a board on
+the category, re-file the meeting, nothing happens. Indistinguishable from the
+feature being broken, and exactly the shape of the complaint.
+New `kanban.defaults.reroute_meeting_tasks`, called from BOTH
+`meeting_service.assign_meeting_category` and `update_meeting` (the latter
+gated on the scope actually being in the payload, so renaming a meeting never
+touches a board). Same transaction as the re-file: a half-applied move is worse
+than a loud 500, so it is deliberately NOT wrapped in try/except.
+
+**Selection rule: only cards still on the OLD scope's board move.** A card
+someone dragged elsewhere is a deliberate human placement and must not be
+yanked back to satisfy a default; a card with no board was never routed and is
+left alone. Destination column is matched on `bound_status`, so an in-progress
+card stays in progress. Each move writes a `column_moved` activity row with a
+reason — a card moving on its own must not be invisible.
+
+`tests/test_board_routing.py` now 24 (was 15): 9 new cover the selection rule,
+status preservation, the unmatched-status fallback, the same-board no-op and the
+audit row.
+
+**Mistake worth recording: my own live test moved a REAL task.** The probe
+harness re-filed meeting 4922, and task 1358 ("Make the changes") was also
+sitting on board 61, so it followed to 62 — correct behaviour, but I only
+cleaned up the probe rows and restored the meeting's category directly on the
+model, which does NOT re-route. Task 1358 was left stranded on the wrong board
+with a misleading audit row. Restored to board 61 / column 219 from the values
+in that audit row, and the row deleted. **Lesson: on this DB a re-file affects
+every card of that meeting, not just the ones the test created — snapshot all
+of them before mutating, not just the probes.**
+
+**Not built, flagged instead:** changing a category's `default_board_id` does
+NOT move existing cards on meetings already in that category. Only re-filing a
+meeting does. Bulk-moving cards across every meeting in a category the moment
+an admin picks a board is a big, surprising action — a product decision, not an
+engineering one.
+
+Green: routing 24, kanban k1/k2/k4, rbac 28, realtime-diarization 20, 211 routes.
+Trap: `test_kanban_k*.py` need `PYTHONPATH=.` (no sys.path insert).
+
+### 2026-08-31 — "Board view" on the meeting page always opened the org default. Fixed.
+
+Separate bug from the routing work, and PRE-EXISTING (Phase 14 K3):
+`MeetingBoardLink` did `boards.find(b => b.is_default) || boards[0]` and
+navigated there unconditionally, ignoring the meeting entirely. Harmless while
+every task landed on the org board; the moment a category could route its tasks
+elsewhere it started opening a board the meeting has no cards on — which reads
+as the routing being broken, and is what prompted the report.
+
+**Fixed client-side with no new endpoint.** `_task_dict` has ALWAYS sent
+`board_id` on every task; the frontend `Task` interface simply never declared
+it, so the page was discarding the one field that answers the question. Added
+`status`/`board_id`/`column_id` to the type and passed the page's existing
+`tasks` into the link.
+
+**The rule is "where the cards ARE", not "where they would be routed."** A card
+someone dragged to another board must still be findable from its meeting, so
+the link opens whichever board holds MOST of the meeting's cards (ties break to
+the lowest id, so the destination is stable across renders). Routing resolution
+is not re-implemented in the client at all — a meeting with no cards yet still
+falls back to the server's org default, which is the old behaviour.
+
+Measured on real rows — previously all three opened board 61:
+
+    meeting 4918  tasks on board 64  -> now opens 64  (was 61, holds none of its cards)
+    meeting 4921  no tasks           -> org default fallback, unchanged
+    meeting 4922  tasks on board 61  -> 61, unchanged
+
+`dominantBoardId` is exported and its selection rule was checked against 7
+cases (empty, boardless, majority, both tie orders). Done as a node one-liner
+rather than by adding a test runner: this frontend has NO test framework at
+all (package.json scripts are dev/build/lint/preview) and installing one for a
+7-line pure function is not worth it. If a second such function appears,
+reconsider. `tsc -b` and `vite build` clean.
+
+### 2026-08-31 — board visibility now follows category/team VIEW access.
+
+Request: people who can see a category should see its boards even when empty,
+and should see nothing else.
+
+`board_view_clause` gated its category/team arms on `_managed_*` — WHOLE-category
+grants only — which was strictly narrower than being able to open the category
+itself. So a member who attended a meeting in a category, or an admin holding
+just one team inside it, could reach the category and find none of its boards;
+a freshly-created board was invisible to exactly the people it was made for
+until somebody else's card happened to land on it.
+
+Now four arms, any one sufficient:
+  1. holds a card you may see (unchanged, `.correlate(KanbanBoard)` still
+     load-bearing — landmine 14.10);
+  2. category-scoped and you may VIEW that category — new
+     `_viewable_category_ids`, mirroring `category_view_clause` arm for arm
+     (attendance OR any grant, `_reachable_*` so a team grant counts);
+  3. team-scoped and you may VIEW that team — new `_viewable_team_ids`,
+     mirroring `team_view_clause`;
+  4. **a category/team you can view ROUTES its tasks there**
+     (`default_board_id`). Without this the new routing feature could file
+     your cards onto a board you cannot open — and it is the only way an
+     ORG-scoped board becomes reachable by scope.
+
+Deliberately unchanged: an org-scoped board is still NOT visible from its scope
+alone (org-wide means unbounded), and `board_manage_clause` is untouched, so
+seeing a board never implies renaming or deleting it. Board CONTENTS stay
+filtered by `task_view_clause`, so a visible board is not a visible backlog —
+the same board legitimately shows different cards to different people.
+
+Verified against the LIVE DB inside a transaction that is ROLLED BACK (learned
+from the re-route probe that stranded task 1358 — build the fixture, assert,
+roll back, persist nothing). Five empty boards, three roles:
+  attendee (member, sat in one meeting in cat A) -> A board, TA board, routed board
+  team_admin (granted ONE team in cat A)          -> same three
+  outsider                                        -> NOTHING
+B board, and the empty org board, correctly invisible to all three.
+
+`tests/test_rbac_scopes.py` 28 -> 32.
+
+Three test-authoring mistakes, all mine, all the same species — asserting on a
+proxy instead of the thing:
+  - substring-compared a compiled subquery against the clause; SQLAlchemy
+    numbers binds PER COMPILATION, so identical SQL differed as
+    `%(user_id_1)s` vs `%(user_id_5)s`. Added `_shape()` to erase bind
+    numbers. Looked like a real authorization regression for a minute.
+  - the team-arm substring check then failed for a REAL reason worth
+    recording: a `scalar_subquery` compiled ALONE renders its FROM differently
+    from the same subquery nested in a statement. Checked the assembled
+    `select(KanbanBoard).where(clause)` — 0 subqueries missing a FROM, so the
+    production SQL is fine and the bare-clause text was the artifact.
+    Assertion rewritten onto three structural features.
+  - "org boards are not visible by scope" was VACUOUS: `scope_type` is a bind,
+    so the literal 'org' can never appear in the SQL text, and my first version
+    manufactured a match by substituting a bind name. Now asserts on the bind
+    VALUES (`{category, team}` exactly).
+
+Green: rbac 32, org-admin-concealment, kanban k1/k2/k4, routing 24, 211 routes.
+
+### 2026-08-31 — PROD MIGRATED to `ah08boardroute`. Schema is now AHEAD of prod code.
+
+Railway DB taken `ae05rbac` -> `ah08boardroute` in one run (af06capture,
+ag07labelmap, ah08boardroute). Exit 0, and verified by OUTCOME rather than by
+the exit code.
+
+Pre-flight, read-only, before touching anything: prod at `ae05rbac` as expected;
+all four objects the migrations create confirmed ABSENT; `kanban_boards`
+confirmed present (prerequisite for ah08boardroute). Snapshot of alembic head +
+10 table counts written to `scratchpad/prod_before_ah08.json`.
+
+Safe to run BEFORE the code deploy, which is the required order — every step is
+additive and `af06capture` carries `server_default="online"`, so existing rows
+take the default rather than failing the NOT NULL. Confirmed after: all 269
+meetings read 'online', zero NULL/blank.
+
+Row counts identical before and after across meetings 269 / participants 518 /
+tasks 2638 / users 22 / orgs 10 / categories 35 / teams 114 / kanban_boards 6 /
+kanban_columns 25 / meeting_chunks 1236. **Nothing lost.**
+
+Verified live: `capture_mode` varchar NOT NULL with the 'online' default;
+`label_mappings` carries the ORM's columns plus
+`uq_label_mappings_meeting_key`; `categories.default_board_id` and
+`teams.default_board_id` nullable with `confdeltype='n'` (ON DELETE SET NULL)
+and both partial indexes. Zero pointers set — correct, nobody has picked a board
+in prod yet.
+
+Prod server is **Postgres 18.6**; local is pg16. Not a problem for anything run
+so far, but worth knowing before blaming a version for the next oddity.
+
+**NOW THE RISK INVERTS.** Prod SCHEMA is at head while prod CODE is still
+`26eccfc` (neworigin/main). That direction is the safe one — the new columns are
+additive and old code ignores them — but it means:
+  - `capture_mode` defaults to 'online' for every meeting until the code ships,
+    so the in-room toggle does nothing in prod yet;
+  - `label_mappings` and both `default_board_id` columns sit unused;
+  - the board-routing UI, the re-route on re-file and the widened
+    `board_view_clause` are NOT live in prod.
+Deploying the code is now the only remaining step, and it no longer needs a
+migration run first.
+
 ---
 
 ## 7. Open threads
 
-**Blocking:** **Railway is TWO MIGRATIONS BEHIND local** — local head is
-`ag07labelmap`; chain is `ae05rbac → af06capture → ag07labelmap`. Prod is still
-`ae05rbac`. Deploying without `alembic upgrade head` makes every meeting INSERT
+~~**Blocking:** Railway is THREE MIGRATIONS BEHIND local~~ **CLEARED
+2026-08-31** — prod migrated to `ah08boardroute`, verified by outcome, no rows
+lost. The risk is now inverted: prod SCHEMA is at head, prod CODE is still
+`26eccfc`. Additive columns, so old code is unaffected; the new features are
+simply dormant until the deploy. Deploying without `alembic upgrade head` makes every meeting INSERT
 fail on the missing NOT-NULL `meetings.capture_mode` → meetings marked
 `failed`, and any in-room meeting would additionally 500 on the absent
 `label_mappings` table. Same class of trap as the old landmine 14.11. Not urgent

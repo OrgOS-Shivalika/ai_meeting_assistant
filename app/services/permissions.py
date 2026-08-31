@@ -730,8 +730,87 @@ def _task_in_org(db: Session, user: User, task_id: int) -> Task:
 # cards. Same board, different contents per viewer.
 
 
+def _viewable_category_ids(user: User):
+    """Subqueries for the categories this user may VIEW.
+
+    Deliberately mirrors :func:`category_view_clause` arm for arm — attended
+    a meeting in it, or holds ANY grant inside it (``_reachable_*``, so a
+    team-scoped grant counts: you must see the parent to reach the team).
+
+    Returned as a tuple to be OR'd rather than UNION'd, so each stays a plain
+    ``IN`` the planner can index. Distinct from
+    :func:`visible_category_ids_subqueries`, which is narrower on purpose
+    (whole-category grants only) because it gates DOCUMENT retrieval.
+    """
+    attended = (
+        select(Meeting.category_id)
+        .where(
+            Meeting.id.in_(_attended_meeting_ids(user)),
+            Meeting.category_id.isnot(None),
+        )
+        .scalar_subquery()
+    )
+    return attended, _reachable_category_ids(user)
+
+
+def _viewable_team_ids(user: User):
+    """Subqueries for the teams this user may VIEW. Mirrors
+    :func:`team_view_clause`: a whole-category grant covers every team in it,
+    a team grant covers that team, and attendance covers a team you sat in."""
+    under_managed = (
+        select(Team.id)
+        .where(Team.category_id.in_(_managed_category_ids(user)))
+        .scalar_subquery()
+    )
+    attended = (
+        select(Meeting.team_id)
+        .where(
+            Meeting.id.in_(_attended_meeting_ids(user)),
+            Meeting.team_id.isnot(None),
+        )
+        .scalar_subquery()
+    )
+    return under_managed, _managed_team_ids(user), attended
+
+
 def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
-    """Restrict ``KanbanBoard`` rows to boards the user may open."""
+    """Restrict ``KanbanBoard`` rows to boards the user may open.
+
+    Visibility follows the SCOPE, not the contents. A board scoped to a
+    category you can see is yours to open even when it is empty — otherwise a
+    freshly-created board is invisible to exactly the people it was made for,
+    and stays invisible until somebody else's card happens to land on it.
+
+    Four ways in, and a board needs only one:
+
+    1. it holds at least one card you may see;
+    2. it is scoped to a category you may view;
+    3. it is scoped to a team you may view;
+    4. a category or team you may view ROUTES its tasks to it
+       (``default_board_id``) — that board is where your meetings' work lands,
+       so you have to be able to open it. This arm is what makes an org-wide
+       board reachable when a category points at one.
+
+    Arms 2 and 3 used to consult ``_managed_*`` — whole-category grants only —
+    which was strictly narrower than being able to see the category itself. A
+    member who attended a meeting in a category, or an admin holding just one
+    team inside it, could open the category and find none of its boards. They
+    now use the same rule as :func:`category_view_clause` /
+    :func:`team_view_clause`, so "can see the category" and "can see the
+    category's boards" cannot drift apart.
+
+    What is deliberately NOT here: an ORG-scoped board is still not visible
+    from its scope alone. Org-wide means unbounded, so it is reachable only
+    through arm 1 or arm 4 — a card you may see, or a category of yours
+    pointing at it. And none of this grants WRITE access:
+    :func:`board_manage_clause` is unchanged and still admin-only, so seeing
+    a board never implies renaming or deleting it.
+
+    Contents stay filtered independently. Opening a board shows only the cards
+    :func:`task_view_clause` allows, so a visible board is not a visible
+    backlog — the same board legitimately shows different cards to different
+    people.
+    """
     if is_org_admin(user):
         return None
 
@@ -747,29 +826,41 @@ def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
         .correlate(KanbanBoard)
     )
 
-    managed = _managed_category_ids(user)
-    # A team board is reachable two ways: its team sits under a
-    # wholly-granted category, or the team itself was granted.
-    teams_under_managed = (
-        select(Team.id).where(Team.category_id.in_(managed)).scalar_subquery()
+    cat_parts = _viewable_category_ids(user)
+    team_parts = _viewable_team_ids(user)
+
+    # Arm 4 — the board a scope routes its tasks to. `isnot(None)` matters:
+    # without it the subquery yields NULLs and `id IN (NULL, ...)` is never
+    # true, which would quietly make this arm dead rather than wrong.
+    pointed_at_by_category = KanbanBoard.id.in_(
+        select(Category.default_board_id)
+        .where(
+            Category.default_board_id.isnot(None),
+            or_(*[Category.id.in_(p) for p in cat_parts]),
+        )
+        .scalar_subquery()
     )
-    # Grants, for every role. Nobody gets an ORG-scoped board from its
-    # scope alone — org-wide means unbounded, so it stays reachable only
-    # through the cards the viewer is entitled to, and an empty one is
-    # simply not theirs to see.
+    pointed_at_by_team = KanbanBoard.id.in_(
+        select(Team.default_board_id)
+        .where(
+            Team.default_board_id.isnot(None),
+            or_(*[Team.id.in_(p) for p in team_parts]),
+        )
+        .scalar_subquery()
+    )
+
     return or_(
         holds_a_visible_card,
         and_(
             KanbanBoard.scope_type == "category",
-            KanbanBoard.scope_id.in_(managed),
+            or_(*[KanbanBoard.scope_id.in_(p) for p in cat_parts]),
         ),
         and_(
             KanbanBoard.scope_type == "team",
-            or_(
-                KanbanBoard.scope_id.in_(teams_under_managed),
-                KanbanBoard.scope_id.in_(_managed_team_ids(user)),
-            ),
+            or_(*[KanbanBoard.scope_id.in_(p) for p in team_parts]),
         ),
+        pointed_at_by_category,
+        pointed_at_by_team,
     )
 
 

@@ -38,6 +38,7 @@ def handler(args: dict, ctx: ToolContext) -> dict:
 
     board_id, column_id = resolve_landing_for_meeting(
         ctx.db, m.organization_id, status="todo",
+        category_id=m.category_id, team_id=m.team_id,
     )
     position = position_for_end(ctx.db, column_id) if column_id else None
 

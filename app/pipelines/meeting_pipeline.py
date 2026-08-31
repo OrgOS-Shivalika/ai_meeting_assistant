@@ -341,6 +341,8 @@ class MeetingPipeline:
                 if meeting is not None:
                     board_id, column_id = resolve_landing_for_meeting(
                         db, meeting.organization_id, status="todo",
+                        category_id=meeting.category_id,
+                        team_id=meeting.team_id,
                     )
                     if column_id is not None:
                         position = position_for_end(db, column_id)

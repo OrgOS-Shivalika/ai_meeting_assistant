@@ -10,6 +10,13 @@ export interface Task {
   is_completed: boolean;
   is_unassigned?: boolean;
   meeting_id?: number;
+  // Phase 14 Kanban fields. The backend has always sent these (see
+  // `meeting_service._task_dict`); they were simply never declared here, so
+  // the meeting page threw away the one piece of information that says which
+  // board a task is actually on.
+  status?: string;
+  board_id?: number | null;
+  column_id?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +57,8 @@ export interface Team {
   category_id: number;
   name: string;
   description?: string | null;
+  /** Board this team's meeting tasks land on. null = inherit the category's. */
+  default_board_id?: number | null;
   created_at?: string;
 }
 
@@ -65,6 +74,8 @@ export interface Category {
   description?: string | null;
   color?: string | null;
   icon?: string | null;
+  /** Board this category's meeting tasks land on. null = the org default. */
+  default_board_id?: number | null;
   created_at?: string;
   teams?: Team[];
 }

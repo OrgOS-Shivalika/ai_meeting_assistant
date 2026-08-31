@@ -703,11 +703,36 @@ class Category(Base):
     color = Column(String, nullable=True)
     icon = Column(String, nullable=True)
 
+    # Where tasks extracted from THIS category's meetings land.
+    #
+    # NULL means "inherit" — resolution falls through to the org's default
+    # board, which is what every meeting did before this column existed. It is
+    # read only at task-insert time by
+    # `kanban.defaults.resolve_landing_for_meeting`, so changing it re-routes
+    # future cards and never moves existing ones.
+    #
+    # A pointer rather than `kanban_boards.is_default` on a category-scoped
+    # board, because the choice has to be free: two categories may share one
+    # board, and a category may point at an org-wide board. A scope-default
+    # can express neither.
+    #
+    # SET NULL on delete — see the migration. Same-org membership is NOT
+    # enforceable by the FK (the board carries the org, the category carries
+    # it separately), so `category_service` validates it on write and the
+    # resolver re-checks it on read. Belt and braces: a mis-set pointer would
+    # land one tenant's tasks on another tenant's board.
+    default_board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     organization = relationship("Organization", back_populates="categories")
     user = relationship("User", back_populates="categories")
+    default_board = relationship("KanbanBoard", foreign_keys=[default_board_id])
     teams = relationship("Team", back_populates="category", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="category")
     documents = relationship("CategoryDocument", back_populates="category", cascade="all, delete-orphan")
@@ -793,12 +818,24 @@ class Team(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
 
+    # Where tasks from THIS team's meetings land. NULL means "inherit the
+    # category's choice" — see `Category.default_board_id`. Inheritance is
+    # resolved live at task-insert time and never denormalized onto the team,
+    # so pointing a category at a new board immediately re-routes every team
+    # under it that has not chosen its own.
+    default_board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     category = relationship("Category", back_populates="teams")
     meetings = relationship("Meeting", back_populates="team")
     documents = relationship("TeamDocument", back_populates="team", cascade="all, delete-orphan")
+    default_board = relationship("KanbanBoard", foreign_keys=[default_board_id])
 
 
 class TeamDocument(Base):

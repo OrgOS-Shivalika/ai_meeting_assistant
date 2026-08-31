@@ -524,8 +524,22 @@ def assign_meeting_category(
     # they control and thereby grant themselves access to it.
     meeting = permissions.get_manageable_meeting(db, user, meeting_id)
     validate_category_team(db, user, payload.category_id, payload.team_id)
+    # Captured BEFORE the assignment — re-routing needs to know which board
+    # the OLD scope resolved to, to tell "still on its default" from
+    # "somebody moved this on purpose".
+    old_category_id, old_team_id = meeting.category_id, meeting.team_id
     meeting.category_id = payload.category_id
     meeting.team_id = payload.team_id
+
+    # Follow the meeting's cards to the board its new scope selects. Same
+    # transaction as the re-file, so the two can't disagree.
+    from app.services.kanban.defaults import reroute_meeting_tasks
+    reroute_meeting_tasks(
+        db, meeting,
+        old_category_id=old_category_id, old_team_id=old_team_id,
+        actor_user_id=user.id, actor_name=getattr(user, "name", None),
+    )
+
     db.commit()
     db.refresh(meeting)
     return _meeting_dict(meeting)
@@ -539,13 +553,27 @@ def update_meeting(
     data = payload.model_dump(exclude_unset=True)
 
     # If category/team changed, validate ownership + parent relation.
-    if "category_id" in data or "team_id" in data:
+    scope_changed = "category_id" in data or "team_id" in data
+    if scope_changed:
         new_category_id = data.get("category_id", meeting.category_id)
         new_team_id = data.get("team_id", meeting.team_id)
         validate_category_team(db, user, new_category_id, new_team_id)
+    old_category_id, old_team_id = meeting.category_id, meeting.team_id
 
     for field, value in data.items():
         setattr(meeting, field, value)
+
+    # This endpoint can re-file a meeting too, so it needs the same card
+    # follow-through as `assign_meeting_category`. Gated on the scope
+    # actually being in the payload — an unrelated PATCH (renaming the
+    # meeting) must not touch the board at all.
+    if scope_changed:
+        from app.services.kanban.defaults import reroute_meeting_tasks
+        reroute_meeting_tasks(
+            db, meeting,
+            old_category_id=old_category_id, old_team_id=old_team_id,
+            actor_user_id=user.id, actor_name=getattr(user, "name", None),
+        )
 
     db.commit()
     db.refresh(meeting)
