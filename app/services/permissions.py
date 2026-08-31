@@ -70,7 +70,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, exists, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import (
@@ -624,6 +624,39 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     if is_org_admin(user):
         return None
 
+    # A card typed straight onto a board has NO meeting to inherit from, so
+    # every meeting-shaped arm below misses it. Before this arm, such a card
+    # was invisible to everyone except its assignee and org admins — you could
+    # open a board and find it empty while it visibly held cards for an admin.
+    #
+    # Its sensitivity comes from the BOARD, so that is what gates it: the same
+    # scope rule `board_view_clause` uses, minus the card-inspection arm (which
+    # would recurse straight back into this function).
+    #
+    # Restricted to `meeting_id IS NULL` deliberately. Meeting-derived cards
+    # keep following their MEETING — otherwise pointing a category at a board
+    # would publish every meeting task that lands there to anyone who can
+    # reach that category, which is a far bigger grant than "you can see this
+    # board" and would leak meetings the viewer cannot open.
+    #
+    # `aliased` so the subquery cannot be correlated away against the outer
+    # `kanban_boards` when this clause is embedded in `board_view_clause`'s
+    # EXISTS. The organization filter is INSIDE the subquery rather than left
+    # to callers: `tasks` has no organization_id of its own, so a caller that
+    # forgot the tenant filter would otherwise expose another org's cards.
+    board_scoped = aliased(KanbanBoard)
+    belongs_to_a_reachable_board = and_(
+        Task.meeting_id.is_(None),
+        Task.board_id.in_(
+            select(board_scoped.id)
+            .where(
+                board_scoped.organization_id == user.organization_id,
+                _board_scope_clause(user, board_scoped),
+            )
+            .scalar_subquery()
+        ),
+    )
+
     return or_(
         Task.assignee_user_id == user.id,
         Task.meeting_id.in_(_attended_meeting_ids(user)),
@@ -639,6 +672,7 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
             )
             .scalar_subquery()
         ),
+        belongs_to_a_reachable_board,
     )
 
 
@@ -683,8 +717,45 @@ def get_viewable_task(db: Session, user: User, task_id: int) -> Task:
     return task
 
 
+#: Fields on a task that anyone who can SEE it may change.
+#:
+#: Moving a card between columns is how a board is used at all — if only the
+#: assignee and admins can do it, a shared board is read-only for the people
+#: doing the work, and in this deployment nothing is ever assigned
+#: (`assignee_user_id` is NULL on every row), so it was read-only for
+#: everybody below admin.
+#:
+#: Deliberately NOT here: `task` text, `description`, `owner_name`, `priority`,
+#: `due_date`, and above all `assignee_user_id` — assigning someone GRANTS
+#: them access to the task, so it stays an admin action. `board_id` is
+#: excluded too: re-filing a card onto a different board is not progress
+#: tracking. `is_completed` is included only because the DB CHECK keeps it in
+#: lockstep with `status`; it carries no extra authority.
+STATUS_FIELDS = frozenset({"status", "is_completed", "column_id"})
+
+
+def get_status_changeable_task(db: Session, user: User, task_id: int) -> Task:
+    """Fetch a task whose STATUS/column the user may change, or raise.
+
+    View scope, not manage scope — the deliberate exception to the usual
+    "writes are narrower than reads" rule in this module, and the only one.
+    Advancing a card you can see is collaboration; rewriting its text or
+    reassigning it is administration, and those keep
+    :func:`get_manageable_task`.
+
+    The tenant check is the same as the viewable path, so a cross-org id is
+    still a 404 rather than a 403.
+    """
+    return get_viewable_task(db, user, task_id)
+
+
 def get_manageable_task(db: Session, user: User, task_id: int) -> Task:
-    """Same as :func:`get_viewable_task` for writes."""
+    """Same as :func:`get_viewable_task` for writes.
+
+    Note the narrower-than-view rule has ONE exception, kept deliberately out
+    of this function: status and column moves go through
+    :func:`get_status_changeable_task`.
+    """
     task = _task_in_org(db, user, task_id)
     clause = task_manage_clause(db, user)
     if clause is not None:
@@ -773,6 +844,56 @@ def _viewable_team_ids(user: User):
     return under_managed, _managed_team_ids(user), attended
 
 
+def _board_scope_clause(user: User, board=KanbanBoard) -> ColumnElement:
+    """Boards reachable by SCOPE alone — no inspection of their cards.
+
+    Factored out because two clauses need exactly this and must never drift:
+    :func:`board_view_clause` (which ORs it with "holds a card you may see")
+    and :func:`task_view_clause` (which uses it to decide who may read a card
+    that belongs to a BOARD rather than to a meeting).
+
+    Keeping the card-inspection arm OUT of here is what makes that reuse
+    possible at all — `board_view_clause`'s first arm calls
+    `task_view_clause`, so if this helper looked at cards the two would
+    recurse into each other.
+
+    `board` may be an ``aliased(KanbanBoard)``. The task clause passes one, so
+    its subquery cannot be confused with — or correlated away against — the
+    outer ``kanban_boards`` in `board_view_clause`'s EXISTS.
+    """
+    cat_parts = _viewable_category_ids(user)
+    team_parts = _viewable_team_ids(user)
+    return or_(
+        and_(
+            board.scope_type == "category",
+            or_(*[board.scope_id.in_(p) for p in cat_parts]),
+        ),
+        and_(
+            board.scope_type == "team",
+            or_(*[board.scope_id.in_(p) for p in team_parts]),
+        ),
+        # The board a scope ROUTES its tasks to. `isnot(None)` matters:
+        # without it the subquery yields NULLs and `id IN (NULL, ...)` is
+        # never true, so the arm would be silently dead rather than wrong.
+        board.id.in_(
+            select(Category.default_board_id)
+            .where(
+                Category.default_board_id.isnot(None),
+                or_(*[Category.id.in_(p) for p in cat_parts]),
+            )
+            .scalar_subquery()
+        ),
+        board.id.in_(
+            select(Team.default_board_id)
+            .where(
+                Team.default_board_id.isnot(None),
+                or_(*[Team.id.in_(p) for p in team_parts]),
+            )
+            .scalar_subquery()
+        ),
+    )
+
+
 def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     """Restrict ``KanbanBoard`` rows to boards the user may open.
 
@@ -826,42 +947,7 @@ def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
         .correlate(KanbanBoard)
     )
 
-    cat_parts = _viewable_category_ids(user)
-    team_parts = _viewable_team_ids(user)
-
-    # Arm 4 — the board a scope routes its tasks to. `isnot(None)` matters:
-    # without it the subquery yields NULLs and `id IN (NULL, ...)` is never
-    # true, which would quietly make this arm dead rather than wrong.
-    pointed_at_by_category = KanbanBoard.id.in_(
-        select(Category.default_board_id)
-        .where(
-            Category.default_board_id.isnot(None),
-            or_(*[Category.id.in_(p) for p in cat_parts]),
-        )
-        .scalar_subquery()
-    )
-    pointed_at_by_team = KanbanBoard.id.in_(
-        select(Team.default_board_id)
-        .where(
-            Team.default_board_id.isnot(None),
-            or_(*[Team.id.in_(p) for p in team_parts]),
-        )
-        .scalar_subquery()
-    )
-
-    return or_(
-        holds_a_visible_card,
-        and_(
-            KanbanBoard.scope_type == "category",
-            or_(*[KanbanBoard.scope_id.in_(p) for p in cat_parts]),
-        ),
-        and_(
-            KanbanBoard.scope_type == "team",
-            or_(*[KanbanBoard.scope_id.in_(p) for p in team_parts]),
-        ),
-        pointed_at_by_category,
-        pointed_at_by_team,
-    )
+    return or_(holds_a_visible_card, _board_scope_clause(user))
 
 
 def board_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:

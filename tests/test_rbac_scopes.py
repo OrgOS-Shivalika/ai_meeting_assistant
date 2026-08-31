@@ -31,7 +31,8 @@ from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from app.db.models import CategoryAdmin, DocumentChunk, MeetingChunk, Team
-from app.services import permissions
+from app.services import meeting_service, permissions
+from app.services.kanban import service as kanban_service
 from app.utils.admin_enums import AccessRole, ParticipantMatchSource
 
 ORG = uuid4()
@@ -798,6 +799,112 @@ def test_board_view_is_not_a_blanket_true():
     assert scope_values == {"category", "team"}, (
         f"board scope arms are {scope_values or 'empty'}; expected exactly "
         f"category+team. 'org' here would publish every org-wide board."
+    )
+
+
+def test_board_only_cards_are_visible_from_the_board_scope():
+    """A card typed straight onto a board has no meeting to inherit from.
+
+    Every other arm of `task_view_clause` is meeting-shaped, so before this
+    one such a card was invisible to everyone but its assignee and org admins
+    — a member could open a board and find it empty while it visibly held
+    cards for an admin. That is what "members can't see the tasks added to the
+    board" was.
+    """
+    text = sql(permissions.task_view_clause(None, MEMBER))
+    assert "kanban_boards" in text, (
+        "task_view_clause has no board-scope arm, so a card added directly to "
+        "a board is visible to nobody but its assignee"
+    )
+    assert "tasks.meeting_id IS NULL" in text, (
+        "the board-scope arm is not restricted to board-only cards — as "
+        "written it would publish MEETING tasks to anyone who can reach the "
+        "board, which leaks meetings the viewer cannot open"
+    )
+    assert "organization_id" in text, (
+        "the board-scope arm has no tenant filter; `tasks` carries no "
+        "organization_id of its own, so a caller that forgot to scope by org "
+        "would expose another tenant's cards"
+    )
+
+
+def test_board_and_task_clauses_share_one_scope_rule():
+    """`board_view_clause` and `task_view_clause` must agree on what "you can
+    reach this board" means, or a board becomes visible whose cards are not
+    (or the reverse). They share `_board_scope_clause` so they cannot drift;
+    this asserts the sharing rather than the wording."""
+    # Asserted on the SOURCE, not on compiled SQL. Twice now a substring
+    # comparison of compiled clauses has produced a false alarm here: binds are
+    # numbered per compilation, and a scalar_subquery renders its FROM
+    # differently standalone than nested. The property is "both functions call
+    # the same helper", which the source states directly and unambiguously.
+    import inspect
+
+    for fn in (permissions.board_view_clause, permissions.task_view_clause):
+        src = inspect.getsource(fn)
+        assert "_board_scope_clause(" in src, (
+            f"{fn.__name__} no longer uses _board_scope_clause — board and "
+            f"task visibility can now drift apart"
+        )
+
+
+def test_board_scope_rule_never_recurses_into_tasks():
+    """`board_view_clause`'s first arm calls `task_view_clause`, and the task
+    clause now consults board scope. The shared helper must therefore NOT look
+    at cards, or the two functions call each other forever."""
+    text = sql(permissions._board_scope_clause(MEMBER))
+    assert "tasks" not in text, (
+        "_board_scope_clause inspects tasks — board_view_clause and "
+        "task_view_clause will recurse into each other"
+    )
+
+
+def test_status_change_uses_view_scope_and_nothing_else_does():
+    """Anyone who can SEE a card may move it; everything else stays manage.
+
+    The one deliberate exception to this module's "writes are narrower than
+    reads" rule. Gating column moves on manage rights made every shared board
+    read-only for the people doing the work — and with `assignee_user_id` NULL
+    on every row in this deployment, "members may move their own" meant members
+    could move nothing at all.
+    """
+    import inspect
+
+    # The allow-list must stay minimal. `assignee_user_id` in particular GRANTS
+    # access to the task, so it can never be a view-scope field.
+    assert permissions.STATUS_FIELDS == {"status", "is_completed", "column_id"}, (
+        f"STATUS_FIELDS drifted to {sorted(permissions.STATUS_FIELDS)} — every "
+        f"name here is writable by anyone who can see the card"
+    )
+    for forbidden in ("assignee_user_id", "task", "owner_name", "priority",
+                      "due_date", "description", "board_id"):
+        assert forbidden not in permissions.STATUS_FIELDS, (
+            f"{forbidden!r} became writable at VIEW scope"
+        )
+
+    # The status path must be view-scoped...
+    src = inspect.getsource(permissions.get_status_changeable_task)
+    assert "get_viewable_task" in src, (
+        "get_status_changeable_task no longer uses view scope"
+    )
+
+    # ...and `update_task` must choose per REQUEST, so a viewer cannot smuggle
+    # a rename through by attaching a status change to it.
+    upd = inspect.getsource(meeting_service.update_task)
+    assert "STATUS_FIELDS" in upd and "get_manageable_task" in upd, (
+        "update_task no longer falls back to manage scope for non-status "
+        "fields — a viewer could rewrite any card they can see"
+    )
+    assert "<=" in upd or "issubset" in upd, (
+        "update_task does not require the payload to be a SUBSET of "
+        "STATUS_FIELDS; a mixed payload would take the view-scope path"
+    )
+
+    # The drag endpoint takes the status path too.
+    mv = inspect.getsource(kanban_service.move_task)
+    assert "get_status_changeable_task" in mv, (
+        "move_task still requires manage rights, so a shared board is "
+        "read-only for members"
     )
 
 
