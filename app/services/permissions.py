@@ -717,8 +717,45 @@ def get_viewable_task(db: Session, user: User, task_id: int) -> Task:
     return task
 
 
+#: Fields on a task that anyone who can SEE it may change.
+#:
+#: Moving a card between columns is how a board is used at all — if only the
+#: assignee and admins can do it, a shared board is read-only for the people
+#: doing the work, and in this deployment nothing is ever assigned
+#: (`assignee_user_id` is NULL on every row), so it was read-only for
+#: everybody below admin.
+#:
+#: Deliberately NOT here: `task` text, `description`, `owner_name`, `priority`,
+#: `due_date`, and above all `assignee_user_id` — assigning someone GRANTS
+#: them access to the task, so it stays an admin action. `board_id` is
+#: excluded too: re-filing a card onto a different board is not progress
+#: tracking. `is_completed` is included only because the DB CHECK keeps it in
+#: lockstep with `status`; it carries no extra authority.
+STATUS_FIELDS = frozenset({"status", "is_completed", "column_id"})
+
+
+def get_status_changeable_task(db: Session, user: User, task_id: int) -> Task:
+    """Fetch a task whose STATUS/column the user may change, or raise.
+
+    View scope, not manage scope — the deliberate exception to the usual
+    "writes are narrower than reads" rule in this module, and the only one.
+    Advancing a card you can see is collaboration; rewriting its text or
+    reassigning it is administration, and those keep
+    :func:`get_manageable_task`.
+
+    The tenant check is the same as the viewable path, so a cross-org id is
+    still a 404 rather than a 403.
+    """
+    return get_viewable_task(db, user, task_id)
+
+
 def get_manageable_task(db: Session, user: User, task_id: int) -> Task:
-    """Same as :func:`get_viewable_task` for writes."""
+    """Same as :func:`get_viewable_task` for writes.
+
+    Note the narrower-than-view rule has ONE exception, kept deliberately out
+    of this function: status and column moves go through
+    :func:`get_status_changeable_task`.
+    """
     task = _task_in_org(db, user, task_id)
     clause = task_manage_clause(db, user)
     if clause is not None:

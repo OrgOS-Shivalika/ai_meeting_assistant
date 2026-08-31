@@ -1171,6 +1171,52 @@ fine. Run the query instead.
 Green: rbac 35, org-admin-concealment, kanban k1/k2/k4, routing 24,
 realtime-diarization 20, 211 routes.
 
+### 2026-08-31 — anyone who can SEE a card may now MOVE it.
+
+Request: everyone should be able to change a task's status.
+
+Before, moving a card needed MANAGE rights: `move_task` called
+`require_managed_task`, and `task_manage_clause` gives a member only
+`assignee_user_id == user.id`. Since `assignee_user_id` is NULL on all 1290
+rows here, "members may move their own" meant **members could move nothing**,
+and a shared board was read-only for everyone below admin.
+
+New `permissions.get_status_changeable_task` — view scope. It is the ONE
+deliberate exception to this module's "writes are narrower than reads" rule,
+and it is named and documented as such so it does not read like a mistake.
+
+`STATUS_FIELDS = {status, is_completed, column_id}` is the allow-list.
+`is_completed` only because the DB CHECK keeps it in lockstep with `status`.
+Deliberately excluded: `task`, `description`, `owner_name`, `priority`,
+`due_date`, `board_id`, and above all **`assignee_user_id` — assigning
+someone GRANTS them access to the task**, so it stays admin-only.
+
+Two call sites:
+- `kanban.service.move_task` (drag-drop) -> status path outright.
+- `meeting_service.update_task` decides **per REQUEST, not per endpoint**:
+  view scope only when the payload's touched fields are a SUBSET of
+  STATUS_FIELDS, manage otherwise. That subset test is the security-relevant
+  part — with an "is status in the payload" check instead, a viewer could
+  smuggle a rename through by attaching a status change to it. There is a
+  live test for exactly that payload.
+
+`require_column` already used view scope, so nothing else blocked the drag.
+
+Verified live against real rows (member, a board-only card they can see but
+are not assigned), all in a ROLLED-BACK transaction:
+  drag to another column                        allowed
+  PATCH status only                             allowed
+  PATCH status + is_completed                   allowed
+  PATCH task text                               DENIED 403
+  PATCH status + text together (smuggling)      DENIED 403
+  PATCH assignee_user_id                        DENIED 403
+  PATCH priority                                DENIED 403
+  status change on a card they CANNOT see       DENIED 403
+  org admin renaming the same card              allowed
+
+`tests/test_rbac_scopes.py` 35 -> 36. Mutation-checked: adding
+`assignee_user_id` to STATUS_FIELDS fails the suite by name.
+
 ---
 
 ## 7. Open threads

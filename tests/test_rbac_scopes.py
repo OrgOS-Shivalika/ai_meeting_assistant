@@ -31,7 +31,8 @@ from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 from app.db.models import CategoryAdmin, DocumentChunk, MeetingChunk, Team
-from app.services import permissions
+from app.services import meeting_service, permissions
+from app.services.kanban import service as kanban_service
 from app.utils.admin_enums import AccessRole, ParticipantMatchSource
 
 ORG = uuid4()
@@ -855,6 +856,55 @@ def test_board_scope_rule_never_recurses_into_tasks():
     assert "tasks" not in text, (
         "_board_scope_clause inspects tasks — board_view_clause and "
         "task_view_clause will recurse into each other"
+    )
+
+
+def test_status_change_uses_view_scope_and_nothing_else_does():
+    """Anyone who can SEE a card may move it; everything else stays manage.
+
+    The one deliberate exception to this module's "writes are narrower than
+    reads" rule. Gating column moves on manage rights made every shared board
+    read-only for the people doing the work — and with `assignee_user_id` NULL
+    on every row in this deployment, "members may move their own" meant members
+    could move nothing at all.
+    """
+    import inspect
+
+    # The allow-list must stay minimal. `assignee_user_id` in particular GRANTS
+    # access to the task, so it can never be a view-scope field.
+    assert permissions.STATUS_FIELDS == {"status", "is_completed", "column_id"}, (
+        f"STATUS_FIELDS drifted to {sorted(permissions.STATUS_FIELDS)} — every "
+        f"name here is writable by anyone who can see the card"
+    )
+    for forbidden in ("assignee_user_id", "task", "owner_name", "priority",
+                      "due_date", "description", "board_id"):
+        assert forbidden not in permissions.STATUS_FIELDS, (
+            f"{forbidden!r} became writable at VIEW scope"
+        )
+
+    # The status path must be view-scoped...
+    src = inspect.getsource(permissions.get_status_changeable_task)
+    assert "get_viewable_task" in src, (
+        "get_status_changeable_task no longer uses view scope"
+    )
+
+    # ...and `update_task` must choose per REQUEST, so a viewer cannot smuggle
+    # a rename through by attaching a status change to it.
+    upd = inspect.getsource(meeting_service.update_task)
+    assert "STATUS_FIELDS" in upd and "get_manageable_task" in upd, (
+        "update_task no longer falls back to manage scope for non-status "
+        "fields — a viewer could rewrite any card they can see"
+    )
+    assert "<=" in upd or "issubset" in upd, (
+        "update_task does not require the payload to be a SUBSET of "
+        "STATUS_FIELDS; a mixed payload would take the view-scope path"
+    )
+
+    # The drag endpoint takes the status path too.
+    mv = inspect.getsource(kanban_service.move_task)
+    assert "get_status_changeable_task" in mv, (
+        "move_task still requires manage rights, so a shared board is "
+        "read-only for members"
     )
 
 

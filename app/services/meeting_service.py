@@ -865,7 +865,20 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     # Members reach only tasks assigned to them, which is narrower than
     # what they can see: attending a meeting shows you its action items,
     # it doesn't let you rewrite someone else's.
-    task = permissions.get_manageable_task(db, user, task_id)
+    #
+    # ONE exception, and it is decided per REQUEST rather than per endpoint:
+    # a PATCH that touches nothing but status/column is a card move, and
+    # anyone who can see the card may do it. The moment the payload also
+    # carries text, an owner, a priority, a due date or an assignee, the whole
+    # request needs manage rights — so a viewer cannot smuggle a rename
+    # through by attaching a status change to it.
+    touched = set(payload.model_dump(exclude_unset=True))
+    status_only = bool(touched) and touched <= permissions.STATUS_FIELDS
+    task = (
+        permissions.get_status_changeable_task(db, user, task_id)
+        if status_only
+        else permissions.get_manageable_task(db, user, task_id)
+    )
 
     # Phase 14 K2 — capture a snapshot BEFORE mutation so we can emit
     # one activity row per field that actually changed. Keep this

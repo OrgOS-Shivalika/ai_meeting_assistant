@@ -672,8 +672,13 @@ def move_task(
 
     Returns ``(task, comment_count)``.
     """
-    # Moving a card is an edit, so members may only move their own.
-    task = require_managed_task(db, task_id, user)
+    # Moving a card needs only VIEW access. Dragging a card between columns is
+    # how a board gets used; gating it on manage rights made every shared board
+    # read-only for the people doing the work — and since `assignee_user_id` is
+    # NULL on every row in this deployment, "members may move their own" meant
+    # members could move nothing at all. Renaming, reassigning and deleting
+    # still require manage. See `permissions.get_status_changeable_task`.
+    task = permissions.get_status_changeable_task(db, user, task_id)
     target_col = require_column(db, payload.column_id, user)
 
     # Sanity: target column must be on a board we can see (already
