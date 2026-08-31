@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Loader2, Video, Globe } from "lucide-react";
+import { X, Loader2, Video, Globe, Users } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { injectBot } from "../api";
 import { useCategories } from "../hooks/useCategories";
@@ -16,6 +16,12 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
   const [url, setUrl] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [teamId, setTeamId] = useState<number | null>(null);
+  // Off by default, and deliberately not remembered between meetings — a
+  // stale "in room" left on for a normal call would swap real participant
+  // names for anonymous voice numbers. Opting in each time is cheap; opting
+  // out after the fact is impossible, because the audio has already been
+  // recorded one way or the other.
+  const [inRoom, setInRoom] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,6 +34,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
     setCategoryId(presetCat ? Number(presetCat) : null);
     setTeamId(presetTeam ? Number(presetTeam) : null);
     setUrl("");
+    setInRoom(false);
     setError("");
   }, [isOpen, location.search]);
 
@@ -50,6 +57,7 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
       const response = await injectBot(url, {
         category_id: categoryId,
         team_id: teamId,
+        capture_mode: inRoom ? "in_room" : "online",
       });
       onSuccess(response.meeting_id);
       onClose();
@@ -149,6 +157,52 @@ export default function JoinMeetingModal({ isOpen, onClose, onSuccess }: JoinMee
               </select>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => setInRoom((v) => !v)}
+            aria-pressed={inRoom}
+            className={`w-full mb-5 p-4 rounded-2xl border-2 text-left transition-all active:scale-[0.99] ${
+              inRoom
+                ? "border-indigo-600 bg-indigo-50/60"
+                : "border-slate-100 bg-slate-50/50 hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2 rounded-xl shrink-0 transition-colors ${
+                  inRoom ? "bg-indigo-600" : "bg-slate-200"
+                }`}
+              >
+                <Users
+                  className={`w-4 h-4 ${inRoom ? "text-white" : "text-slate-500"}`}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-900">
+                    Several people in one room
+                  </span>
+                  <span
+                    className={`shrink-0 w-9 h-5 rounded-full transition-colors relative ${
+                      inRoom ? "bg-indigo-600" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${
+                        inRoom ? "left-4.5" : "left-0.5"
+                      }`}
+                    />
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed font-medium mt-1">
+                  {inRoom
+                    ? "Voices will be separated. Ask everyone to say their name once at the start so we can label them."
+                    : "Turn this on if one laptop is sharing a room with 2 or more people."}
+                </p>
+              </div>
+            </div>
+          </button>
 
           <p className="mb-5 text-[11px] text-slate-500 leading-relaxed font-medium">
             We'll inject an AI assistant into your meeting to record, transcribe, and summarize automatically.

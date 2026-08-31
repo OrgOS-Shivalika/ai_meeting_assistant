@@ -14,6 +14,7 @@ import { Loader2, Users, X } from "lucide-react";
 import { createTeam, updateTeam } from "../api";
 import { invalidateCategories } from "../hooks/useCategories";
 import type { Category, Team } from "../types";
+import BoardPicker from "./BoardPicker";
 
 interface TeamModalProps {
   isOpen: boolean;
@@ -34,6 +35,9 @@ export default function TeamModal({
   const isEditing = !!team;
   const [name, setName] = useState(team?.name ?? "");
   const [description, setDescription] = useState(team?.description ?? "");
+  const [boardId, setBoardId] = useState<number | null>(
+    team?.default_board_id ?? null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,6 +47,7 @@ export default function TeamModal({
     if (!isOpen) return;
     setName(team?.name ?? "");
     setDescription(team?.description ?? "");
+    setBoardId(team?.default_board_id ?? null);
     setError("");
     setSaving(false);
   }, [isOpen, team]);
@@ -72,6 +77,8 @@ export default function TeamModal({
         ? await updateTeam(team!.id, {
             name: trimmed,
             description: description.trim() || null,
+            default_board_id: boardId,
+            default_board_id_set: true,
           })
         : await createTeam(category.id, trimmed, description.trim() || null);
       invalidateCategories();
@@ -179,6 +186,16 @@ export default function TeamModal({
               className="w-full px-3 py-2.5 rounded-lg border-2 border-slate-100 bg-slate-50/50 focus:bg-canvas focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all outline-hidden text-sm text-slate-700 placeholder:text-slate-400 resize-none"
             />
           </div>
+
+          {isEditing && (
+            <BoardPicker
+              id="team-board"
+              value={boardId}
+              onChange={setBoardId}
+              inheritLabel={`Same as ${category.name}`}
+              disabled={saving}
+            />
+          )}
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-semibold rounded-lg">

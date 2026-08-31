@@ -175,6 +175,153 @@ def test_diarization_absent_keeps_existing_behaviour():
     assert TP.incremental_speaker_label(100, "Ravi", seen) == "Ravi"
 
 
+# --------------------------------------- capture-mode precedence (Stage 3)
+#
+# THE fix. Before this, `incremental_speaker_label` discarded the diarization
+# index whenever a roster name was present — and a laptop joining a Meet from
+# a room ALWAYS presents a name, often not even a person's ("Conference Room
+# 2"). So enabling diarization changed nothing observable, and the failure was
+# indistinguishable from the diarizer not working.
+
+
+def test_in_room_diarization_beats_a_named_account():
+    """One named account, three voices in the room -> three speakers.
+
+    The exact scenario the feature exists for, and the exact case the old
+    `if real:` precedence silently collapsed.
+    """
+    seen = {}
+    labels = [
+        TP.incremental_speaker_label(
+            100, "Conference Room 2", seen, dia_speaker=i,
+            capture_mode="in_room",
+        )
+        for i in (0, 1, 2, 0)
+    ]
+    assert labels == ["Speaker 0", "Speaker 1", "Speaker 2", "Speaker 0"], labels
+    assert len(set(seen.values())) == 3, seen
+
+
+def test_in_room_never_uses_the_account_name_as_a_speaker():
+    """The account name belongs to the laptop, not to any one person in the
+    room, and we cannot know which of them owns it."""
+    seen = {}
+    label = TP.incremental_speaker_label(
+        100, "Divyansh Bhardwaj", seen, dia_speaker=1, capture_mode="in_room",
+    )
+    assert label == "Speaker 1", label
+    assert "Divyansh" not in str(seen.values()), seen
+
+
+def test_online_is_unchanged_by_the_new_parameter():
+    """Default and explicit ONLINE must both keep roster precedence."""
+    for mode in (None, "online"):
+        seen = {}
+        kwargs = {} if mode is None else {"capture_mode": mode}
+        a = TP.incremental_speaker_label(100, "Asha", seen, dia_speaker=0, **kwargs)
+        b = TP.incremental_speaker_label(100, "Asha", seen, dia_speaker=1, **kwargs)
+        assert a == b == "Asha", (mode, a, b)
+        assert len(set(seen.values())) == 1, (mode, seen)
+
+
+def test_unknown_capture_mode_degrades_to_online():
+    """Safe direction: treating a room as online reproduces the old bug,
+    whereas treating an online call as a room would replace exact names with
+    anonymous numbers."""
+    seen = {}
+    label = TP.incremental_speaker_label(
+        100, "Asha", seen, dia_speaker=0, capture_mode="IN ROOM",
+    )
+    assert label == "Asha", label
+
+
+def test_in_room_without_diarization_still_uses_the_roster():
+    """Diarization off, or a block the provider never tagged. Falls back
+    rather than dropping the utterance."""
+    seen = {}
+    assert TP.incremental_speaker_label(
+        100, "Asha", seen, capture_mode="in_room",
+    ) == "Asha"
+
+
+def test_in_room_nameless_account_unchanged():
+    """The pre-existing in-room case (dial-ins, unreadable profiles) must
+    behave exactly as it did before capture_mode existed."""
+    seen = {}
+    assert TP.incremental_speaker_label(
+        101, None, seen, dia_speaker=2, capture_mode="in_room",
+    ) == "Speaker 2"
+
+
+# ------------------------------------------- batch routing (format, Stage 3)
+
+
+def test_format_online_route_is_byte_identical():
+    """The online route must not go through turn derivation at all."""
+    blocks = [_block(100, "Asha", "hello"), _block(200, "Ravi", "hi")]
+    assert TP.format(blocks) == TP.format(blocks, capture_mode="online")
+    assert _speakers(TP.format(blocks, capture_mode="online")) == ["Asha", "Ravi"]
+
+
+def test_format_in_room_separates_a_shared_account():
+    def _dia_block(pid, name, dia, text):
+        b = _block(pid, name, text)
+        b["speaker"] = dia
+        return b
+
+    blocks = [
+        _dia_block(100, "Conference Room 2", 0, "this is Karthik"),
+        _dia_block(100, "Conference Room 2", 1, "myself Priya"),
+    ]
+    out = TP.format(blocks, capture_mode="in_room")
+    assert _speakers(out) == ["Karthik", "Priya"], _speakers(out)
+    assert "Conference Room 2" not in out, out
+
+
+def test_format_detailed_returns_resolutions_and_diagnostics():
+    """Stage 4 persists these; they must not require re-deriving turns."""
+    blocks = [_block(100, "Asha", "hello")]
+    text, resolutions, diagnostics = TP.format_detailed(blocks)
+    assert text == TP.format(blocks)
+    assert resolutions == {} and diagnostics is None, (resolutions, diagnostics)
+
+    b = _block(100, "Host", "this is Karthik")
+    b["speaker"] = 0
+    b2 = _block(100, "Host", "myself Priya")
+    b2["speaker"] = 1
+    _, resolutions, diagnostics = TP.format_detailed(
+        [b, b2], capture_mode="in_room",
+    )
+    assert len(resolutions) == 2, resolutions
+    assert diagnostics is not None and diagnostics.cluster_count == 2, diagnostics
+
+
+def test_format_in_room_flags_under_clustering():
+    """Two CALENDAR-CONFIRMED introductions in one voice cluster: the
+    diarizer merged people. Corroboration is required — uncorroborated pairs
+    occur in ordinary speech on 24 of the 164 stored transcripts."""
+    b = _block(100, "Host", "this is Karthik and myself Priya")
+    b["speaker"] = 0
+    b2 = _block(100, "Host", "anyway moving on")
+    b2["speaker"] = 1
+    _, _, diagnostics = TP.format_detailed(
+        [b, b2], capture_mode="in_room",
+        calendar_attendees=[
+            {"email": "karthik@x.com", "displayName": "Karthik"},
+            {"email": "priya@x.com", "displayName": "Priya"},
+        ],
+    )
+    assert diagnostics.under_clustering_suspected, diagnostics
+
+
+def test_format_in_room_never_renames_a_roster_speaker_from_junk():
+    """Corpus regression: in_room mode replaced "Divyansh Bhardwaj" with
+    "Basically" on 36 real meetings before corroboration was required."""
+    b = _block(100, "Divyansh Bhardwaj", "so I'm basically proposing this")
+    out = TP.format([b], capture_mode="in_room")
+    assert _speakers(out) == ["Divyansh Bhardwaj"], _speakers(out)
+
+
 def test_live_and_batch_agree_on_speaker_COUNT():
     """The two paths number differently by design — live cannot rewrite
     lines already sent — but they must never disagree on HOW MANY people

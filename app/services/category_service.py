@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import Category, Team
+from app.db.models import Category, KanbanBoard, Team
 from app.services import permissions
 from app.schemas.category_schema import (
     CategoryCreate,
@@ -138,6 +138,42 @@ def create_category(db: Session, user, payload: CategoryCreate) -> Category:
     return category
 
 
+def _checked_board_id(db: Session, user, board_id):
+    """Validate a `default_board_id` before it is stored, or raise.
+
+    ``None`` passes straight through — that is "clear the choice and inherit",
+    not a reference to validate.
+
+    The bar is **same organization**, enforced here because the FK cannot: a
+    board carries its own ``organization_id`` and so does the category, so
+    Postgres will happily accept a pointer that crosses tenants. That pointer
+    is read on the task-insert path, so an unchecked one would file one org's
+    action items onto another org's board — a silent cross-tenant leak on a
+    surface nobody would think to audit.
+
+    Deliberately NOT gated on ``board_view_clause``. A category admin often
+    cannot "see" an empty org-wide board (visibility there is derived from the
+    cards it holds), and that is the most natural board to point at. Tenancy
+    is the security boundary; who may open the board is a separate question
+    governed by the board endpoints themselves.
+    """
+    if board_id is None:
+        return None
+    board = (
+        db.query(KanbanBoard.id)
+        .filter(
+            KanbanBoard.id == board_id,
+            KanbanBoard.organization_id == user.organization_id,
+        )
+        .first()
+    )
+    if board is None:
+        # 404, not 403: a board in another tenant must not be distinguishable
+        # from one that does not exist. Same rule the meeting endpoints use.
+        raise HTTPException(status_code=404, detail="Board not found")
+    return board_id
+
+
 def update_category(db: Session, user, category_id: int, payload: CategoryUpdate) -> Category:
     category = get_owned_category(db, user, category_id, manage=True)
     if payload.name is not None:
@@ -148,6 +184,13 @@ def update_category(db: Session, user, category_id: int, payload: CategoryUpdate
         category.color = payload.color
     if payload.icon is not None:
         category.icon = payload.icon
+    # `default_board_id_set` and not `is not None`: null is a MEANINGFUL value
+    # here ("inherit the org default"), so the flag is the only way to tell
+    # "clear it" from "leave it alone".
+    if payload.default_board_id_set:
+        category.default_board_id = _checked_board_id(
+            db, user, payload.default_board_id,
+        )
     try:
         db.commit()
     except IntegrityError:
@@ -252,6 +295,11 @@ def update_team(db: Session, user, team_id: int, payload: TeamUpdate) -> Team:
         team.name = payload.name.strip()
     if payload.description is not None:
         team.description = payload.description
+    # NULL means "inherit the category's board" — see `update_category`.
+    if payload.default_board_id_set:
+        team.default_board_id = _checked_board_id(
+            db, user, payload.default_board_id,
+        )
     try:
         db.commit()
     except IntegrityError:

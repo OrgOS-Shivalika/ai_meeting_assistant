@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { invalidateCategories } from "../hooks/useCategories";
 import type { Category, Team } from "../types";
+import BoardPicker from "./BoardPicker";
 import DocumentsPanel from "./DocumentsPanel";
 
 const COLOR_PALETTE = [
@@ -49,6 +50,9 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
   const [color, setColor] = useState<string>(category?.color ?? COLOR_PALETTE[0]);
   const [icon, setIcon] = useState<string>(category?.icon ?? "");
   const [teams, setTeams] = useState<Team[]>(category?.teams ?? []);
+  const [boardId, setBoardId] = useState<number | null>(
+    category?.default_board_id ?? null,
+  );
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamDescription, setNewTeamDescription] = useState("");
   const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
@@ -64,6 +68,7 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
       setColor(category?.color ?? COLOR_PALETTE[0]);
       setIcon(category?.icon ?? "");
       setTeams(category?.teams ?? []);
+      setBoardId(category?.default_board_id ?? null);
       setNewTeamName("");
       setNewTeamDescription("");
       setEditingTeamId(null);
@@ -87,6 +92,8 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
           color,
           description: description.trim() || null,
           icon: icon || null,
+          default_board_id: boardId,
+          default_board_id_set: true,
         });
       } else {
         await createCategory(name.trim(), color, description.trim() || null, icon || null);
@@ -271,6 +278,16 @@ export default function CategoryModal({ isOpen, onClose, category }: Props) {
               ))}
             </div>
           </div>
+
+          {isEditing && (
+            <BoardPicker
+              id="category-board"
+              value={boardId}
+              onChange={setBoardId}
+              inheritLabel="Organization default board"
+              disabled={saving}
+            />
+          )}
 
           {isEditing && (
             <div>

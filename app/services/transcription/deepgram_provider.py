@@ -26,8 +26,11 @@ from app.config.settings import settings
 class DeepgramProvider:
     name = "deepgram"
     recall_provider_key = "deepgram_streaming"
+    supports_diarization = True
 
-    def build_recording_config(self, language: str = "auto") -> dict:
+    def build_recording_config(
+        self, language: str = "auto", *, diarize: bool = False,
+    ) -> dict:
         """Deepgram streaming config. The `language` param is OUR
         normalized code; we translate it here.
 
@@ -49,15 +52,28 @@ class DeepgramProvider:
         # - smart_format: punctuation + casing + number formatting
         # - punctuate: explicit punctuation (redundant with smart_format
         #   on Nova-3 but harmless)
-        # - diarize: speaker labels — Recall already handles speaker
-        #   attribution via its participant tracking, so we can skip
-        #   this. Set False to save Deepgram cost.
+        #
+        # `diarize` is now caller-driven rather than hardcoded False, and
+        # the reason it is OFF by default has not changed: for an online
+        # meeting Recall's participant tracking already attributes every
+        # utterance exactly, so diarization would only add cost and REPLACE
+        # real roster names with anonymous "Speaker 0/1/2".
+        #
+        # It is turned on for in-room capture, where the opposite holds —
+        # N people share one Google account, Recall correctly reports a
+        # single participant, and the voice index is the only thing that
+        # can tell them apart.
+        #
+        # ⚠ Whether Recall passes this through to Deepgram, and whether the
+        # resulting index appears in the COMPILED transcript (not just the
+        # realtime webhook stream), is unverified. Confirm on one throwaway
+        # meeting before relying on it — plan §15.
         return {
             "model": settings.DEEPGRAM_MODEL,
             "language": dg_lang,
             "smart_format": True,
             "punctuate": True,
-            "diarize": False,
+            "diarize": bool(diarize),
         }
 
     @staticmethod

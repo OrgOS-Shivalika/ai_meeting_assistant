@@ -13,6 +13,12 @@ class MeetingRequest(BaseModel):
     title: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     meeting_platform: Optional[str] = None
+    # 'online' (default) or 'in_room'. Chosen by the person starting the
+    # meeting, because only they know whether a laptop is sitting in a room
+    # with several people around it. Validated in `create_processing_meeting`
+    # rather than here so an unexpected value degrades to the safe default
+    # instead of 422-ing a meeting that is about to start.
+    capture_mode: Optional[str] = None
 
 
 class MeetingAssignRequest(BaseModel):

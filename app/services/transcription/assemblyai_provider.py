@@ -18,13 +18,26 @@ from typing import Optional
 class AssemblyAIProvider:
     name = "assemblyai"
     recall_provider_key = "assembly_ai_v3_streaming"
+    # v3 streaming exposes no diarization option through Recall.
+    supports_diarization = False
 
-    def build_recording_config(self, language: str = "auto") -> dict:
+    def build_recording_config(
+        self, language: str = "auto", *, diarize: bool = False,
+    ) -> dict:
         """AssemblyAI streaming config. language_detection is enabled
         when caller asks for 'auto' (the default); explicit non-auto
         language codes are ignored because AssemblyAI streaming doesn't
         actually let you pin to a specific language — the multilingual
         model always detects.
+
+        `diarize` is accepted and IGNORED. AssemblyAI's v3 streaming model
+        exposes no speaker-diarization option through Recall, so there is
+        nothing to forward. Swallowing it rather than raising is deliberate:
+        the caller cannot know which provider is active, and a rejected
+        create_bot payload loses the meeting entirely. In-room capture
+        therefore requires TRANSCRIPTION_PROVIDER=deepgram — a fact
+        `RecallService.create_bot` logs loudly when the two disagree, since
+        the alternative is a silently mono-speaker in-room transcript.
         """
         # AssemblyAI v3 streaming options:
         # - speech_model: 'universal-streaming-multilingual' is the only

@@ -35,6 +35,36 @@ class Meeting(Base):
     duration_minutes = Column(Integer, nullable=True)
     meeting_platform = Column(String, nullable=True)  # google_meet | zoom | teams | webex
 
+    # In-room speaker attribution — how this meeting's audio was captured.
+    # See SPEAKER_ATTRIBUTION_PLAN.md.
+    #
+    #   'online'   — one human per meeting account. Recall's roster IS the
+    #                speaker identity. The default, and every meeting before
+    #                this column existed.
+    #   'in_room'  — a laptop in a room, so N humans share ONE account.
+    #                Recall correctly reports one participant, which is why
+    #                everything collapsed onto the account holder.
+    #
+    # NOT merely a cost switch, though it does scope Deepgram's diarization
+    # charge to the meetings that need it. It is read in two places that
+    # decide different things:
+    #
+    #   1. BEFORE the bot exists — `RecallService.create_bot` asks the
+    #      provider for diarization only when this is 'in_room'. That is why
+    #      the value has to be set at creation time and cannot be changed
+    #      retroactively: the audio was either analysed for distinct voices
+    #      or it wasn't.
+    #   2. AFTER the meeting — it is the tiebreaker for the one conflict
+    #      attribution can't resolve alone: the roster says "one person",
+    #      diarization says "several voices". In a room, believe diarization;
+    #      online, believe the roster.
+    #
+    # String rather than an Enum type to match `status` / `meeting_platform`
+    # and to avoid a Postgres enum that needs a migration per new value.
+    capture_mode = Column(
+        String(16), nullable=False, default="online", server_default="online",
+    )
+
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user = relationship("User", back_populates="meetings")
 
@@ -443,6 +473,81 @@ class TaskActivity(Base):
     actor = relationship("User", foreign_keys=[actor_user_id])
 
 
+class SpeakerLabelMapping(Base):
+    """Which person a voice belongs to, for one meeting.
+
+    In-room speaker attribution. See SPEAKER_ATTRIBUTION_PLAN.md.
+
+    Written by the pipeline after every in-room meeting, and editable by a
+    human. It exists because the mapping is the ONE thing in this feature that
+    cannot be re-derived: turns come back out of `meetings.transcript_raw` any
+    time, but "voice cluster 1 is Karthik" is either evidence we captured at
+    the time or a correction somebody made.
+
+    Deliberately NOT an authorization surface. `matched_email` may be set from
+    a calendar match, but no row here ever confers access to the meeting, and
+    `confidence` must never be compared against a threshold to decide access —
+    a name spoken into a room mic is not authentication. Access still comes
+    only from `participants.user_id` plus a trusted `match_source`.
+    """
+    __tablename__ = "label_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(
+        Integer, ForeignKey("meetings.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+
+    # The in-memory identity tuple, serialized — "p:100" or "d:100:2".
+    # A single text column rather than two nullable ones, because Postgres
+    # treats NULLs as DISTINCT in a unique index: (meeting_id, participant_id,
+    # diarization_label) would happily accept duplicate rows for the same
+    # roster speaker. Same trap the paired partial indexes elsewhere in this
+    # schema exist to dodge. See `speaker_attribution.serialize_key`.
+    speaker_key = Column(String(64), nullable=False)
+
+    # Denormalized for display and for joining to `participants`. String, not
+    # Integer, to match `participants.recall_id` — Recall sends an int and that
+    # column is String, so an Integer here would make the join awkward.
+    participant_id = Column(String, nullable=True)
+    diarization_label = Column(Integer, nullable=True)
+
+    display_name = Column(String, nullable=False)
+    # 'roster' | 'rollcall' | 'manual' | 'unresolved'  ('voiceprint' reserved)
+    method = Column(String(16), nullable=False)
+    confidence = Column(Float, nullable=False, default=0.0, server_default="0")
+    matched_email = Column(String, nullable=True)
+    # True when a human should look: an unresolved cluster, or a name accepted
+    # without calendar corroboration.
+    needs_review = Column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+    )
+
+    # Set once a human fixes the mapping. A pipeline re-run must NOT overwrite
+    # a corrected row — same reasoning as `save_participants` being
+    # skip-not-replace: wiping a hand-made link destroys the only recovery
+    # path from a failed automatic match.
+    corrected_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    corrected_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "meeting_id", "speaker_key", name="uq_label_mappings_meeting_key",
+        ),
+    )
+
+
 class Organization(Base):
     """Tenancy boundary. Every user belongs to exactly one organization;
     every category and meeting is scoped to an organization.
@@ -598,11 +703,36 @@ class Category(Base):
     color = Column(String, nullable=True)
     icon = Column(String, nullable=True)
 
+    # Where tasks extracted from THIS category's meetings land.
+    #
+    # NULL means "inherit" — resolution falls through to the org's default
+    # board, which is what every meeting did before this column existed. It is
+    # read only at task-insert time by
+    # `kanban.defaults.resolve_landing_for_meeting`, so changing it re-routes
+    # future cards and never moves existing ones.
+    #
+    # A pointer rather than `kanban_boards.is_default` on a category-scoped
+    # board, because the choice has to be free: two categories may share one
+    # board, and a category may point at an org-wide board. A scope-default
+    # can express neither.
+    #
+    # SET NULL on delete — see the migration. Same-org membership is NOT
+    # enforceable by the FK (the board carries the org, the category carries
+    # it separately), so `category_service` validates it on write and the
+    # resolver re-checks it on read. Belt and braces: a mis-set pointer would
+    # land one tenant's tasks on another tenant's board.
+    default_board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     organization = relationship("Organization", back_populates="categories")
     user = relationship("User", back_populates="categories")
+    default_board = relationship("KanbanBoard", foreign_keys=[default_board_id])
     teams = relationship("Team", back_populates="category", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="category")
     documents = relationship("CategoryDocument", back_populates="category", cascade="all, delete-orphan")
@@ -688,12 +818,24 @@ class Team(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
 
+    # Where tasks from THIS team's meetings land. NULL means "inherit the
+    # category's choice" — see `Category.default_board_id`. Inheritance is
+    # resolved live at task-insert time and never denormalized onto the team,
+    # so pointing a category at a new board immediately re-routes every team
+    # under it that has not chosen its own.
+    default_board_id = Column(
+        Integer,
+        ForeignKey("kanban_boards.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     category = relationship("Category", back_populates="teams")
     meetings = relationship("Meeting", back_populates="team")
     documents = relationship("TeamDocument", back_populates="team", cascade="all, delete-orphan")
+    default_board = relationship("KanbanBoard", foreign_keys=[default_board_id])
 
 
 class TeamDocument(Base):

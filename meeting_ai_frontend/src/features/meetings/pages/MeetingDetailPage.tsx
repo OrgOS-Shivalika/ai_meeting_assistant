@@ -996,7 +996,9 @@ export default function MeetingDetailPage() {
                   Tasks
                 </h3>
                 <div className="flex items-center gap-2">
-                  {meeting?.id && <MeetingBoardLink meetingId={meeting.id} />}
+                  {meeting?.id && (
+                    <MeetingBoardLink meetingId={meeting.id} tasks={tasks} />
+                  )}
                   <span
                     className="tabular-nums"
                     style={{

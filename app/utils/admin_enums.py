@@ -119,6 +119,62 @@ class PromptRole(str, Enum):
         }[self]
 
 
+class CaptureMode(str, Enum):
+    """How a meeting's audio was captured, stored in ``meetings.capture_mode``.
+
+    The distinction is not about hardware — it is about how many humans share
+    one audio identity, which is what decides whether the platform roster can
+    be trusted as the speaker:
+
+    ``ONLINE``
+        One human per meeting account. Recall reports a participant per
+        person, so the roster IS the speaker identity: exact, and never to be
+        second-guessed by an acoustic model.
+
+    ``IN_ROOM``
+        A laptop in a room, so N humans speak through ONE account. Recall
+        correctly reports a single participant — which is precisely why every
+        speaker used to collapse onto the account holder. Here the roster
+        names the ACCOUNT (often not even a person: "Conference Room 2"), and
+        voice separation plus a roll-call is the only route to real names.
+
+    Lives here rather than next to the column because BOTH
+    ``transcript_processor`` and ``speaker_attribution`` need it, and this
+    module is a leaf — importing it from either cannot create a cycle.
+    """
+
+    ONLINE = "online"
+    IN_ROOM = "in_room"
+
+    def __str__(self) -> str:
+        """See :meth:`AccessRole.__str__`."""
+        return self.value
+
+    @classmethod
+    def values(cls) -> tuple[str, ...]:
+        return tuple(m.value for m in cls)
+
+    @classmethod
+    def coerce(cls, value: object) -> "CaptureMode":
+        """Resolve any input to a mode, defaulting to :attr:`ONLINE`.
+
+        Safe default in the strongest sense: ONLINE is what every meeting did
+        before this column existed, so an unknown value degrades to today's
+        behaviour rather than to something new. It also fails in the harmless
+        direction — mistakenly treating a room as online reproduces the bug we
+        are fixing, while mistakenly treating an online call as a room would
+        REPLACE exact participant names with anonymous voice numbers.
+        """
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            return cls.ONLINE
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError:
+            return cls.ONLINE
+
+
 #: Which `participants.match_source` values may confer access.
 #:
 #: `participants.email` is derived by a fuzzy name-token heuristic in

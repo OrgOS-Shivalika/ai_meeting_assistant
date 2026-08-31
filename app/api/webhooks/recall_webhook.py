@@ -7,9 +7,11 @@ from app.dependencies.auth import get_current_user
 from app.services import permissions
 from app.services.live_stream.meeting_lifecycle import meeting_lifecycle_monitor
 from app.services.transcript_persistence import schedule_transcript_save
+from app.utils.admin_enums import CaptureMode
 from app.utils.logger import setup_logger
 from typing import Optional
 import json
+import os
 from datetime import datetime
 
 logger = setup_logger(__name__)
@@ -36,6 +38,59 @@ _LAST_EVENT_AT: dict[int, float] = {}
 # alongside the lifecycle monitor's own per-meeting phase.
 _SPEAKER_LABELS: dict[int, dict] = {}
 
+# Per-meeting `meetings.capture_mode`, cached because this path runs on EVERY
+# transcript event — many times a second during a live meeting — and the value
+# cannot change once the bot exists (it decided whether the audio was analysed
+# for distinct voices at all). Dropped on the terminal `done` status alongside
+# the label map.
+_CAPTURE_MODES: dict[int, str] = {}
+
+# Meetings for which we have already dumped the realtime payload shape because
+# diarization was requested but no label could be found. Once per meeting —
+# this path fires many times a second and the point is one readable sample, not
+# a flood. Dropped on terminal `done` with the rest.
+_DIA_SHAPE_LOGGED: set[int] = set()
+
+
+def _capture_mode_for(meeting_id: int) -> str:
+    """This meeting's capture mode, read once then cached.
+
+    Falls back to 'online' — today's behaviour — when the row cannot be read.
+    A failed lookup is deliberately NOT cached: caching it would pin an
+    in-room meeting to online labelling for its entire duration on the basis
+    of one transient error, and the retry cost is bounded (if the DB is
+    unreachable, nothing else works either).
+    """
+    cached = _CAPTURE_MODES.get(meeting_id)
+    if cached is not None:
+        return cached
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Meeting.capture_mode)
+            .filter(Meeting.id == meeting_id)
+            .first()
+        )
+        if row is None:
+            return CaptureMode.ONLINE.value
+        mode = CaptureMode.coerce(row[0]).value
+        _CAPTURE_MODES[meeting_id] = mode
+        if mode == CaptureMode.IN_ROOM.value:
+            logger.info(
+                "[LIVE TRANSCRIPT] meeting %s is IN-ROOM — separating voices "
+                "by diarization index", meeting_id,
+            )
+        return mode
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[LIVE TRANSCRIPT] capture_mode lookup failed for meeting %s "
+            "(defaulting to online, will retry): %s", meeting_id, exc,
+        )
+        return CaptureMode.ONLINE.value
+    finally:
+        db.close()
+
 
 # Phase 12A — closing-briefing status state machine.
 # The DB column `meetings.closing_briefing_status` is the cross-process
@@ -54,6 +109,117 @@ _BRIEFING_PAST_PENDING = {
     "skipped",
     _BRIEFING_STATUS_FAILED,
 }
+
+
+def _clean_dia_label(value):
+    """Coerce a candidate diarization label, or None.
+
+    Recall's docs say machine diarization emits labels "like `A`, `B`, `C` or
+    `0`, `1`, `2`", so both ints and short strings are legitimate. Digit-like
+    strings are normalized to int so `"0"` and `0` cannot become two speakers.
+
+    `bool` is rejected first because it subclasses `int` in Python and
+    `diarize: true` lives one field away in the provider config — a payload
+    echoing a boolean must not become "Speaker 1".
+
+    The length/alphanumeric guard is what stops a whole sentence being adopted
+    as a label if a provider ever reuses the key for something else.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text and len(text) <= 4 and text.replace("-", "").isalnum():
+            return int(text) if text.isdigit() else text
+    return None
+
+
+def _diarization_label(source: dict, data_block: dict):
+    """The anonymous speaker label on a realtime transcript event, or None.
+
+    ⚠ MACHINE DIARIZATION PUTS THIS IN `provider_data`, NOT in a top-level
+    `speaker` field. Established the hard way: in-room test meetings 4899 and
+    4903 both came back with every utterance on one speaker even though the bot
+    config was correct, because this function only looked at
+    `source["speaker"]` / `data_block["speaker"]`.
+
+    Per https://docs.recall.ai/docs/diarization, with
+    `diarization.use_separate_streams_when_available: false` plus
+    `provider.deepgram_streaming.diarize: true`, the label "appears in
+    `transcript.provider_data` webhook events". The docs do not pin the exact
+    key inside that object, so the plausible shapes are searched in order of
+    specificity — including Deepgram's own streaming layout in case
+    `provider_data` forwards its response fragment verbatim.
+
+    The old flat locations are still checked last. They cost nothing and cover
+    a provider that does surface the label there.
+
+    When this returns None on an in-room meeting, `process_transcript_event`
+    logs the actual `provider_data` shape once per meeting — so a single test
+    meeting reports the real key instead of it being guessed again.
+    """
+    provider_data = data_block.get("provider_data")
+    if not isinstance(provider_data, dict):
+        candidate = source.get("provider_data")
+        provider_data = candidate if isinstance(candidate, dict) else {}
+
+    found = label_in_provider_payload(provider_data)
+    if found is not None:
+        return found
+
+    # Flat locations, checked last — the pre-2026-08-18 behaviour.
+    candidates = [source.get("speaker"), data_block.get("speaker")]
+    for word in source.get("words") or []:
+        if isinstance(word, dict):
+            candidates.append(word.get("speaker"))
+
+    for candidate in candidates:
+        cleaned = _clean_dia_label(candidate)
+        if cleaned is not None:
+            return cleaned
+    return None
+
+
+def label_in_provider_payload(provider_data: dict):
+    """Search a provider-data-shaped object for a speaker label, or None.
+
+    Factored out because the same object arrives two different ways: nested
+    under `provider_data` on some payloads, and as the ENTIRE body of a
+    `transcript.provider_data` event. The first version of this only handled the
+    nested case and so reported None for a perfectly good label sitting at
+    `data.data.channel.alternatives[0].words[0].speaker`.
+
+    Recall's docs say the structure "varies by provider", so the plausible
+    Deepgram layouts are tried in order of specificity.
+    """
+    if not isinstance(provider_data, dict):
+        return None
+
+    candidates = [provider_data.get("speaker"), provider_data.get("speaker_label")]
+
+    # Deepgram streaming shape: [channel.]alternatives[0].words[].speaker
+    for container in (provider_data, provider_data.get("channel") or {}):
+        if not isinstance(container, dict):
+            continue
+        alternatives = container.get("alternatives")
+        if isinstance(alternatives, list) and alternatives:
+            first = alternatives[0]
+            if isinstance(first, dict):
+                for word in first.get("words") or []:
+                    if isinstance(word, dict):
+                        candidates.append(word.get("speaker"))
+
+    for word in provider_data.get("words") or []:
+        if isinstance(word, dict):
+            candidates.append(word.get("speaker"))
+
+    for candidate in candidates:
+        cleaned = _clean_dia_label(candidate)
+        if cleaned is not None:
+            return cleaned
+    return None
 
 
 def extract_transcript_fields(payload: dict, event: str) -> tuple:
@@ -87,23 +253,19 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
     if isinstance(participant, dict) and participant.get("name"):
         speaker = participant.get("name")
 
-    # A DIARIZATION INDEX, from the transcription provider — a different
+    # A DIARIZATION LABEL, from the transcription provider — a different
     # thing entirely, and deliberately NOT folded into `speaker` above.
     #
-    # Deepgram emits an integer here when `diarize` is on. The previous
-    # code did `speaker = source.get("speaker")` as a name fallback, which
-    # meant index 0 (falsy) read as "no speaker" and index 1 reached
-    # `(name or "").strip()` as an int and raised AttributeError. That is
-    # latent today only because `deepgram_provider` sets `diarize: False`.
+    # It matters for in-room capture: N people share ONE Google account, so
+    # Recall reports one participant id for all speech and this label is the
+    # only thing separating them.
     #
-    # It matters for in-room capture: N people share ONE Google account,
-    # so Recall reports one participant id for all speech and the
-    # diarization index is the only thing separating them.
-    dia_speaker = source.get("speaker")
-    if dia_speaker is None:
-        dia_speaker = data_block.get("speaker")
-    if not isinstance(dia_speaker, int):
-        dia_speaker = None
+    # Lives in `provider_data` for machine diarization, so the search is
+    # delegated — see `_diarization_label`. Keeping it out of this function
+    # also keeps `ws_router`'s stale copy of `extract_transcript_fields`
+    # (landmine: it still has the original name-keyed bug) from silently
+    # inheriting a half-fix.
+    dia_speaker = _diarization_label(source, data_block)
 
     # The participant id is returned RAW rather than being folded into a
     # "Participant N" string here. The id is the real identity — the
@@ -126,6 +288,89 @@ def extract_transcript_fields(payload: dict, event: str) -> tuple:
             text = " ".join([w.get("text", "") for w in words]).strip()
     
     return speaker, text, is_final, p_id, dia_speaker
+
+
+# Where the provider_data sample is written, so ground truth survives terminal
+# scrollback. Four in-room test meetings were spent guessing at this shape from
+# field names; the file makes the next one authoritative.
+#
+# Anchored to __file__, NOT the process working directory. A relative ".cache"
+# lands wherever uvicorn or celery happened to be started from, which is the
+# same trap the `frontend_path` fix in main.py already had to undo.
+_DIA_SAMPLE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    ))),
+    ".cache", "diarization_samples.jsonl",
+)
+
+# Samples written per meeting. A live meeting emits these many times a second
+# and the point is a few readable examples, not a firehose.
+_DIA_SAMPLE_LIMIT = 5
+_DIA_SAMPLES_WRITTEN: dict[int, int] = {}
+
+
+async def process_provider_data_event(meeting_id: int, payload: dict) -> None:
+    """Handle a `transcript.provider_data` event — the raw provider payload.
+
+    This is the ONLY event carrying an acoustic speaker label. `transcript.data`
+    is participant-shaped and has no slot for one, which is why in-room capture
+    produced a single speaker until this event was subscribed to.
+
+    For now this OBSERVES rather than acts: it records what the provider
+    actually sends and whether a label is present. Wiring the label into live
+    display requires correlating two independent event streams by timing, and
+    that is not worth building on an assumed payload shape — three meetings have
+    already been spent on assumed shapes. One meeting with this handler gives
+    the real structure, and the design follows from it.
+    """
+    written = _DIA_SAMPLES_WRITTEN.get(meeting_id, 0)
+    label = None
+    try:
+        block = payload.get("data") or {}
+        inner = block.get("data") if isinstance(block.get("data"), dict) else {}
+        # On THIS event the provider payload is the body itself, not something
+        # nested under a `provider_data` key — so search both levels directly
+        # rather than going through `_diarization_label`, which looks for the
+        # nested form.
+        # `is None`, NOT `or`. Diarization labels start at ZERO, and `0 or x`
+        # discards it — so the first speaker in every room, the most common
+        # label there is, was being reported as "no label found". That is the
+        # precise false negative this handler exists to rule out: it would
+        # write `"label": null` to the sample file and log `label=None` while
+        # diarization was in fact working perfectly.
+        #
+        # `_diarization_label` already gets this right; this path did not.
+        label = label_in_provider_payload(inner)
+        if label is None:
+            label = label_in_provider_payload(block)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[PROVIDER DATA] label probe failed: %s", exc)
+
+    if written < _DIA_SAMPLE_LIMIT:
+        _DIA_SAMPLES_WRITTEN[meeting_id] = written + 1
+        logger.warning(
+            "[PROVIDER DATA] meeting=%s sample %d/%d label=%r payload=%s",
+            meeting_id, written + 1, _DIA_SAMPLE_LIMIT, label,
+            json.dumps(payload, ensure_ascii=False)[:1500],
+        )
+        try:
+            os.makedirs(os.path.dirname(_DIA_SAMPLE_PATH), exist_ok=True)
+            with open(_DIA_SAMPLE_PATH, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(
+                    {"meeting_id": meeting_id, "label": label, "payload": payload},
+                    ensure_ascii=False,
+                ) + "\n")
+        except Exception as exc:  # noqa: BLE001
+            # Diagnostics must never break transcript ingestion.
+            logger.warning("[PROVIDER DATA] could not write sample file: %s", exc)
+    elif label is not None and written == _DIA_SAMPLE_LIMIT:
+        _DIA_SAMPLES_WRITTEN[meeting_id] = written + 1
+        logger.warning(
+            "[PROVIDER DATA] meeting=%s labels ARE present (e.g. %r) — "
+            "diarization is working; live display can now be wired to it",
+            meeting_id, label,
+        )
 
 
 async def process_transcript_event(meeting_id: int, payload: dict):
@@ -166,10 +411,39 @@ async def process_transcript_event(meeting_id: int, payload: dict):
     # name get distinct labels; a participant Recall never named gets
     # "Participant <id>" instead of being lumped in with every other
     # unnamed speaker.
+    capture_mode = _capture_mode_for(meeting_id)
+
+    # Self-diagnosis. We asked for machine diarization but found no label, so
+    # dump the payload shape ONCE for this meeting. Recall's docs say the label
+    # is somewhere in `provider_data` without naming the key, and two test
+    # meetings were burned guessing — this makes the next one authoritative.
+    if (
+        capture_mode == CaptureMode.IN_ROOM.value
+        and dia_speaker is None
+        and meeting_id not in _DIA_SHAPE_LOGGED
+    ):
+        _DIA_SHAPE_LOGGED.add(meeting_id)
+        block = payload.get("data") or {}
+        inner = block.get("data") if isinstance(block.get("data"), dict) else {}
+        provider_data = block.get("provider_data") or inner.get("provider_data")
+        logger.warning(
+            "[DIARIZATION SHAPE] meeting=%s asked for in-room diarization but "
+            "found no speaker label. data keys=%s | inner keys=%s | "
+            "provider_data=%s",
+            meeting_id,
+            sorted(block.keys()),
+            sorted(inner.keys()) if isinstance(inner, dict) else None,
+            json.dumps(provider_data, ensure_ascii=False)[:1200]
+            if provider_data is not None else "ABSENT",
+        )
+
     from app.processors.transcript_processor import TranscriptProcessor
     speaker_safe = TranscriptProcessor.incremental_speaker_label(
         p_id, speaker, _SPEAKER_LABELS.setdefault(meeting_id, {}),
         dia_speaker=dia_speaker,
+        # In-room: the roster names the ACCOUNT, so the diarization label has
+        # to win or all three people in the room render as the laptop's owner.
+        capture_mode=capture_mode,
     )
 
     # User-facing line — saved to meeting.transcript and consumed by
@@ -350,6 +624,8 @@ async def process_status_change_event(meeting_id: int, payload: dict) -> None:
         # for the lifetime of the process.
         _SPEAKER_LABELS.pop(meeting_id, None)
         _LAST_EVENT_AT.pop(meeting_id, None)
+        _CAPTURE_MODES.pop(meeting_id, None)
+        _DIA_SHAPE_LOGGED.discard(meeting_id)
 
     # All other codes are no-ops (joining_call, in_call_recording, etc.)
 
@@ -443,7 +719,12 @@ async def handle_recall_webhook(meeting_id: int, request: Request):
         # Dispatch table — Phase 12A added bot.status_change and
         # participant_events.{join,leave}. Transcript handlers stay on
         # the existing path.
-        if "transcript" in event:
+        # Checked BEFORE the generic `"transcript" in event` branch, which would
+        # otherwise swallow it: `process_transcript_event` early-returns on any
+        # event that is not transcript.data / transcript.partial_data.
+        if event == "transcript.provider_data":
+            await process_provider_data_event(meeting_id, payload)
+        elif "transcript" in event:
             await process_transcript_event(meeting_id, payload)
         elif event == "bot.status_change":
             await process_status_change_event(meeting_id, payload)
