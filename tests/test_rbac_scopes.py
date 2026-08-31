@@ -801,6 +801,63 @@ def test_board_view_is_not_a_blanket_true():
     )
 
 
+def test_board_only_cards_are_visible_from_the_board_scope():
+    """A card typed straight onto a board has no meeting to inherit from.
+
+    Every other arm of `task_view_clause` is meeting-shaped, so before this
+    one such a card was invisible to everyone but its assignee and org admins
+    — a member could open a board and find it empty while it visibly held
+    cards for an admin. That is what "members can't see the tasks added to the
+    board" was.
+    """
+    text = sql(permissions.task_view_clause(None, MEMBER))
+    assert "kanban_boards" in text, (
+        "task_view_clause has no board-scope arm, so a card added directly to "
+        "a board is visible to nobody but its assignee"
+    )
+    assert "tasks.meeting_id IS NULL" in text, (
+        "the board-scope arm is not restricted to board-only cards — as "
+        "written it would publish MEETING tasks to anyone who can reach the "
+        "board, which leaks meetings the viewer cannot open"
+    )
+    assert "organization_id" in text, (
+        "the board-scope arm has no tenant filter; `tasks` carries no "
+        "organization_id of its own, so a caller that forgot to scope by org "
+        "would expose another tenant's cards"
+    )
+
+
+def test_board_and_task_clauses_share_one_scope_rule():
+    """`board_view_clause` and `task_view_clause` must agree on what "you can
+    reach this board" means, or a board becomes visible whose cards are not
+    (or the reverse). They share `_board_scope_clause` so they cannot drift;
+    this asserts the sharing rather than the wording."""
+    # Asserted on the SOURCE, not on compiled SQL. Twice now a substring
+    # comparison of compiled clauses has produced a false alarm here: binds are
+    # numbered per compilation, and a scalar_subquery renders its FROM
+    # differently standalone than nested. The property is "both functions call
+    # the same helper", which the source states directly and unambiguously.
+    import inspect
+
+    for fn in (permissions.board_view_clause, permissions.task_view_clause):
+        src = inspect.getsource(fn)
+        assert "_board_scope_clause(" in src, (
+            f"{fn.__name__} no longer uses _board_scope_clause — board and "
+            f"task visibility can now drift apart"
+        )
+
+
+def test_board_scope_rule_never_recurses_into_tasks():
+    """`board_view_clause`'s first arm calls `task_view_clause`, and the task
+    clause now consults board scope. The shared helper must therefore NOT look
+    at cards, or the two functions call each other forever."""
+    text = sql(permissions._board_scope_clause(MEMBER))
+    assert "tasks" not in text, (
+        "_board_scope_clause inspects tasks — board_view_clause and "
+        "task_view_clause will recurse into each other"
+    )
+
+
 def test_widening_the_view_did_not_widen_the_write():
     """Seeing a board must never imply changing it. The manage clause has to
     stay grant-only: no attendance arm, no routed-pointer arm."""

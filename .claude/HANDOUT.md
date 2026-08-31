@@ -103,6 +103,13 @@ docker exec meeting-ai-postgres psql -U postgres -d langfuse    -c "<sql>"
 6. **My own test bugs have wasted more time than real bugs.** Wrong JWT claim
    (`sub` vs `user_id`), `model_copy` on a dataclass, asserting on a marker
    that `infer=True` strips. Sanity-check the probe before blaming the system.
+7. **Never assert on compiled SQL by substring.** Binds are numbered per
+   compilation and a `scalar_subquery` renders its FROM differently standalone
+   than nested, so identical SQL compares as different — it has faked an
+   "authorization regression" twice. Assert on `inspect.getsource`, on bind
+   VALUES (`compiled.params`), or on live query results. Same for hand-rolled
+   regexes over SQL: one "missing FROM" check reported 22 problems in a clause
+   Postgres runs fine.
 
 ---
 
@@ -1099,6 +1106,70 @@ additive and old code ignores them — but it means:
     `board_view_clause` are NOT live in prod.
 Deploying the code is now the only remaining step, and it no longer needs a
 migration run first.
+
+### 2026-08-31 — "members can't see tasks added to the board": board-only cards had NO visibility path.
+
+Diagnosed from data. Two facts decided it:
+**all 178 participants have `match_source` AND `user_id` NULL** (instant
+meetings, no calendar → no `calendar_exact`), and **`assignee_user_id` is NULL
+on all 1290 tasks**. So for a member, two of `task_view_clause`'s three arms
+are permanently dead and only the GRANT arm can ever fire.
+
+The member's 3 grants gave exactly 3 tasks, which is CORRECT (Customer Success
+has 3 meeting-tasks; their other two categories have none). The actual gap was
+elsewhere: 3 cards typed straight onto boards 66/72 with `meeting_id IS NULL`.
+Every arm of `task_view_clause` is meeting-shaped, so a board-only card was
+invisible to everyone except its assignee and org admins — you could open a
+board and find it empty while it visibly held cards for an admin. My earlier
+board-visibility widening did not cause this; it surfaced it, by making the
+empty boards reachable.
+
+(Checked first whether boards 66/72 were visible through a bug I had
+introduced. They were not — arm 4, and legitimately: the user had since pointed
+all three of the member's categories at those boards.)
+
+Fix: new arm on `task_view_clause` — `meeting_id IS NULL` AND the card's board
+is reachable **by scope**. Extracted `_board_scope_clause(user, board=KanbanBoard)`
+so `board_view_clause` and `task_view_clause` share ONE definition of "you can
+reach this board" and cannot drift.
+
+Three constraints, each load-bearing:
+- **`meeting_id IS NULL` only.** Meeting-derived cards keep following their
+  MEETING. Without that guard, pointing a category at a board would publish
+  every meeting task landing there to anyone who can reach the category —
+  leaking meetings they cannot open. Mutation-checked: removing it fails the
+  suite.
+- **The helper must not inspect cards.** `board_view_clause`'s first arm calls
+  `task_view_clause`, which now consults board scope; a card-aware helper would
+  make the two recurse forever. Guarded by
+  `test_board_scope_rule_never_recurses_into_tasks`.
+- **`aliased(KanbanBoard)` + the org filter INSIDE the subquery.** The alias
+  stops the subquery being correlated away against the outer `kanban_boards` in
+  that EXISTS; the org filter is there because `tasks` has no
+  `organization_id`, so a caller that forgot the tenant filter would otherwise
+  expose another org's cards.
+
+Verified live. Member 6/1290 tasks (was 3), every board they can open shows all
+its cards. Four negative tests in a ROLLED-BACK transaction:
+  meeting task from an UNGRANTED category, parked on a visible board -> hidden
+  board-only card on that same board                                 -> visible
+  board-only card on a board they cannot see                         -> hidden
+  board-only card in ANOTHER ORG (clause alone, no caller filter)    -> hidden
+
+`tests/test_rbac_scopes.py` 32 -> 35.
+
+**Third repeat of the same test-authoring mistake, so it goes in §4:**
+comparing COMPILED SQL by substring is unreliable in this codebase. Binds are
+numbered per compilation (`%(user_id_1)s` vs `%(user_id_5)s`) and a
+`scalar_subquery` renders its FROM differently standalone than nested. It has
+now produced a false "authorization regression" twice. `_shape()` fixes the
+bind half; for the rest, assert on SOURCE (`inspect.getsource`) or on live
+query RESULTS, never on nested SQL text. My "no subquery missing a FROM" regex
+was also junk — it reported 22 and 41 problems in clauses Postgres executes
+fine. Run the query instead.
+
+Green: rbac 35, org-admin-concealment, kanban k1/k2/k4, routing 24,
+realtime-diarization 20, 211 routes.
 
 ---
 
