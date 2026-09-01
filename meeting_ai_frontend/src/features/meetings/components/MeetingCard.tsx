@@ -38,13 +38,16 @@ interface MeetingCardProps {
 }
 
 // Status → vibrant semantic tokens (from colors.css: --vb-success/info/warning/error).
-// Colors are mixed 12–14% with white for the pill background so it stays
-// soft on the cream canvas without looking washed out.
+// The token is the FILL and the label is white. A tint of the hue behind text
+// of the same hue was the old scheme; it reads as washed out on a light canvas
+// and disappears outright on a dark one, since the tint is mixed with white.
+// Solid fill has one contrast ratio on every background, so this needs no
+// per-theme override.
 const STATUS_STYLE = {
-  completed:  { label: "Completed",  color: "var(--vb-success)", bg: "color-mix(in srgb, var(--vb-success) 12%, white)" },
-  processing: { label: "Processing", color: "var(--vb-info)",    bg: "color-mix(in srgb, var(--vb-info) 12%, white)" },
-  pending:    { label: "Pending",    color: "var(--vb-warning)", bg: "color-mix(in srgb, var(--vb-warning) 14%, white)" },
-  failed:     { label: "Failed",     color: "var(--vb-error)",   bg: "color-mix(in srgb, var(--vb-error) 12%, white)" },
+  completed:  { label: "Completed",  color: "#fff", bg: "var(--vb-success)" },
+  processing: { label: "Processing", color: "#fff", bg: "var(--vb-info)" },
+  pending:    { label: "Pending",    color: "#fff", bg: "var(--vb-warning)" },
+  failed:     { label: "Failed",     color: "#fff", bg: "var(--vb-error)" },
 } as const;
 
 export default function MeetingCard({
@@ -237,10 +240,11 @@ export default function MeetingCard({
           }}
         >
           <div className="flex items-center" style={{ gap: 8 }}>
-            {/* One pill carries both signals: the tint and text colour are
-                the processing status (no dot — that repeated the word), and
-                the trailing sparkle is the AI-memory state, which keeps its
-                own colour so a failure still stands out inside the pill. */}
+            {/* One pill carries both signals: the fill is the processing
+                status (no dot — that repeated the word), and the trailing
+                sparkle is the AI-memory state. On a solid fill the sparkle
+                goes white — see `onFill` — so brightness, not hue, is what
+                separates a failure from a finished one. */}
             <span
               className="inline-flex items-center"
               style={{
@@ -257,6 +261,7 @@ export default function MeetingCard({
               <AIMemoryStatusDot
                 embeddingStatus={meeting.embedding_status}
                 graphStatus={meeting.graph_status}
+                onFill
               />
             </span>
             {meeting.participants && meeting.participants.length > 0 && (

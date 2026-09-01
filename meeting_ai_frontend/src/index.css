@@ -367,3 +367,516 @@
     background-size: 26px 26px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Personal background image (shared/background.ts)
+
+   The image is painted on <html>. `body` and Layout's root wrapper both carry
+   `bg-canvas`, so both must go transparent or they paint cream straight over
+   it. Cards are nested deeper and keep `bg-canvas`, which is what keeps text
+   readable on top of an arbitrary photo — making the token itself transparent
+   would frost every card and compound three translucent layers into mud.
+
+   ponytail: `#root > div` targets Layout's wrapper positionally. If Layout
+   gains an outer element this stops matching and the image is simply hidden
+   behind cream — visibly wrong, not silently broken. Give that wrapper a class
+   if it moves.
+--------------------------------------------------------------------------- */
+html.has-bg-image {
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+html.has-bg-image body,
+html.has-bg-image #root > div {
+  background-color: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode (shared/theme.ts)
+
+   Pure token overrides on `html.theme-dark`. Every surface in this app is
+   built on these variables, so nothing component-level changes — and that is
+   also the risk: a component that hardcodes a hex instead of a token will stay
+   light. Those have to be found by looking, not by grepping this file.
+
+   Our own class rather than Tailwind's `dark:` variant, because the choice is
+   an explicit user setting, not `prefers-color-scheme`, and because the
+   variable layer already exists.
+
+   Palette scales (--color-blue-500 etc.) are deliberately NOT inverted — they
+   are fixed reference ramps, and the semantic tokens below are what surfaces
+   actually consume.
+--------------------------------------------------------------------------- */
+html.theme-dark {
+  /* Surfaces, lightest-to-darkest mirrored */
+  --color-canvas: #14161a;
+  --color-surface-soft: #1b1e24;
+  --color-surface-card: #20242b;
+  --color-surface-strong: #2a2f38;
+  --color-background: #14161a;
+  --color-card: #20242b;
+  --color-popover: #20242b;
+  --color-muted: #1b1e24;
+  --color-secondary: #20242b;
+  --color-input: #2b3038;
+  --vb-canvas: #14161a;
+  --vb-surface-soft: #1b1e24;
+  --vb-surface-card: #20242b;
+  --vb-surface-strong: #2a2f38;
+
+  /* `ink` is the primary CTA FILL and headline colour — near-black in light,
+     so it has to become near-white here, and `on-ink` (text drawn on it)
+     inverts with it or every button loses its label. */
+  --color-ink: #f2f4f7;
+  --color-ink-active: #dfe3e9;
+  --color-on-ink: #14161a;
+  --color-on-ink-soft: #4a5058;
+  --vb-ink: #f2f4f7;
+  --vb-ink-active: #dfe3e9;
+  --vb-ink-disabled: #3a4049;
+  --vb-on-ink: #14161a;
+  --vb-on-ink-soft: #4a5058;
+
+  /* `surface-dark` is the INVERTED surface — a deliberately contrasting card,
+     always paired with `text-on-ink`. Because `on-ink` had to flip to dark
+     (the ink CTA fill is now light), this surface has to flip to light or the
+     pair becomes dark-on-dark and vanishes. It stays "the opposite of the
+     page", which is what the variant means; the literal colour is incidental.
+     This is what made text invisible on the meetings page. */
+  --color-surface-dark: #f2f4f7;
+  --color-surface-dark-elev: #e6e9ee;
+  --vb-surface-dark: #f2f4f7;
+  --vb-surface-dark-elev: #e6e9ee;
+
+  /* Text */
+  --color-body: #c7cdd6;
+  --color-body-strong: #eceff3;
+  --color-muted-ink: #9aa3ae;
+  --color-muted-soft: #79828d;
+  --color-foreground: #eceff3;
+  --color-card-foreground: #eceff3;
+  --color-popover-foreground: #eceff3;
+  --color-muted-foreground: #9aa3ae;
+  --color-secondary-foreground: #eceff3;
+  --color-primary: #f2f4f7;
+  --color-primary-foreground: #14161a;
+  --vb-body: #c7cdd6;
+  --vb-body-strong: #eceff3;
+  --vb-muted: #9aa3ae;
+  --vb-muted-soft: #79828d;
+
+  /* Lines. Solid rather than alpha so they read consistently over both the
+     page floor and a raised card. */
+  --color-hairline: #2b3038;
+  --color-hairline-soft: #232830;
+  --color-border: #2b3038;
+  --vb-hairline: #2b3038;
+  --vb-hairline-soft: #232830;
+
+  /* Status colours lifted for contrast against a dark floor — the light-mode
+     values are tuned against cream and go muddy here. */
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-info: #60a5fa;
+  --vb-success: #4ade80;
+  --vb-warning: #fbbf24;
+  --vb-error: #f87171;
+  --vb-info: #60a5fa;
+
+  color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode — hardcoded-colour rescue.
+
+   Parts of the app predate the token layer and use raw Tailwind slates
+   (`text-slate-700`, `bg-slate-100`, `border-slate-200`) instead of `text-body`
+   / `bg-surface-card` / `border-hairline`. Those ignore the theme entirely, so
+   in dark mode they render dark text on a dark floor — the task detail drawer
+   is the worst of it, but the pattern is spread across the app.
+
+   These rules remap the offenders, scoped to `html.theme-dark`, so light mode
+   is untouched. Specificity (0,2,0 vs the utility's 0,1,0) wins without
+   `!important`.
+
+   ponytail: a rescue layer, not the fix. The real repair is replacing those
+   utilities with tokens at the call sites; this stops the bleeding everywhere
+   at once instead of file by file. Delete a line here whenever its call sites
+   are migrated.
+
+   `bg-slate-900` / `text-slate-950` are deliberately absent — they are already
+   dark-on-purpose elements (badges, code blocks) and remapping them would
+   break the one thing that was correct.
+--------------------------------------------------------------------------- */
+html.theme-dark .text-slate-900,
+html.theme-dark .text-slate-800,
+html.theme-dark .text-slate-700,
+html.theme-dark .text-gray-900,
+html.theme-dark .text-gray-800,
+html.theme-dark .text-gray-700 {
+  color: #eceff3;
+}
+html.theme-dark .text-slate-600,
+html.theme-dark .text-slate-500,
+html.theme-dark .text-gray-600,
+html.theme-dark .text-gray-500 {
+  color: #9aa3ae;
+}
+html.theme-dark .text-slate-400,
+html.theme-dark .text-slate-300,
+html.theme-dark .text-gray-400,
+html.theme-dark .text-gray-300 {
+  color: #79828d;
+}
+html.theme-dark .bg-white,
+html.theme-dark .bg-slate-50,
+html.theme-dark .bg-slate-100,
+html.theme-dark .bg-gray-50,
+html.theme-dark .bg-gray-100 {
+  background-color: #20242b;
+}
+html.theme-dark .bg-slate-200,
+html.theme-dark .bg-gray-200,
+html.theme-dark .bg-slate-300 {
+  background-color: #2a2f38;
+}
+html.theme-dark .border-slate-100,
+html.theme-dark .border-slate-200,
+html.theme-dark .border-gray-100,
+html.theme-dark .border-gray-200 {
+  border-color: #2b3038;
+}
+/* Hover states that assume a light floor. */
+html.theme-dark .hover\:bg-slate-50:hover,
+html.theme-dark .hover\:bg-slate-100:hover,
+html.theme-dark .hover\:bg-gray-100:hover {
+  background-color: #2a2f38;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Dark mode — chips, labels and status badges.
+
+   These are built as a pale tint plus dark ink (`bg-indigo-50` +
+   `text-indigo-700`). On a dark floor a pale tint is a bright blob, and my
+   first pass at this remapped only the TEXT to light, which made them
+   light-on-light and invisible.
+
+   Solid fill + white text instead: the badge keeps its colour identity, reads
+   at a glance, and needs no contrast maths against whatever surface it sits
+   on. Both halves are set together — remapping one side is what broke them.
+
+   Scope note: this catches every `bg-<colour>-50/100` in dark mode, not only
+   badges. That is intended — a pale tint is the wrong primitive on a dark
+   floor wherever it appears — but a large pale PANEL will also become solid.
+   If one turns up looking heavy, give it a token instead of a raw tint.
+--------------------------------------------------------------------------- */
+html.theme-dark .bg-indigo-50,
+html.theme-dark .bg-indigo-100,
+html.theme-dark .bg-indigo-200 {
+  background-color: #4f46e5;
+}
+html.theme-dark .bg-indigo-50 *,
+html.theme-dark .bg-indigo-100 *,
+html.theme-dark .bg-indigo-200 *,
+html.theme-dark .text-indigo-600,
+html.theme-dark .text-indigo-700,
+html.theme-dark .text-indigo-800,
+html.theme-dark .text-indigo-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-indigo-100,
+html.theme-dark .border-indigo-200 {
+  border-color: #4f46e5;
+}
+html.theme-dark .bg-amber-50,
+html.theme-dark .bg-amber-100,
+html.theme-dark .bg-amber-200 {
+  background-color: #b45309;
+}
+html.theme-dark .bg-amber-50 *,
+html.theme-dark .bg-amber-100 *,
+html.theme-dark .bg-amber-200 *,
+html.theme-dark .text-amber-600,
+html.theme-dark .text-amber-700,
+html.theme-dark .text-amber-800,
+html.theme-dark .text-amber-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-amber-100,
+html.theme-dark .border-amber-200 {
+  border-color: #b45309;
+}
+html.theme-dark .bg-red-50,
+html.theme-dark .bg-red-100,
+html.theme-dark .bg-red-200 {
+  background-color: #dc2626;
+}
+html.theme-dark .bg-red-50 *,
+html.theme-dark .bg-red-100 *,
+html.theme-dark .bg-red-200 *,
+html.theme-dark .text-red-600,
+html.theme-dark .text-red-700,
+html.theme-dark .text-red-800,
+html.theme-dark .text-red-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-red-100,
+html.theme-dark .border-red-200 {
+  border-color: #dc2626;
+}
+html.theme-dark .bg-emerald-50,
+html.theme-dark .bg-emerald-100,
+html.theme-dark .bg-emerald-200 {
+  background-color: #059669;
+}
+html.theme-dark .bg-emerald-50 *,
+html.theme-dark .bg-emerald-100 *,
+html.theme-dark .bg-emerald-200 *,
+html.theme-dark .text-emerald-600,
+html.theme-dark .text-emerald-700,
+html.theme-dark .text-emerald-800,
+html.theme-dark .text-emerald-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-emerald-100,
+html.theme-dark .border-emerald-200 {
+  border-color: #059669;
+}
+html.theme-dark .bg-rose-50,
+html.theme-dark .bg-rose-100,
+html.theme-dark .bg-rose-200 {
+  background-color: #e11d48;
+}
+html.theme-dark .bg-rose-50 *,
+html.theme-dark .bg-rose-100 *,
+html.theme-dark .bg-rose-200 *,
+html.theme-dark .text-rose-600,
+html.theme-dark .text-rose-700,
+html.theme-dark .text-rose-800,
+html.theme-dark .text-rose-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-rose-100,
+html.theme-dark .border-rose-200 {
+  border-color: #e11d48;
+}
+html.theme-dark .bg-violet-50,
+html.theme-dark .bg-violet-100,
+html.theme-dark .bg-violet-200 {
+  background-color: #7c3aed;
+}
+html.theme-dark .bg-violet-50 *,
+html.theme-dark .bg-violet-100 *,
+html.theme-dark .bg-violet-200 *,
+html.theme-dark .text-violet-600,
+html.theme-dark .text-violet-700,
+html.theme-dark .text-violet-800,
+html.theme-dark .text-violet-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-violet-100,
+html.theme-dark .border-violet-200 {
+  border-color: #7c3aed;
+}
+html.theme-dark .bg-cyan-50,
+html.theme-dark .bg-cyan-100,
+html.theme-dark .bg-cyan-200 {
+  background-color: #0e7490;
+}
+html.theme-dark .bg-cyan-50 *,
+html.theme-dark .bg-cyan-100 *,
+html.theme-dark .bg-cyan-200 *,
+html.theme-dark .text-cyan-600,
+html.theme-dark .text-cyan-700,
+html.theme-dark .text-cyan-800,
+html.theme-dark .text-cyan-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-cyan-100,
+html.theme-dark .border-cyan-200 {
+  border-color: #0e7490;
+}
+html.theme-dark .bg-blue-50,
+html.theme-dark .bg-blue-100,
+html.theme-dark .bg-blue-200 {
+  background-color: #2563eb;
+}
+html.theme-dark .bg-blue-50 *,
+html.theme-dark .bg-blue-100 *,
+html.theme-dark .bg-blue-200 *,
+html.theme-dark .text-blue-600,
+html.theme-dark .text-blue-700,
+html.theme-dark .text-blue-800,
+html.theme-dark .text-blue-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-blue-100,
+html.theme-dark .border-blue-200 {
+  border-color: #2563eb;
+}
+html.theme-dark .bg-orange-50,
+html.theme-dark .bg-orange-100,
+html.theme-dark .bg-orange-200 {
+  background-color: #ea580c;
+}
+html.theme-dark .bg-orange-50 *,
+html.theme-dark .bg-orange-100 *,
+html.theme-dark .bg-orange-200 *,
+html.theme-dark .text-orange-600,
+html.theme-dark .text-orange-700,
+html.theme-dark .text-orange-800,
+html.theme-dark .text-orange-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-orange-100,
+html.theme-dark .border-orange-200 {
+  border-color: #ea580c;
+}
+html.theme-dark .bg-sky-50,
+html.theme-dark .bg-sky-100,
+html.theme-dark .bg-sky-200 {
+  background-color: #0284c7;
+}
+html.theme-dark .bg-sky-50 *,
+html.theme-dark .bg-sky-100 *,
+html.theme-dark .bg-sky-200 *,
+html.theme-dark .text-sky-600,
+html.theme-dark .text-sky-700,
+html.theme-dark .text-sky-800,
+html.theme-dark .text-sky-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-sky-100,
+html.theme-dark .border-sky-200 {
+  border-color: #0284c7;
+}
+html.theme-dark .bg-pink-50,
+html.theme-dark .bg-pink-100,
+html.theme-dark .bg-pink-200 {
+  background-color: #db2777;
+}
+html.theme-dark .bg-pink-50 *,
+html.theme-dark .bg-pink-100 *,
+html.theme-dark .bg-pink-200 *,
+html.theme-dark .text-pink-600,
+html.theme-dark .text-pink-700,
+html.theme-dark .text-pink-800,
+html.theme-dark .text-pink-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-pink-100,
+html.theme-dark .border-pink-200 {
+  border-color: #db2777;
+}
+html.theme-dark .bg-teal-50,
+html.theme-dark .bg-teal-100,
+html.theme-dark .bg-teal-200 {
+  background-color: #0d9488;
+}
+html.theme-dark .bg-teal-50 *,
+html.theme-dark .bg-teal-100 *,
+html.theme-dark .bg-teal-200 *,
+html.theme-dark .text-teal-600,
+html.theme-dark .text-teal-700,
+html.theme-dark .text-teal-800,
+html.theme-dark .text-teal-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-teal-100,
+html.theme-dark .border-teal-200 {
+  border-color: #0d9488;
+}
+html.theme-dark .bg-purple-50,
+html.theme-dark .bg-purple-100,
+html.theme-dark .bg-purple-200 {
+  background-color: #9333ea;
+}
+html.theme-dark .bg-purple-50 *,
+html.theme-dark .bg-purple-100 *,
+html.theme-dark .bg-purple-200 *,
+html.theme-dark .text-purple-600,
+html.theme-dark .text-purple-700,
+html.theme-dark .text-purple-800,
+html.theme-dark .text-purple-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-purple-100,
+html.theme-dark .border-purple-200 {
+  border-color: #9333ea;
+}
+html.theme-dark .bg-green-50,
+html.theme-dark .bg-green-100,
+html.theme-dark .bg-green-200 {
+  background-color: #16a34a;
+}
+html.theme-dark .bg-green-50 *,
+html.theme-dark .bg-green-100 *,
+html.theme-dark .bg-green-200 *,
+html.theme-dark .text-green-600,
+html.theme-dark .text-green-700,
+html.theme-dark .text-green-800,
+html.theme-dark .text-green-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-green-100,
+html.theme-dark .border-green-200 {
+  border-color: #16a34a;
+}
+html.theme-dark .bg-yellow-50,
+html.theme-dark .bg-yellow-100,
+html.theme-dark .bg-yellow-200 {
+  background-color: #a16207;
+}
+html.theme-dark .bg-yellow-50 *,
+html.theme-dark .bg-yellow-100 *,
+html.theme-dark .bg-yellow-200 *,
+html.theme-dark .text-yellow-600,
+html.theme-dark .text-yellow-700,
+html.theme-dark .text-yellow-800,
+html.theme-dark .text-yellow-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-yellow-100,
+html.theme-dark .border-yellow-200 {
+  border-color: #a16207;
+}
+html.theme-dark .bg-slate-50,
+html.theme-dark .bg-slate-100,
+html.theme-dark .bg-slate-200 {
+  background-color: #475569;
+}
+html.theme-dark .bg-slate-50 *,
+html.theme-dark .bg-slate-100 *,
+html.theme-dark .bg-slate-200 *,
+html.theme-dark .text-slate-600,
+html.theme-dark .text-slate-700,
+html.theme-dark .text-slate-800,
+html.theme-dark .text-slate-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-slate-100,
+html.theme-dark .border-slate-200 {
+  border-color: #475569;
+}
+html.theme-dark .bg-gray-50,
+html.theme-dark .bg-gray-100,
+html.theme-dark .bg-gray-200 {
+  background-color: #4b5563;
+}
+html.theme-dark .bg-gray-50 *,
+html.theme-dark .bg-gray-100 *,
+html.theme-dark .bg-gray-200 *,
+html.theme-dark .text-gray-600,
+html.theme-dark .text-gray-700,
+html.theme-dark .text-gray-800,
+html.theme-dark .text-gray-900 {
+  color: #ffffff;
+}
+html.theme-dark .border-gray-100,
+html.theme-dark .border-gray-200 {
+  border-color: #4b5563;
+}

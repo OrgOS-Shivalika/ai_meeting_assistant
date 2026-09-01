@@ -1344,7 +1344,9 @@ const vbSecondaryBtnStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 
-// Meeting status → vibrant color pair (matches MeetingCard's STATUS_STYLE).
+// Meeting status → vibrant color pair. NOTE: MeetingCard's STATUS_STYLE has
+// moved on to a solid fill with a white label; this one is still the tint.
+// Copy that block over here if the two should match again.
 const VB_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   completed:  { label: "Completed",  color: "var(--vb-success)", bg: "color-mix(in srgb, var(--vb-success) 12%, white)" },
   processing: { label: "Processing", color: "var(--vb-info)",    bg: "color-mix(in srgb, var(--vb-info) 12%, white)" },

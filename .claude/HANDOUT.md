@@ -1249,15 +1249,111 @@ are not assigned), all in a ROLLED-BACK transaction:
   reads the dependency and ignores the annotation. It will bite the first time
   someone relies on that annotation (or turns on a type checker).
 
+### 2026-09-01 — @mentions in task comments + unread dots. COMMITTED `26cf9b8`.
+
+Render-only mentions (no notifications, by decision). **No schema change for
+the mention itself** — it lives in the comment body as `@[Name](uuid)`, with the
+display name snapshotted inline exactly like `TaskComment.author_name`, so a
+renamed or deleted user's old comment still reads correctly.
+
+`app/services/kanban/mentions.py`. Two rules there are security, not
+formatting, and both are mutation-checked:
+- **Validated against the AUTHOR'S ORG.** Checking mere existence would let a
+  crafted body embed another tenant's user id, and anything that later resolves
+  it to a name discloses that person. Foreign and unknown ids return an
+  IDENTICAL 400 so the response cannot probe for accounts elsewhere.
+- **The client's display name is never trusted** — rewritten from the DB at
+  save time. Nothing otherwise stops `@[Chief Executive](uuid-of-an-intern)`.
+Applied on create AND edit; validating only on create leaves edit as the hole.
+
+`GET /api/org/members` is new and deliberately NOT `/admin/members` — that one
+answers "who may I administer", is scoped by `admin_visible_user_ids` and
+STRIPS org admins, so a member saw 2 of the 4 people in their org and would
+have been missing most of the company in prod. Optional `?task_id=` adds
+`can_view` per person; the picker greys those out rather than hiding them,
+since a mention grants nothing either way.
+
+**Unread dots** — migration `ai09mentionread`, table `comment_mentions`
+(comment, task, user, `read_at`). `read_at IS NULL` = unread, partial-indexed.
+`task_id` is denormalized off the comment so a board asks "which cards have an
+unread mention for me" in one indexed scan. Shaped like a notification row on
+purpose: email or an inbox reads from here rather than needing a second table.
+Cleared by `POST /tasks/{id}/mentions/read` — an explicit POST, not a side
+effect of the detail GET, which would fire on prefetches and clear itself.
+Dots surface on the card, the board list, and the sidebar, all off one
+`GET /api/mentions/unread`.
+`unread_summary` filters through `task_view_clause`; `unread_task_ids` does
+not, and the difference is deliberate — the rollup starts from mention rows and
+a mention can land on a card you cannot open, which would otherwise put a dot
+on a board you can never open to clear.
+
+`tests/test_mentions.py` 18/18. 214 routes.
+
+**Two UI bugs found only by the user actually using it, both mine:**
+1. The composer bound straight to the storage format, so the author sat looking
+   at a raw uuid while typing — precisely what the feature exists to hide. Fixed
+   with a display/storage split inside `MentionTextarea`; the parent's contract
+   is unchanged. Longest-name-first replacement, and editing a name after
+   picking reverts it to plain text rather than silently keeping the old id.
+2. The `@` picker's arrow keys did nothing: `onKeyUp` called `sync()`, and
+   `sync()` resets `highlight` to 0 — every arrow press moved the selection and
+   immediately put it back. Compounded by the selected row using
+   `bg-surface-soft`, invisible on a white menu.
+
+**I leaked test data into the live DB twice today.** `create_task_comment`
+COMMITS internally, so an outer `db.rollback()` had nothing to undo — comment
+27 survived and the user found it in the UI and reported it as a bug. Earlier,
+a re-file probe moved real task 1358 to the wrong board. Both cleaned up.
+**Rule: rollback-based testing only works when the code under test does not
+commit, and most of these service functions do. Snapshot and restore instead,
+or assert on functions below the commit.**
+
+### 2026-09-01 — per-user background picker. UNCOMMITTED.
+
+Settings -> Profile -> Background. Eight colour presets plus "Upload image".
+
+**localStorage, not the database**, so "only visible to them" is structural —
+the value never leaves the machine and there is no endpoint whose scoping can
+be got wrong. Matches the existing precedent (`sidebar:collapsed`,
+`sidebar:scroll`). **Trade-off, stated: it does not follow the user to another
+browser or device.** `shared/background.ts` is the only thing that touches
+storage, so moving it to a `users` column later is swapping two functions.
+
+Implementation is one CSS custom property — `--vb-canvas` is the design
+system's page floor, so overriding it on `:root` repaints every `bg-canvas`
+surface without touching a component. Applied in `main.tsx` BEFORE React
+renders; doing it in an effect flashes the default first.
+
+Images are downscaled in a canvas to 1920px / JPEG 0.82 and stored as a data
+URL. **The downscale is what makes this possible at all** — localStorage holds
+~5MB and a phone photo is 3-8MB. Transparent PNGs get a white matte first
+(JPEG has no alpha, or they composite onto black). A 72% white scrim sits over
+the image because body text is `#3a3a3a` and an arbitrary photo has no contrast
+guarantee.
+
+The image paints on `<html>`; `body` and Layout's wrapper both carry
+`bg-canvas` and go transparent, while cards keep it and stay opaque.
+**ponytail: `#root > div` targets Layout's wrapper POSITIONALLY** — if Layout
+gains an outer element the image hides behind cream. Visibly wrong, not
+silently broken. Give that wrapper a class if it moves.
+
+Tried fully-transparent surfaces + backdrop-blur and no scrim at the user's
+request, then **reverted at their request** — the opaque version reads better.
+Do not re-propose it.
+
 ---
 
 ## 7. Open threads
 
-~~**Blocking:** Railway is THREE MIGRATIONS BEHIND local~~ **CLEARED
-2026-08-31** — prod migrated to `ah08boardroute`, verified by outcome, no rows
-lost. The risk is now inverted: prod SCHEMA is at head, prod CODE is still
-`26eccfc`. Additive columns, so old code is unaffected; the new features are
-simply dormant until the deploy. Deploying without `alembic upgrade head` makes every meeting INSERT
+**Blocking again as of 2026-09-01:** prod is at `ah08boardroute`, local head
+is **`ai09mentionread`** — ONE migration behind (the `comment_mentions` table).
+The mentions code is committed (`26cf9b8`) and WILL 500 on every comment
+create/edit and every board load without that table, so
+`alembic upgrade head` must precede the next deploy. Prod code is still
+`26eccfc`; nothing from 2026-08-31 or 2026-09-01 is deployed.
+
+Working tree: only the background picker is uncommitted (4 files —
+`shared/background.ts`, `SettingsPage.tsx`, `index.css`, `main.tsx`). Deploying without `alembic upgrade head` makes every meeting INSERT
 fail on the missing NOT-NULL `meetings.capture_mode` → meetings marked
 `failed`, and any in-room meeting would additionally 500 on the absent
 `label_mappings` table. Same class of trap as the old landmine 14.11. Not urgent
