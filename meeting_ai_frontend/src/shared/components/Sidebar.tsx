@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "react";
 import JoinMeetingModal from "../../features/meetings/components/JoinMeetingModal";
 import CategoryModal from "../../features/meetings/components/CategoryModal";
 import { authService } from "../../services/authService";
+import { fetchUnreadMentions } from "../../features/kanban/api";
 import { useCategories } from "../../features/meetings/hooks/useCategories";
 import { useCurrentUser } from "../../features/auth/hooks/useCurrentUser";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,21 @@ export default function Sidebar() {
   }, [collapsed]);
   useCategories();
   const { user } = useCurrentUser();
+
+  // Unread @mention indicator on the Boards entry.
+  //
+  // Fetched on mount, not polled: the Sidebar remounts on every route change
+  // in this app (see the scrollTop note below), so navigating anywhere already
+  // refreshes it, and a poll would add a request every few seconds for an
+  // indicator that changes rarely.
+  const [unreadMentions, setUnreadMentions] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    fetchUnreadMentions()
+      .then((u) => alive && setUnreadMentions(u.count))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // ponytail: Sidebar unmounts on every route change (per-page <Layout>).
   // Persist nav scrollTop so it survives the remount. Upgrade path:
@@ -252,8 +268,28 @@ export default function Sidebar() {
                         className={rowClass(active)}
                       >
                         {active && !collapsed && activeRail}
-                        <Icon className={glyphClass(active)} strokeWidth={2} />
-                        {!collapsed && <span className="truncate">{label}</span>}
+                        <span className="relative shrink-0">
+                          <Icon className={glyphClass(active)} strokeWidth={2} />
+                          {/* Collapsed rail has no label to sit beside, so the
+                              dot rides the icon instead — otherwise the only
+                              indicator vanishes exactly when the sidebar is
+                              narrow enough to need one. */}
+                          {collapsed && path === "/boards" && unreadMentions > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-500 ring-2 ring-canvas" />
+                          )}
+                        </span>
+                        {!collapsed && (
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="truncate">{label}</span>
+                            {path === "/boards" && unreadMentions > 0 && (
+                              <span
+                                className="size-2 shrink-0 rounded-full bg-red-500"
+                                title={`${unreadMentions} unread mention${unreadMentions === 1 ? "" : "s"}`}
+                                aria-label="Unread mentions"
+                              />
+                            )}
+                          </span>
+                        )}
                       </Link>
                     );
                   })}

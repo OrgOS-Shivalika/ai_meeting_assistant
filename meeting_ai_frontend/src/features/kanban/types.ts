@@ -28,6 +28,8 @@ export interface BoardSummary {
 
 export interface BoardTaskSummary {
   id: number;
+  /** This viewer has an unread @mention on the card — drives the red dot. */
+  has_unread_mention?: boolean;
   task: string;
   owner: string | null;
   priority: "low" | "medium" | "high";

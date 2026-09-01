@@ -66,6 +66,8 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
         onOpen?.(task);
       }}
       className={cn(
+        // `relative` so the unread dot can sit on the card's corner.
+        "relative",
         // Floating card — the one place the system allows a soft shadow.
         "cursor-grab rounded-md border border-hairline bg-canvas p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all active:cursor-grabbing",
         isDragging && "opacity-30",
@@ -75,6 +77,18 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
           : "hover:border-muted-soft",
       )}
     >
+      {/* Unread @mention — the phone-style dot. Sits ON the card's corner
+          rather than in the content flow, so it never shifts the title and is
+          visible at a glance while scanning a column. Per-viewer: the same
+          card is dotted for the person mentioned and plain for everyone else. */}
+      {task.has_unread_mention && (
+        <span
+          className="absolute -top-1 right-4 size-2.5 rounded-full bg-red-500 ring-2 ring-canvas"
+          title="You were mentioned"
+          aria-label="Unread mention"
+        />
+      )}
+
       {/* Title + priority */}
       <div className="mb-2.5 flex items-start justify-between gap-2">
         <h4

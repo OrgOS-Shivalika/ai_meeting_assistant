@@ -177,3 +177,35 @@ export const fetchActivity = (
   const qs = params.toString();
   return apiClient(`/tasks/${taskId}/activity${qs ? `?${qs}` : ""}`);
 };
+
+// ---------------------------------------------------------------------------
+// Organization directory — the @mention picker's source.
+//
+// NOT `/admin/members`, which answers "who may I administer" and strips org
+// admins, so a member would get a partial list. This one returns everybody in
+// the caller's own organization and nobody else.
+// ---------------------------------------------------------------------------
+
+export interface OrgMember {
+  id: string;
+  name: string;
+  /** Only present when task_id was supplied. False = can't open this card. */
+  can_view?: boolean;
+}
+
+export const fetchOrgMembers = (taskId?: number): Promise<OrgMember[]> =>
+  apiClient(`/org/members${taskId != null ? `?task_id=${taskId}` : ""}`);
+
+/** Clear this viewer's unread-mention dot on a card. */
+export const markMentionsRead = (taskId: number): Promise<void> =>
+  apiClient(`/tasks/${taskId}/mentions/read`, { method: "POST" });
+
+export interface UnreadMentions {
+  count: number;
+  task_ids: number[];
+  board_ids: number[];
+}
+
+/** This viewer's unread @mentions, rolled up for the sidebar + board list. */
+export const fetchUnreadMentions = (): Promise<UnreadMentions> =>
+  apiClient("/mentions/unread");

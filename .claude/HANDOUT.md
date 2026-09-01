@@ -1217,6 +1217,38 @@ are not assigned), all in a ROLLED-BACK transaction:
 `tests/test_rbac_scopes.py` 35 -> 36. Mutation-checked: adding
 `assignee_user_id` to STATUS_FIELDS fails the suite by name.
 
+### 2026-09-01 — read-only orientation pass (nothing edited but this file)
+
+- Whole-codebase read. Verified against the live tree, not notes: `main:app`
+  imports with **212 routes** (211 + the new `/org/members`); alembic head in
+  `alembic/versions` is still `ah08boardroute`, chain linear; ten offline suites
+  green — mentions 18, rbac 36, routing 24, speaker 28, capture 19, labels 19,
+  realtime-diarization 20, participant 8, memory 4, profile 4.
+- **§6 had no record of the work now sitting uncommitted.** HEAD is
+  `43e467e board status changes fix`; the working tree carries an unlogged
+  **@mentions in task comments** feature: new `app/services/kanban/mentions.py`
+  (parse / `strip_mentions` / `validate_and_normalize` / `annotate_viewers`),
+  new `tests/test_mentions.py` (18), a new `GET /org/members` directory
+  endpoint in `routes.py`, `kanban.service.create_task_comment` +
+  `update_comment` routed through `validate_and_normalize`, and three frontend
+  files (`MentionText.tsx`, `MentionTextarea.tsx`, `TaskComments.tsx`) plus the
+  comment-count badge moving to `TaskCard`'s top-right cluster.
+  Storage is `@[Name](uuid)` inside the existing `task_comments.body` — **no
+  migration**, so nothing here changes the prod-schema-vs-prod-code state
+  recorded below.
+- Security shape of that feature, worth not re-deriving: mentions are validated
+  against the AUTHOR'S org and the display name is REWRITTEN from the DB (the
+  client sends the whole body, so `@[Chief Executive](intern-uuid)` is otherwise
+  free), a cross-tenant uuid is reported identically to "no such user", and a
+  mention confers NO access. `/org/members` is deliberately NOT
+  `/admin/members` — that one is scoped by `admin_visible_user_ids` and strips
+  org admins, so a member would get a partial picker.
+- **Pre-existing wrong import, harmless today:** `app/api/routes.py:2` is
+  `from requests import Session` — the HTTP session, not SQLAlchemy's. It only
+  survives because every use is `db: Session = Depends(get_db)`, where FastAPI
+  reads the dependency and ignores the annotation. It will bite the first time
+  someone relies on that annotation (or turns on a type checker).
+
 ---
 
 ## 7. Open threads
@@ -1265,7 +1297,8 @@ wrap the `live_summary_tracker` tick in `@observe` so its ~28 orphan root
 traces get a meeting/org parent; correct `TECHNICAL_REFERENCE.md` §14.1 and
 §14.11, which now describe fixed problems.
 
-**Uncommitted:** nothing. Working tree clean as of 2026-08-17.
+**Uncommitted:** the @mentions feature — 4 new files, 5 modified. See the
+2026-09-01 entry in §6. Offline-green and migration-free, but unshipped.
 
 **Unverified claim to close:** the scorer fix targets a *production* symptom
 (`SSL SYSCALL error` on a remote DB). It is only proven offline. Either time a

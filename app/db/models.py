@@ -428,6 +428,50 @@ class TaskComment(Base):
     author = relationship("User", foreign_keys=[author_user_id])
 
 
+class CommentMention(Base):
+    """One (comment, mentioned user) pair, with that user's read state.
+
+    Derived from the comment body — `@[Name](uuid)` is the source of truth and
+    this table is its index, rewritten whenever the body changes. It exists
+    because "does this card have an unread mention for me" cannot be answered
+    by scanning bodies at board-render time.
+
+    `read_at IS NULL` means unread. Shaped like a notification row on purpose:
+    when email or an inbox is added it reads from here rather than needing a
+    second table.
+
+    `task_id` is denormalized off the comment so the board query is one indexed
+    scan rather than a join per card.
+    """
+    __tablename__ = "comment_mentions"
+    __table_args__ = (
+        UniqueConstraint(
+            "comment_id", "user_id", name="uq_comment_mentions_comment_user",
+        ),
+        Index(
+            "ix_comment_mentions_unread", "user_id", "task_id",
+            postgresql_where=text("read_at IS NULL"),
+        ),
+        Index("ix_comment_mentions_comment", "comment_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    comment_id = Column(
+        Integer, ForeignKey("task_comments.id", ondelete="CASCADE"), nullable=False,
+    )
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False,
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc), server_default=text("now()"),
+    )
+
+
 class TaskActivity(Base):
     """Append-only audit feed per task. Drives the activity timeline in
     the card detail drawer. NEVER updated in place — every event is a

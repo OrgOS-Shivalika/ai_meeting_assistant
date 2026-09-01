@@ -11,6 +11,8 @@ import {
   updateComment as updateCommentApi,
 } from "../api";
 import type { Comment } from "../types";
+import MentionText from "./MentionText";
+import MentionTextarea from "./MentionTextarea";
 
 interface Props {
   taskId: number;
@@ -173,17 +175,12 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
                   </div>
                   {editing ? (
                     <div className="mt-1 space-y-1">
-                      <textarea
-                        autoFocus
+                      <MentionTextarea
+                        taskId={taskId}
                         rows={2}
                         value={editingBody}
-                        onChange={(e) => setEditingBody(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") {
-                            setEditingId(null);
-                            setEditingBody("");
-                          }
-                        }}
+                        onChange={setEditingBody}
+                        onSubmit={() => void handleEditSave(c.id)}
                         className="w-full text-xs px-2 py-1.5 border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none resize-none"
                       />
                       <div className="flex items-center gap-1.5">
@@ -207,7 +204,7 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
                     </div>
                   ) : (
                     <p className="mt-1 text-xs text-slate-700 whitespace-pre-wrap break-words">
-                      {c.body}
+                      <MentionText body={c.body} />
                     </p>
                   )}
                 </div>
@@ -219,17 +216,13 @@ export default function TaskComments({ taskId, refreshKey, onChange }: Props) {
 
       {/* New comment composer */}
       <div className="pt-2 border-t border-slate-100 space-y-1">
-        <textarea
+        <MentionTextarea
+          taskId={taskId}
           rows={2}
           value={newBody}
-          onChange={(e) => setNewBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void handleSubmit();
-            }
-          }}
-          placeholder="Add a comment… (Cmd/Ctrl+Enter to post)"
+          onChange={setNewBody}
+          onSubmit={() => void handleSubmit()}
+          placeholder="Add a comment… @ to mention, Cmd/Ctrl+Enter to post"
           className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none resize-none"
         />
         <div className="flex justify-end">

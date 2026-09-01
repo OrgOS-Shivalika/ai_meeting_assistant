@@ -153,6 +153,10 @@ class BoardTaskSummary(BaseModel):
     column_id: Optional[int]
     is_completed: bool
     is_unassigned: bool
+    # True when THIS viewer has an unread @mention on the card — the red dot.
+    # Per-viewer, so it is computed per request rather than stored on the task:
+    # the same card is unread for one person and read for another.
+    has_unread_mention: bool = False
     meeting_id: Optional[int]
     meeting_title: Optional[str] = None
     team_id: Optional[int] = None
