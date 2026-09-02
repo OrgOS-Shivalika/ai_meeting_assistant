@@ -270,3 +270,36 @@ def test_migration_default_columns_match_helper():
     spec.loader.exec_module(mod)
 
     assert mod.DEFAULT_COLUMNS == defaults.DEFAULT_COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# Column reorder — the constraint has to be DEFERRABLE or it cannot work.
+# ---------------------------------------------------------------------------
+
+
+def test_column_position_uniqueness_is_deferrable():
+    """Reordering columns shifts a run of siblings in one UPDATE:
+
+        SET position = position + 1 WHERE position >= :new AND position < :old
+
+    Postgres checks UNIQUE per ROW, so the row moving 0 -> 1 collides with the
+    row still at 1. Non-deferred, that raises and dragging a column more than
+    one place is impossible — which is exactly what shipped until
+    `ak11coldefer`. Parking the moved column at -1 first (which
+    `update_column` does) frees only ITS slot, not the shifted range.
+
+    This asserts on the model because the failure is silent in the worst way:
+    a future migration that rebuilds this constraint without `deferrable` puts
+    the bug straight back, and nothing else would notice until a user drags a
+    column.
+    """
+    from app.db.models import KanbanColumn
+
+    uc = next(
+        c for c in KanbanColumn.__table__.constraints
+        if getattr(c, "name", None) == "uq_kanban_columns_board_position"
+    )
+    assert uc.deferrable is True, "column position uniqueness must be DEFERRABLE"
+    assert uc.initially == "DEFERRED"
+    # Still unique — deferring moves WHEN it is checked, not WHETHER.
+    assert sorted(col.name for col in uc.columns) == ["board_id", "position"]

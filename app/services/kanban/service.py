@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.db.models import (
     Category,
@@ -286,11 +286,31 @@ def get_board_detail(
     # `_serialize_task` can read team / category names without an N+1.
     # Two parallel joinedload chains (not nested) because team and
     # category are sibling relationships on Meeting.
+    #
+    # `load_only` is not a micro-optimisation, it is the whole cost of this
+    # endpoint. A card shows a meeting TITLE, but `meetings` also holds
+    # `transcript`, `transcript_text`, `transcript_raw` and `summary`, and a
+    # plain joinedload fetches every column. On a 928-card board that was
+    # 38 MB of transcript dragged across the wire to render 148 kB of cards,
+    # and it took ~7 s. Naming the four columns the card actually reads takes
+    # it to well under a second.
+    #
+    # Cards repeat meetings (928 cards over 83 meetings here), so the same
+    # meeting row is also sent once per card — hence the size. If more meeting
+    # fields are ever needed on a card, add them HERE rather than dropping
+    # load_only, or the 7 s comes straight back.
     task_q = (
         db.query(Task)
         .options(
-            joinedload(Task.meeting).joinedload(Meeting.team),
-            joinedload(Task.meeting).joinedload(Meeting.category),
+            joinedload(Task.meeting).load_only(
+                Meeting.id, Meeting.title, Meeting.team_id, Meeting.category_id,
+            ),
+            joinedload(Task.meeting).joinedload(Meeting.team).load_only(
+                Team.id, Team.name,
+            ),
+            joinedload(Task.meeting).joinedload(Meeting.category).load_only(
+                Category.id, Category.name,
+            ),
         )
         .filter(Task.column_id.in_(column_ids) if column_ids else False)
         .order_by(Task.position.asc().nullslast(), Task.id.asc())

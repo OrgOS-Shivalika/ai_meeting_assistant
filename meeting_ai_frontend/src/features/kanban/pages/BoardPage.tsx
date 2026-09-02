@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
@@ -11,8 +11,13 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Filter, Search } from "lucide-react";
-import { createBoardTask, moveTask } from "../api";
+import { createBoardTask, moveTask, updateColumn } from "../api";
 import { useBoardOutletContext } from "./BoardLayout";
 import BoardColumn from "../components/BoardColumn";
 import TaskCard from "../components/TaskCard";
@@ -72,16 +77,27 @@ export default function BoardPage() {
   // K4 — card detail drawer state. Deep-linkable via ?task=<id>.
   const taskParam = searchParams.get("task");
   const openTaskId = taskParam ? Number(taskParam) : null;
-  const openDrawer = (taskId: number) => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("task", String(taskId));
-        return next;
-      },
-      { replace: false },
-    );
-  };
+  // useCallback here is not style — it is what lets `memo(TaskCard)` work.
+  // A fresh arrow on every render is a changed prop on all ~900 cards, so the
+  // memo would never hit and every keystroke in the search box would re-render
+  // the entire board.
+  const openDrawer = useCallback(
+    (taskId: number) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("task", String(taskId));
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
+  const handleOpenTask = useCallback(
+    (t: BoardTaskSummary) => openDrawer(t.id),
+    [openDrawer],
+  );
   const closeDrawer = () => {
     setSearchParams(
       (prev) => {
@@ -246,6 +262,16 @@ export default function BoardPage() {
     setActiveTask(findTask(board, taskId));
   };
 
+  // Which column does this drop target belong to? A drag can end over a
+  // column's sortable wrapper, its droppable card area, or a card inside it —
+  // all three mean the same column.
+  const columnIdOf = (b: BoardDetail, overId: string): number | null => {
+    if (overId.startsWith("colsort-")) return Number(overId.slice(8));
+    if (overId.startsWith("column-")) return Number(overId.slice(7));
+    if (overId.startsWith("task-")) return findContainer(b, Number(overId.slice(5)));
+    return null;
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveTask(null);
     if (!board) return;
@@ -254,6 +280,43 @@ export default function BoardPage() {
 
     const activeId = String(active.id);
     const overId = String(over.id);
+
+    // --- Column reorder ------------------------------------------------
+    if (activeId.startsWith("colsort-")) {
+      const columnId = Number(activeId.slice(8));
+      const overColumnId = columnIdOf(board, overId);
+      if (overColumnId == null || overColumnId === columnId) return;
+
+      const from = board.columns.findIndex((c) => c.id === columnId);
+      const to = board.columns.findIndex((c) => c.id === overColumnId);
+      if (from < 0 || to < 0) return;
+
+      // Send the DESTINATION column's current `position`, not the array
+      // index. They are the same today (every board is contiguous), but
+      // `delete_column` does not renumber its siblings, so one deletion
+      // leaves a gap and index-as-position would then reorder the wrong
+      // pair. The server shifts the columns between the two either way.
+      const targetPosition = board.columns[to].position;
+
+      const prevBoard = board;
+      setBoardOptimistic((curr) => ({
+        ...curr,
+        columns: arrayMove(curr.columns, from, to),
+      }));
+      try {
+        await updateColumn(columnId, { position: targetPosition });
+        void refresh();
+      } catch (e) {
+        // Same contract as a failed card move: put it back. Reordering is
+        // an admin action, so a member dragging a column gets a 403 here
+        // and simply sees it snap back.
+        console.error("[KANBAN] column reorder failed, rolling back", e);
+        setBoardOptimistic(prevBoard);
+      }
+      return;
+    }
+
+    // --- Card move -----------------------------------------------------
     if (!activeId.startsWith("task-")) return;
     const taskId = Number(activeId.slice("task-".length));
 
@@ -262,7 +325,11 @@ export default function BoardPage() {
     // column itself.
     let targetColumnId: number | null = null;
     let beforeTaskId: number | null = null;
-    if (overId.startsWith("column-")) {
+    if (overId.startsWith("colsort-")) {
+      // Dropped on a column's sortable wrapper rather than its card area —
+      // e.g. released over the header. Treat it as "into this column".
+      targetColumnId = Number(overId.slice(8));
+    } else if (overId.startsWith("column-")) {
       targetColumnId = Number(overId.slice("column-".length));
     } else if (overId.startsWith("task-")) {
       const overTaskId = Number(overId.slice("task-".length));
@@ -411,15 +478,20 @@ export default function BoardPage() {
       >
         <div className="vb-no-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-9 py-6">
           <div className="flex h-full items-start gap-4">
-            {filteredColumns.map((col) => (
-              <BoardColumn
-                key={col.id}
-                column={col}
-                visibleTasks={col.tasks}
-                onOpenTask={(t) => openDrawer(t.id)}
-                onAddCard={handleAddCard}
-              />
-            ))}
+            <SortableContext
+              items={filteredColumns.map((c) => `colsort-${c.id}`)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {filteredColumns.map((col) => (
+                <BoardColumn
+                  key={col.id}
+                  column={col}
+                  visibleTasks={col.tasks}
+                  onOpenTask={handleOpenTask}
+                  onAddCard={handleAddCard}
+                />
+              ))}
+            </SortableContext>
             {/* Add Column — inline create flow. Refresh after save so
                 the new column shows up at the end of the row. */}
             <AddColumnButton boardId={board.id} onAdded={refresh} />

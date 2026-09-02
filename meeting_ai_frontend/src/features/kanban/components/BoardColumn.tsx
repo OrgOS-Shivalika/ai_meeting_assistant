@@ -1,6 +1,12 @@
 
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useDroppable } from "@dnd-kit/core";
+import { GripVertical } from "lucide-react";
 import TaskCard from "./TaskCard";
 import QuickAddCard from "./QuickAddCard";
 import type { BoardTaskSummary, ColumnWithTasks } from "../types";
@@ -40,6 +46,25 @@ export default function BoardColumn({
     data: { columnId: column.id, type: "column" },
   });
 
+  // The column is ALSO a sortable, so the columns can be reordered.
+  //
+  // A separate id prefix from the droppable above, and deliberately not
+  // `column-`: `"column-5".startsWith("col-")` is true, so a shorter prefix
+  // would make the two indistinguishable in BoardPage's drop handler and every
+  // card drop onto a column would be read as a column reorder.
+  //
+  // `listeners` go on the HEADER, not on this wrapper. Spread over the whole
+  // column they would swallow every card drag inside it — you could no longer
+  // pick up a card, only the column holding it.
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setSortableRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `colsort-${column.id}`, data: { type: "column" } });
+
   const colorKey = column.color || "slate";
   const dot = COLUMN_DOT[colorKey] || COLUMN_DOT.slate;
 
@@ -53,9 +78,21 @@ export default function BoardColumn({
     column.wip_limit != null && visibleTasks.length > column.wip_limit;
 
   return (
-    <div className="flex max-h-full w-75 shrink-0 flex-col rounded-lg bg-surface-soft p-3.5">
-      {/* Column header */}
-      <div className="flex items-center gap-2.5 px-1.5 pb-3">
+    <div
+      ref={setSortableRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex max-h-full w-75 shrink-0 flex-col rounded-lg bg-surface-soft p-3.5",
+        isDragging && "opacity-60 ring-2 ring-ink",
+      )}
+    >
+      {/* Column header — doubles as the drag handle for reordering. */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="group flex cursor-grab items-center gap-2.5 px-1.5 pb-3 active:cursor-grabbing"
+      >
+        <GripVertical className="-ml-1 size-3 shrink-0 text-muted-soft opacity-0 transition-opacity group-hover:opacity-100" />
         <span
           className="size-2.5 shrink-0 rounded-full"
           style={{ background: dot }}

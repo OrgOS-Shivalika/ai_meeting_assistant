@@ -358,7 +358,14 @@ class KanbanBoard(Base):
 class KanbanColumn(Base):
     __tablename__ = "kanban_columns"
     __table_args__ = (
-        UniqueConstraint("board_id", "position", name="uq_kanban_columns_board_position"),
+        # DEFERRABLE (migration ak11coldefer) so a reorder can shift a run of
+        # columns in one UPDATE. Postgres checks uniqueness per ROW, so the
+        # non-deferred version rejected the transient duplicate every shift
+        # necessarily creates, and column reordering could not work at all.
+        UniqueConstraint(
+            "board_id", "position", name="uq_kanban_columns_board_position",
+            deferrable=True, initially="DEFERRED",
+        ),
         CheckConstraint(
             "bound_status IS NULL OR bound_status IN "
             "('todo', 'in_progress', 'in_review', 'done', 'archived')",

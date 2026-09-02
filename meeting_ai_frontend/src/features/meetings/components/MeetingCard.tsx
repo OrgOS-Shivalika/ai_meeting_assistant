@@ -37,17 +37,31 @@ interface MeetingCardProps {
   isDeleting?: boolean;
 }
 
-// Status → vibrant semantic tokens (from colors.css: --vb-success/info/warning/error).
-// The token is the FILL and the label is white. A tint of the hue behind text
-// of the same hue was the old scheme; it reads as washed out on a light canvas
-// and disappears outright on a dark one, since the tint is mixed with white.
-// Solid fill has one contrast ratio on every background, so this needs no
-// per-theme override.
+// Status → softened semantic tokens (from colors.css: --vb-success/info/warning/error).
+// The chip is a mixed surface tint instead of a flat saturated fill, so it
+// stays readable on both the cream light mode and the dark card surface.
+// `--vb-ink` already flips with theme, so one label colour works everywhere.
 const STATUS_STYLE = {
-  completed:  { label: "Completed",  color: "#fff", bg: "var(--vb-success)" },
-  processing: { label: "Processing", color: "#fff", bg: "var(--vb-info)" },
-  pending:    { label: "Pending",    color: "#fff", bg: "var(--vb-warning)" },
-  failed:     { label: "Failed",     color: "#fff", bg: "var(--vb-error)" },
+  completed: {
+    label: "Completed",
+    color: "var(--vb-ink)",
+    bg: "color-mix(in srgb, var(--vb-success) 22%, var(--vb-surface-card))",
+  },
+  processing: {
+    label: "Processing",
+    color: "var(--vb-ink)",
+    bg: "color-mix(in srgb, var(--vb-info) 22%, var(--vb-surface-card))",
+  },
+  pending: {
+    label: "Pending",
+    color: "var(--vb-ink)",
+    bg: "color-mix(in srgb, var(--vb-warning) 20%, var(--vb-surface-card))",
+  },
+  failed: {
+    label: "Failed",
+    color: "var(--vb-ink)",
+    bg: "color-mix(in srgb, var(--vb-error) 22%, var(--vb-surface-card))",
+  },
 } as const;
 
 export default function MeetingCard({
@@ -110,7 +124,7 @@ export default function MeetingCard({
   // Ink measures ~15:1 on a 38% fill and ~11:1 even on the most saturated hue
   // in the palette (pink), so the fill can carry real colour at no cost to
   // legibility — hence a level well above a conventional pastel tint.
-  const catChipBg = `color-mix(in srgb, ${catColor} 38%, white)`;
+  const catChipBg = `color-mix(in srgb, ${catColor} 16%, var(--vb-surface-card))`;
   // The imagine.bo category is the one that carries the brand mark, and its
   // name is set in ink beside it — the gradient mark already supplies the
   // colour, so tinted text next to it read as a third competing hue.
@@ -140,11 +154,12 @@ export default function MeetingCard({
               fontSize: 11,
               fontWeight: 600,
               letterSpacing: "0.3px",
-              padding: "4px 9px",
+              padding: "4px 10px",
               borderRadius: 9999,
               marginBottom: 12,
-              color: "var(--vb-ink)",
+              color: "var(--vb-body-strong)",
               background: catChipBg,
+              border: `1px solid color-mix(in srgb, ${catColor} 14%, var(--vb-hairline-soft))`,
               // Fill only — the label is ink, which has no chroma to push.
               // Skipped on the brand chip so the mark's gradient stays exact.
               filter: isBrandCategory ? undefined : "saturate(1.7)",
@@ -157,13 +172,15 @@ export default function MeetingCard({
               <Logo
                 variant="mark"
                 alt=""
-                className="h-[11px]"
+                className="h-2.75"
                 style={{ marginRight: 5 }}
               />
             )}
-            {meeting.category.name}
+            <span style={{ color: "var(--vb-body-strong)" }}>{meeting.category.name}</span>
             {meeting.team && (
-              <span style={{ opacity: 0.8, marginLeft: 4 }}>· {meeting.team.name}</span>
+              <span style={{ color: "var(--vb-muted-soft)", marginLeft: 6, fontWeight: 500 }}>
+                · {meeting.team.name}
+              </span>
             )}
           </span>
         )}
@@ -255,6 +272,7 @@ export default function MeetingCard({
                 borderRadius: 9999,
                 color: status.color,
                 background: status.bg,
+                border: `1px solid color-mix(in srgb, ${status.color} 10%, var(--vb-hairline-soft))`,
               }}
             >
               {status.label}
@@ -331,7 +349,7 @@ export default function MeetingCard({
       {/* Overflow menu */}
       {showMenu && (
         <div
-          className="absolute top-11 right-3 z-20 min-w-[140px] py-1"
+          className="absolute top-11 right-3 z-20 min-w-35 py-1"
           onClick={(e) => e.stopPropagation()}
           style={{
             background: "var(--vb-canvas)",

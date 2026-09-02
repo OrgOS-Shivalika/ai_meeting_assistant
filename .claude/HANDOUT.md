@@ -1341,15 +1341,137 @@ Tried fully-transparent surfaces + backdrop-blur and no scrim at the user's
 request, then **reverted at their request** — the opaque version reads better.
 Do not re-propose it.
 
+### 2026-09-01 (later) — board load: 7.1 s → 0.12 s
+
+- **Root cause, measured not guessed:** `get_board_detail` eager-loaded the
+  WHOLE `meetings` row per card. `meetings` carries `transcript`,
+  `transcript_text`, `transcript_raw` and `summary`; a card renders only the
+  title. Board 52 (928 cards over 83 meetings) pulled **38 MB of meeting rows
+  to render 148 kB of cards** — confirmed with
+  `sum(pg_column_size(m.*))` over the board's join.
+- **Fix:** `load_only` on the three joinedload chains in
+  `app/services/kanban/service.py` — `Meeting.{id,title,team_id,category_id}`,
+  `Team.{id,name}`, `Category.{id,name}`. **7148 ms → 116 ms (~60x)**, warm
+  runs 64 ms. `list_boards` was never the problem (18 ms).
+- **Verified on the outcome, not the absence of an error** (landmine 2): after
+  the change, serialized `team_name` set on 140 cards and `category_name` on
+  196, asserted equal to the SQL ground truth for board 52 — a `load_only` that
+  quietly broke the relationships would have shown 0 and still "worked".
+  `sa_inspect(meeting).unloaded` confirms the four heavy columns stay deferred.
+- **Frontend:** `memo(TaskCard)` + `useCallback` on `openDrawer`/`handleOpenTask`
+  in `BoardPage.tsx`. The memo is USELESS without the useCallback — the inline
+  `onOpenTask={(t) => openDrawer(t.id)}` was a new prop identity on all 928
+  cards every render. `tsc --noEmit` + `vite build` clean.
+- **Not done, deliberately:** no virtualisation. 928 `useSortable` hooks still
+  mount at once, but the measured 7 s was server-side; virtualising a dnd-kit
+  board is a large change and should follow a browser profile, not a hunch.
+- Tests: `test_board_routing` 24/24, `test_mentions` 18/18,
+  `test_rbac_org_admin_concealment` 14/14. The 9 failures in
+  `test_kanban_k1/k2/k4` are **pre-existing** — confirmed by stashing
+  `service.py` and re-running (same 9).
+
+### 2026-09-01 (later still) — background image moved to S3 — **REVERTED**
+
+**Reverted the same day at the user's request** ("the background image in s3
+is bad"). Migration `aj10bgimage` downgraded and its file deleted, the model
+column removed, the three `/auth/me/background` endpoints removed, and
+`background.ts` + `SettingsPage.tsx` restored to the localStorage data-URL
+version. The one uploaded object (139KB) was deleted from the bucket before
+the pointer column was dropped — nothing else referenced it. `ak11coldefer`
+was re-chained onto `ai09mentionread` and re-applied; the deferrable-constraint
+fix is UNAFFECTED. Do not re-propose this without asking.
+
+What follows is what was built, kept only as a record of the design:
+
+- **Why:** it was a data URL in `localStorage` and nowhere else, so it died on
+  a cache clear, in a private window, and on every other device. Now
+  `users.background_image_key` -> object store (migration **`aj10bgimage`**,
+  applied LOCAL only).
+- **Endpoints** on `auth_router`: `GET/POST/DELETE /auth/me/background`.
+  Key is `user/{user_id}/background/{uuid}{ext}`; bytes only ever leave as a
+  6 h presigned URL. No endpoint accepts a key or a user id, so there is
+  nothing to point at someone else's image.
+- **New UUID per upload, not a fixed key** — deliberate. A stable key would be
+  tidier, but every browser holding the previous presigned URL would keep
+  serving the OLD picture from cache under a URL now pointing at new bytes.
+- **Old object deleted only AFTER the pointer commits.** The other order loses
+  the image if the commit fails and leaves the person with no way back.
+- **`syncBackgroundImage()` uses bare `fetch`, NOT `apiClient`** — it runs at
+  boot on every page including `/login`, where the request is a guaranteed 401,
+  and `apiClient` redirects to `/login` on 401. Decoration must never be able
+  to bounce someone to a login screen. It also swallows every error: only a
+  SUCCESSFUL null clears a painted background, so a network blip cannot blank
+  it.
+- localStorage now caches only the signed URL, for first paint. `initBackground`
+  paints the cache synchronously, then the server has the last word.
+- **Verified end-to-end against the REAL bucket** (`t3.storageapi.dev`), twice:
+  service-level, then over HTTP through `TestClient` with real multipart —
+  upload lands, bytes round-trip identical, key namespaced by user id, URL
+  presigned, re-upload deletes the previous object, 415/400/413 guards fire and
+  leave the key untouched, DELETE clears both column and object. Both runs
+  restored the row to its original NULL — nothing leaked into the live DB.
+- `tsc --noEmit` + `vite build` clean.
+- **Anyone with an existing background must pick it once more** — there was no
+  server copy to migrate from. `initBackground` deletes the dead
+  `ui:background-image` key to reclaim the quota; that line can go once active
+  browsers have been through it.
+
+### 2026-09-01 (later still) — draggable board columns + a constraint bug
+
+- **The backend reorder had NEVER worked.** `update_column` shifts a run of
+  siblings in one statement (`SET position = position + 1 WHERE position >=
+  :new AND position < :old`). Postgres checks UNIQUE **per row**, so the row
+  moving 0 -> 1 collides with the row still at 1 and the whole transaction dies
+  on `uq_kanban_columns_board_position`. The code's own comment claims the
+  `-1` sentinel avoids this — it does not; parking the moved column frees only
+  ITS slot, not the shifted range. Another docstring contradicting its code
+  (landmine 1).
+- **Fix: migration `ak11coldefer`** rebuilds that constraint as
+  `DEFERRABLE INITIALLY DEFERRED` (applied LOCAL only). The constraint was
+  wrong, not the query — so this fixes `create_column`'s identical shift for
+  free and needed zero application changes. Uniqueness is unchanged, only
+  *when* it is checked.
+- **Verified against the live DB on a scratch board that is deleted again:**
+  last->first, first->last round trip, middle swap, positions stay contiguous,
+  and a MEMBER gets 403. Before the migration the same script died with
+  `UniqueViolation ... (board_id, position)=(74, 1) already exists`.
+- Offline guard added: `test_kanban_k1.py::test_column_position_uniqueness_is_deferrable`
+  asserts the model flag, mutation-checked (removing `deferrable=True` fails
+  it). A future migration rebuilding this constraint plainly would silently
+  restore the bug.
+- **Frontend:** `BoardColumn` gains `useSortable`, `BoardPage` a horizontal
+  `SortableContext`. Two things that will bite whoever edits this next:
+  1. The sortable id is `colsort-{id}`, NOT `col-{id}` —
+     `"column-5".startsWith("col-")` is TRUE, so a shorter prefix makes the
+     column-sortable and the card-droppable indistinguishable in the drop
+     handler and every card drop reads as a column reorder.
+  2. `listeners` go on the column HEADER, not the wrapper. On the wrapper they
+     swallow every card drag inside the column.
+- The UI sends the DESTINATION column's `position`, not its array index. Same
+  thing today (all 59 boards are contiguous) but `delete_column` does not
+  renumber siblings, so one deletion makes index != position.
+- No permission gating in the UI, matching `AddColumnButton`: the server 403s
+  and the drag rolls back.
+
+**Careless moment worth remembering:** `git checkout -- app/db/models.py` to
+undo a mutation test also reverted the UNRELATED `background_image_key` column
+added earlier in the session. Both were re-applied and re-verified. Use a
+scoped edit-and-restore, not `git checkout`, on a file with other pending work.
+
 ---
 
 ## 7. Open threads
 
 **Blocking again as of 2026-09-01:** prod is at `ah08boardroute`, local head
-is **`ai09mentionread`** — ONE migration behind (the `comment_mentions` table).
-The mentions code is committed (`26cf9b8`) and WILL 500 on every comment
-create/edit and every board load without that table, so
-`alembic upgrade head` must precede the next deploy. Prod code is still
+is **`ak11coldefer`** — TWO migrations behind: `ai09mentionread`
+(`comment_mentions`) and `ak11coldefer` (deferrable column-position
+constraint). The mentions code is committed (`26cf9b8`) and WILL 500 on every
+comment create/edit and every board load without that table; column
+drag-reorder will fail with a UniqueViolation until the constraint is rebuilt.
+`alembic upgrade head` must precede the next deploy.
+
+(`aj10bgimage` was created and then reverted the same day — see §6. The chain
+now runs `ai09mentionread -> ak11coldefer` with no gap.) Prod code is still
 `26eccfc`; nothing from 2026-08-31 or 2026-09-01 is deployed.
 
 Working tree: only the background picker is uncommitted (4 files —
@@ -1395,6 +1517,26 @@ traces get a meeting/org parent; correct `TECHNICAL_REFERENCE.md` §14.1 and
 
 **Uncommitted:** the @mentions feature — 4 new files, 5 modified. See the
 2026-09-01 entry in §6. Offline-green and migration-free, but unshipped.
+
+**Red test, pre-existing, cheap:** `tests/test_rbac_scopes.py` fails its
+`test_no_unreviewed_foreign_keys_into_users` guard on
+`comment_mentions.user_id` (NOT NULL + CASCADE), left over from the mentions
+work. CASCADE is almost certainly the right answer — a mention row means
+nothing once the account is gone — so the fix is to confirm that in
+`admin_service.delete_member` and add the key to `_ACCEPTED_CASCADES`. Left
+alone because the guard exists precisely so a human decides.
+
+**Someone else is mid-edit on `MeetingCard.tsx` (2026-09-01).** HEAD
+(`b322562`) has the status pill as a SOLID fill with a white label; the working
+tree replaces it with a theme-aware tint
+(`color-mix(... var(--vb-surface-card))` + `var(--vb-ink)`). That uncommitted
+design pass is fine on its own, but it left `onFill` being passed to
+`AIMemoryStatusDot` — a prop that exists ONLY to whiten the sparkle for a solid
+fill. On a pale tint that renders **a white sparkle on a near-white chip**, i.e.
+invisible in light mode. Fix is to delete the `onFill` line from
+`MeetingCard.tsx` (~line 282); `AIMemoryStatusDot`'s prop then has no caller.
+NOT edited here on purpose — the file was being changed outside the session and
+touching it would have clobbered work in flight.
 
 **Unverified claim to close:** the scorer fix targets a *production* symptom
 (`SSL SYSCALL error` on a remote DB). It is only proven offline. Either time a
