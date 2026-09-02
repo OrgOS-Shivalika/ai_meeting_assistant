@@ -5,6 +5,7 @@ from app.processors.transcript_processor import TranscriptProcessor
 from app.ai_agents.transcript_analyzer import TranscriptAnalyzer
 from app.services.kanban.defaults import resolve_landing_for_meeting
 from app.services.kanban.positions import position_for_end
+from app.services.kanban import assignees
 from app.utils.logger import setup_logger
 import json
 from app.db.models import Meeting, Task, Participant, User
@@ -347,10 +348,33 @@ class MeetingPipeline:
                     if column_id is not None:
                         position = position_for_end(db, column_id)
 
+                # Resolve the analyzer's owner LABEL to a real account where it
+                # unambiguously names one. Doing it here is what stops this
+                # being a backfill problem forever: a task that arrives
+                # assigned needs no cleanup later.
+                #
+                # Deliberately NOT wrapped in try/except. The resolver is one
+                # indexed query — if it can fail, the Task insert two lines
+                # below has already failed. Swallowing here would be the
+                # silent-failure pattern that hides dead features in this
+                # codebase.
+                # Guarded, like the board lookup above: `meeting` is a
+                # .first() and the code five lines up already treats None as
+                # reachable. Unguarded this would AttributeError and take down
+                # task saving for the entire meeting.
+                assignee = (
+                    assignees.resolve_assignee(
+                        db, meeting.organization_id, t.get("owner")
+                    )
+                    if meeting is not None
+                    else None
+                )
+
                 task = Task(
                     meeting_id=meeting_id,
                     task=task_text,
                     owner_name=t.get("owner"),
+                    assignee_user_id=assignee.id if assignee else None,
                     priority=t.get("priority", "medium"),
                     due_date=self.parse_iso_date(t.get("due_date")),
                     status="todo",

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -63,6 +63,7 @@ from app.schemas.kanban_schema import (
     TaskDetailResponse,
     TaskMoveRequest,
 )
+from app.services import notifications
 from app.services.kanban import service as kanban_service
 
 kanban_router = APIRouter(tags=["kanban"])
@@ -88,6 +89,10 @@ def _serialize_task(task: Task, comment_count: int = 0,
     """
     meeting = task.meeting if task.meeting else None
     meeting_title = meeting.title if meeting else None
+    # `Task.assignee` is lazy="raise", so this is only safe because
+    # `get_board_detail` eager-loads it. That is deliberate: a silent lazy
+    # load here would be one query per card.
+    assignee = task.assignee if task.assignee_user_id else None
     team = meeting.team if meeting else None
     team_id = team.id if team else None
     team_name = team.name if team else None
@@ -121,6 +126,8 @@ def _serialize_task(task: Task, comment_count: int = 0,
         created_at=task.created_at,
         comment_count=comment_count,
         has_unread_mention=has_unread_mention,
+        assignee_user_id=task.assignee_user_id,
+        assignee_name=assignee.name if assignee else None,
     )
 
 
@@ -410,11 +417,21 @@ def get_task_detail(
         "unknown", "n/a", "na", "-", "—",
     }
 
+    # Single task, so a lazy load would be one extra query, not 900 — but
+    # `Task.assignee` is lazy="raise", so it has to be asked for explicitly.
+    assignee = (
+        db.query(User).filter(User.id == task.assignee_user_id).first()
+        if task.assignee_user_id
+        else None
+    )
+
     return TaskDetailResponse(
         id=task.id,
         task=task.task,
         description=task.description,
         owner=task.owner_name,
+        assignee_user_id=task.assignee_user_id,
+        assignee_name=assignee.name if assignee else None,
         priority=task.priority,
         due_date=task.due_date,
         status=task.status,
@@ -589,3 +606,100 @@ def unread_mentions(
     from app.services.kanban import mentions as _mentions
 
     return _mentions.unread_summary(db, user)
+
+
+# ---------------------------------------------------------------------------
+# Notifications — the bell
+# ---------------------------------------------------------------------------
+#
+# Lives on the kanban router because everything that produces one today is a
+# card event. If a notification kind ever comes from outside the board, move
+# these to their own router rather than widening this one by accident.
+
+
+@kanban_router.get("/notifications")
+def list_notifications(
+    limit: int = Query(30, ge=1, le=100),
+    unread_only: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """This viewer's notifications, newest first, plus the unread count.
+
+    Scoped to `user.id` inside the service — there is no parameter that could
+    address someone else's feed, which is the only way to be sure a bell
+    cannot leak.
+    """
+    rows = notifications.list_for(db, user, limit=limit, unread_only=unread_only)
+    return {
+        "unread_count": notifications.unread_count(db, user),
+        "items": [
+            {
+                "id": n.id,
+                "kind": n.kind,
+                "task_id": n.task_id,
+                "comment_id": n.comment_id,
+                "payload": n.payload or {},
+                "read": n.read_at is not None,
+                "created_at": n.created_at,
+            }
+            for n in rows
+        ],
+    }
+
+
+@kanban_router.post("/notifications/read")
+def mark_notifications_read(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark some (`{"ids": [...]}`) or all (empty body) as read."""
+    ids = (payload or {}).get("ids") or None
+    return {"marked": notifications.mark_read(db, user, ids)}
+
+
+@kanban_router.get("/notifications/prefs")
+def get_notification_prefs(user: User = Depends(get_current_user)):
+    """This viewer's email opt-outs, with every kind reported explicitly.
+
+    Returns a value for every kind rather than echoing the stored JSONB,
+    because a missing key means ON — and a UI rendering raw storage would show
+    an unset toggle as OFF, which is the opposite of what the server does.
+    """
+    return {
+        kind: notifications.wants_email(user, kind)
+        for kind in (
+            notifications.KIND_ASSIGNED,
+            notifications.KIND_MENTIONED,
+            notifications.KIND_DUE_SOON,
+        )
+    }
+
+
+@kanban_router.patch("/notifications/prefs")
+def update_notification_prefs(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Turn email on/off per kind. In-app is not configurable — see the
+    service docstring: the bell costs the reader nothing, email interrupts."""
+    known = {
+        notifications.KIND_ASSIGNED: "email_task_assigned",
+        notifications.KIND_MENTIONED: "email_task_mentioned",
+        notifications.KIND_DUE_SOON: "email_task_due_soon",
+    }
+    unknown = set(payload) - set(known)
+    if unknown:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown notification kinds: {sorted(unknown)}"
+        )
+    # Rebuild rather than mutate in place: SQLAlchemy does not track mutation
+    # of a JSONB dict, so `prefs[key] = x` would be silently discarded.
+    prefs = dict(user.notification_prefs or {})
+    for kind, value in payload.items():
+        prefs[known[kind]] = bool(value)
+    user.notification_prefs = prefs
+    db.commit()
+    return {kind: notifications.wants_email(user, kind) for kind in known}

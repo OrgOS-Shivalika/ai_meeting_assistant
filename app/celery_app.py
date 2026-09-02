@@ -41,6 +41,7 @@ celery = Celery(
         "app.celery_tasks.agent_tasks",
         "app.celery_tasks.calendar_tasks",
         "app.celery_tasks.continuum_tasks",
+        "app.celery_tasks.notification_tasks",
     ],
 )
 
@@ -69,6 +70,19 @@ celery.conf.update(
 # past every hour, consolidation Sundays at 03:30 UTC.
 # ---------------------------------------------------------------------------
 celery.conf.beat_schedule = {
+    # Every 5 minutes: notification email is a courtesy, not a race, and a
+    # tighter loop would just poll an empty table. The in-app bell is
+    # immediate regardless — it reads the same rows the sweep is emailing.
+    "notification-emails": {
+        "task": "meeting_ai.send_pending_notification_emails",
+        "schedule": crontab(minute="*/5"),
+    },
+    # Hourly. Cheap and idempotent (`notify_due_soon` dedupes on task + due
+    # date), so the only cost of running it often is one indexed query.
+    "tasks-due-soon": {
+        "task": "meeting_ai.notify_tasks_due_soon",
+        "schedule": crontab(minute=15),
+    },
     "score-importance-hourly": {
         "task": "meeting_ai.score_importance_all_orgs",
         "schedule": crontab(minute=7),  # every hour at H:07

@@ -19,6 +19,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
+import re
+
 import pytest
 
 from app.services.kanban.activity import (
@@ -109,15 +111,32 @@ def test_record_activity_rejects_unknown_event_type():
 
 
 def test_record_activity_accepts_every_valid_event_type():
-    """All 11 event types from the model CHECK constraint must be
-    accepted by the helper. If someone adds a new event_type to the
-    model without updating VALID_EVENT_TYPES, this fails."""
-    expected = {
-        "created", "status_changed", "column_moved", "owner_changed",
-        "due_changed", "priority_changed", "description_changed",
-        "title_changed", "commented", "archived", "restored",
-    }
-    assert VALID_EVENT_TYPES == expected
+    """The Python set and the DB CHECK constraint must agree, exactly.
+
+    DERIVED from the model rather than hardcoded, which is the difference
+    between testing the invariant and restating one side of it. The old
+    version listed the 11 types literally, so adding a twelfth meant editing
+    three places — and if you edited only two, the drift it existed to catch
+    was the drift it reported as its own failure.
+
+    That is not hypothetical: `assignee_changed` was in NEITHER the set nor
+    the constraint while `meeting_service.update_task` recorded it, so every
+    assignee change 500'd. Nothing caught it because nothing had ever assigned
+    anyone.
+    """
+    from app.db.models import TaskActivity
+
+    check = next(
+        c for c in TaskActivity.__table__.constraints
+        if getattr(c, "name", None) == "ck_task_activity_event_type"
+    )
+    declared = set(re.findall(r"'([a-z_]+)'", str(check.sqltext)))
+    assert declared, "could not parse event types out of the CHECK constraint"
+    assert VALID_EVENT_TYPES == declared, (
+        "VALID_EVENT_TYPES and the DB CHECK constraint disagree. "
+        f"only in Python: {VALID_EVENT_TYPES - declared or '-'}; "
+        f"only in the constraint: {declared - VALID_EVENT_TYPES or '-'}"
+    )
 
 
 def test_record_activity_flushes_row():

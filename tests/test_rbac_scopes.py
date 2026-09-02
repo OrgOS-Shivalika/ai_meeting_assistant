@@ -362,6 +362,11 @@ _ACCEPTED_CASCADES = {
     # wrote it — but "this deleted account was mentioned" is not a fact worth
     # keeping, and an orphan would make an unread count nobody can clear.
     ("comment_mentions", "user_id"),
+    # Correct to follow: a notification is addressed to exactly one person and
+    # means nothing once that account is gone. Note the OTHER FK on this table,
+    # `actor_user_id`, is SET NULL instead — losing who did it must not delete
+    # the recipient's notification.
+    ("notifications", "user_id"),
     # MUST follow. A reset token is a live credential for exactly one
     # account; leaving one behind after the account is deleted means a
     # redeemable link pointing at a user that no longer exists. CASCADE is

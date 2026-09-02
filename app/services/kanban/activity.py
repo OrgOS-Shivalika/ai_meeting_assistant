@@ -37,6 +37,12 @@ VALID_EVENT_TYPES = frozenset({
     "status_changed",
     "column_moved",
     "owner_changed",
+    # The RESOLVED assignee, distinct from owner_changed (the free-text
+    # label). Missing until 2026-09-02, which meant every attempt to set an
+    # assignee raised ValueError out of record_activity — a 500 on the whole
+    # PATCH. Nothing had ever noticed because nothing had ever assigned
+    # anyone: 0 of 1304 tasks carried an assignee_user_id.
+    "assignee_changed",
     "due_changed",
     "priority_changed",
     "description_changed",

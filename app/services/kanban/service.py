@@ -28,6 +28,7 @@ from app.db.models import (
     TaskActivity,
     TaskComment,
     Team,
+    User,
 )
 from app.schemas.kanban_schema import (
     BoardCreateRequest,
@@ -311,6 +312,10 @@ def get_board_detail(
             joinedload(Task.meeting).joinedload(Meeting.category).load_only(
                 Category.id, Category.name,
             ),
+            # `Task.assignee` is lazy="raise" precisely so this cannot be
+            # forgotten: without it every card that HAS an assignee raises
+            # instead of quietly firing its own query.
+            joinedload(Task.assignee).load_only(User.id, User.name),
         )
         .filter(Task.column_id.in_(column_ids) if column_ids else False)
         .order_by(Task.position.asc().nullslast(), Task.id.asc())

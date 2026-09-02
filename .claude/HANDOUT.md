@@ -1692,9 +1692,141 @@ could be deleted.
   domain with no SPF and no DKIM, and editing the template would only muddy the
   test once DNS is fixed.
 
+### 2026-09-02 (cont.) — Jira slice 1: real assignment ("my work")
+
+User asked for "the board exactly like Jira". Scoped that down with a
+question; they chose **real assignment** first. The other slices offered, for
+whoever picks this up: epics/subtasks + story points, sprints + backlog,
+configurable workflow transitions.
+
+- **The schema and RBAC were already there and had NEVER RUN.**
+  `tasks.assignee_user_id` is a proper FK, and `permissions.task_view_clause`
+  already ORs in `Task.assignee_user_id == user.id` — so assigning GRANTS
+  access. `meeting_service.update_task` already validated admin-only and
+  same-org. It had simply never been executed: **0 of 1304 rows**.
+- **Two latent bugs that only surfaced because something finally called it:**
+  1. `assignee_changed` was missing from `activity.VALID_EVENT_TYPES` ->
+     ValueError, 500 on the PATCH.
+  2. It was ALSO missing from the DB CHECK `ck_task_activity_event_type` ->
+     CheckViolation even after fixing (1). Migration **`an14assigneeevent`**
+     (LOCAL only). Setting an assignee was impossible through any route.
+- **Measured, not assumed — the backfill ceiling is 24 of 839.** Most owner
+  labels are sentinels (`Conversation Group` alone is 406) or real people with
+  no account. Participants are no help: **181 rows, 0 linked to a user, 2 with
+  an email, every `match_source` NULL**. So a cleverer matcher buys nothing.
+- Conclusion that shaped the design: resolve at WRITE time, not by backfill.
+  `services/kanban/assignees.resolve_assignee` is shared by the pipeline and
+  the backfill script so the two can never disagree about who "Priya" is.
+  **Exact or nothing** — a wrong guess does not mislabel a card, it hands
+  someone access. Ambiguous (2+ same-name accounts) returns None on purpose.
+- Wired into BOTH task-creation sites (`meeting_pipeline.save_tasks`,
+  `live_tasks.persistence.handle_event`). **Both calls are guarded by
+  `if meeting is not None`** — I first wrote them unguarded, which would have
+  AttributeError'd and killed task saving for a whole meeting; the surrounding
+  code already treats that `.first()` as nullable.
+- `Task.assignee` relationship is **`lazy="raise"`** deliberately: a board
+  renders ~900 cards, and a silent lazy load would be 900 queries. Forgetting
+  the eager load now raises instead of quietly costing seconds. Board 52 is
+  928 cards in 262 ms.
+- UI: assignee picker in the drawer (org accounts, admin-only, hidden rather
+  than 403'd), "Assigned to me" as an option inside the existing Person filter
+  (matched on the ACCOUNT, never the name string).
+- `tests/test_task_assignment.py` **15/15** — cross-org assignment refused,
+  members cannot assign even to themselves, assigning grants visibility,
+  unassigning revokes it, the resolver refuses every sentinel.
+- Also made `test_kanban_k2::test_record_activity_accepts_every_valid_event_type`
+  DERIVE its expected set from the model constraint instead of hardcoding 11
+  strings — the old version could not detect the drift it existed to catch.
+  Mutation-checked.
+- `scripts/backfill_task_assignees.py` — dry-run by default, because a bulk
+  run is a bulk ACCESS GRANT. Not yet applied.
+
+### 2026-09-02 (cont.) — Jira slice 2: notifications
+
+Chosen over the remaining Jira slices because the previous two features both
+shipped SILENT: @mentions produced a red dot only visible to someone already
+looking at the board, and assignment produced no signal at all. For a product
+whose premise is capturing work while you are NOT paying attention, that was
+backwards. Nothing in this codebase had ever notified anyone — the only mail
+it sent was password resets and invites.
+
+- **Migration `ao15notifications`** (LOCAL only): `notifications` table +
+  `users.notification_prefs` JSONB.
+- `read_at IS NULL` = unread, deliberately the same shape as
+  `comment_mentions`. Two unread mechanisms in one product is how one ends up
+  wrong.
+- **`payload` snapshots the task title** rather than joining at render time.
+  "X assigned you Y" is a claim about the PAST; rewriting Y when the card is
+  renamed makes the history lie.
+- **`dedupe_key` is nullable and its unique index is PARTIAL.** NULL means
+  "fire every time" (an assignment IS news twice); set means "once" (anything
+  a timer produces). Postgres treats NULLs as distinct, so the two kinds
+  coexist with no special-casing. Due-soon dedupes on task + DUE DATE, so a
+  rescheduled task can remind again but the hourly sweep cannot nag.
+- **Rules enforced in one place, not per call site:** never notify yourself;
+  only notify people who can already open the thing (mentions are pre-filtered
+  through `task_view_clause`, assignment grants access by definition).
+- **Prefs default ON when a key is absent** — a kind added next year should
+  reach people, not arrive silently disabled for everyone who predates it.
+  Only EMAIL is opt-out; the in-app bell is not configurable, because it costs
+  the reader nothing and email interrupts.
+- Delivery: row written synchronously in the caller's transaction, email swept
+  by Celery every 5 min (`send_pending_notification_emails`), due-soon hourly
+  (`notify_tasks_due_soon`). SMTP has no business inside a PATCH.
+- **DEPLOYMENT TRAP:** those tasks run on the WORKER, so the worker needs
+  `SMTP_*` and `APP_PUBLIC_URL`. Without `SMTP_HOST`, `is_configured()` is
+  False and logs "skipped" as a SUCCESS — nothing sends, nothing errors. This
+  is the exact trap flagged earlier in §6 when the mail env was found to be
+  web-only; it is now real.
+- UI: bell in the Sidebar FOOTER (this app has no header — Layout is Sidebar +
+  content). Opening the panel does NOT mark all read; that is an explicit
+  action or a side effect of opening the card. Email toggles in Settings.
+- **`HTTPException` was never imported in `kanban_router`** — my 400 branch
+  would have 500'd. Caught by exercising it over HTTP, not by reading it.
+- `tests/test_notifications.py` **17/17**; `test_rbac_scopes` 37/37 after
+  registering `notifications.user_id` in `_ACCEPTED_CASCADES` (the actor FK is
+  SET NULL instead — losing who did it must not delete the recipient's row).
+
+### 2026-09-02 (cont.) — Assignee and Owner were writing to each other
+
+Reported: setting the Assignee also changed the Owner to the same name.
+
+- **Real, and it was my inconsistency.** `update_task` had always synced
+  `task.owner_name = assignee.name`, which was FINE while `owner_name` was the
+  only name a card displayed. Adding a separate Assignee field made it wrong:
+  two fields that answer different questions, one silently overwriting the
+  other, destroying the only record of what the meeting actually said.
+- Worse, it contradicted my own `backfill_task_assignees.py`, which has a
+  comment explaining why it deliberately preserves `owner_name`. Two paths,
+  opposite behaviour.
+- **The two halves are linked** — the sync existed BECAUSE `TaskCard` rendered
+  only `task.owner`. Deleting it alone would have left cards showing a stale
+  label after assignment. So: card now renders `assignee_name || owner` FIRST,
+  and only then does the server stop clobbering.
+- Board search now covers both names too; searching only `owner` would have
+  failed to find a card by the name it was displaying.
+- `test_task_assignment.py` 15/15 — the assertion is INVERTED from
+  "owner_name synced" to "owner_name is NOT clobbered", with a note saying so.
+  A test that silently flipped meaning would be worse than no test.
+
 ---
 
 ## 7. Open threads
+
+**Prod is TWO migrations behind (2026-09-02):** local is at
+`ao15notifications`, Railway at `am13invitetoken` — missing
+`an14assigneeevent` (setting an assignee 500s on a CheckViolation without it)
+and `ao15notifications` (the whole bell 500s). Both must precede the next
+deploy of the board code.
+
+**And the WORKER needs mail env before notifications are deployed:** `SMTP_*`
+plus `APP_PUBLIC_URL` on the celery service, not just web. Without them the
+email sweep logs "skipped" as a success and nobody is ever told anything.
+
+**Jira work, slice 1 of N.** Assignment is done; the slices offered and NOT
+built are epics/subtasks + story points, sprints + backlog, and configurable
+workflow transitions. Scope was set by asking, not assumed — "all of Jira" is
+not a deliverable and saying so early is cheaper than saying it later.
 
 **BLOCKING, and it is DNS not code (2026-09-02):** invitations and password
 resets land in Gmail's spam folder because `smoothops.info` has **no SPF, no

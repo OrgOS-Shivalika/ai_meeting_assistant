@@ -12,6 +12,7 @@ paint the whole board in a single round-trip.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -165,6 +166,13 @@ class BoardTaskSummary(BaseModel):
     category_name: Optional[str] = None
     created_at: Optional[datetime] = None
     comment_count: int = 0
+    # The RESOLVED assignee — an actual account, as opposed to `owner` which
+    # is whatever the analyzer wrote down ("Priya", "the design team", "TBD").
+    # Both are exposed because they answer different questions: `owner` is the
+    # label from the meeting, `assignee_*` is who the system can act on —
+    # filter by, notify, grant access to.
+    assignee_user_id: Optional[UUID] = None
+    assignee_name: Optional[str] = None
 
 
 class ColumnWithTasks(BaseModel):
@@ -252,6 +260,13 @@ class TaskDetailResponse(BaseModel):
     task: str
     description: Optional[str]
     owner: Optional[str] = None
+    # The RESOLVED assignee — an actual account, as opposed to `owner` which
+    # is whatever the analyzer wrote down ("Priya", "the design team", "TBD").
+    # Both are exposed because they answer different questions: `owner` is the
+    # label from the meeting, `assignee_*` is who the system can act on —
+    # filter by, notify, grant access to.
+    assignee_user_id: Optional[UUID] = None
+    assignee_name: Optional[str] = None
     priority: str
     due_date: Optional[datetime]
     status: TaskStatus

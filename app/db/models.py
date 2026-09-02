@@ -233,6 +233,15 @@ class Task(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     meeting = relationship("Meeting", back_populates="tasks")
+    # The resolved assignee. `lazy="raise"` on purpose: a board renders ~900
+    # cards, and a lazy load here would be 900 extra queries that nothing in
+    # the code makes visible. Callers must eager-load it (see
+    # `kanban/service.get_board_detail`), and forgetting to raises loudly
+    # instead of quietly costing seconds — the same failure that made the
+    # board take 7s before `load_only` was added to the meeting joins.
+    assignee = relationship(
+        "User", foreign_keys=[assignee_user_id], lazy="raise"
+    )
     board = relationship("KanbanBoard", foreign_keys=[board_id])
     column = relationship("KanbanColumn", foreign_keys=[column_id], back_populates="tasks")
     comments = relationship(
@@ -490,7 +499,11 @@ class TaskActivity(Base):
             "event_type IN ("
             "'created', 'status_changed', 'column_moved', 'owner_changed', "
             "'due_changed', 'priority_changed', 'description_changed', "
-            "'title_changed', 'commented', 'archived', 'restored'"
+            "'title_changed', 'commented', 'archived', 'restored', "
+            # Migration an14assigneeevent. Absent until 2026-09-02, which made
+            # every assignee change a 500 — the code recorded the event, the
+            # constraint rejected it, and nothing had ever assigned anyone.
+            "'assignee_changed'"
             ")",
             name="ck_task_activity_event_type",
         ),
@@ -620,6 +633,59 @@ class Organization(Base):
     meetings = relationship("Meeting", back_populates="organization")
 
 
+class Notification(Base):
+    """One thing that happened, addressed to one person. Migration
+    `ao15notifications`.
+
+    `read_at IS NULL` means unread — deliberately the same shape as
+    `comment_mentions`, because two different unread mechanisms in one product
+    is how one of them ends up wrong.
+
+    `payload` snapshots what the notification is ABOUT rather than joining at
+    render time. "X assigned you Y" is a statement about the past; silently
+    rewriting Y when the card is renamed makes the history lie.
+
+    `dedupe_key` is NULL for events that should fire every time they happen
+    (an assignment) and set for anything a timer produces (a due-soon
+    reminder), where a fresh row per pass would be a daily nag. The unique
+    index is partial, and Postgres treats NULLs as distinct, so the two kinds
+    coexist without special-casing.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('task_assigned', 'task_mentioned', 'task_due_soon')",
+            name="ck_notifications_kind",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    kind = Column(String(32), nullable=False)
+    # SET NULL, not CASCADE: losing who did it must not delete the
+    # recipient's notification.
+    actor_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
+    comment_id = Column(
+        Integer, ForeignKey("task_comments.id", ondelete="CASCADE"), nullable=True
+    )
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    emailed_at = Column(DateTime(timezone=True), nullable=True)
+    dedupe_key = Column(String(200), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class PasswordResetToken(Base):
     """One self-service password-reset link. Migration `al12pwreset`.
 
@@ -712,6 +778,13 @@ class User(Base):
     google_token_expires_at = Column(DateTime(timezone=True))
     google_profile_name = Column(String)
     google_profile_picture = Column(String)
+
+    # Per-kind email opt-outs, migration ao15notifications. A JSONB column
+    # rather than a table: it is a handful of booleans read on every send, and
+    # a join for three flags is not worth a second table. MISSING KEYS MEAN
+    # ON — a notification kind added later should reach people rather than be
+    # silently off for everyone who predates it.
+    notification_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

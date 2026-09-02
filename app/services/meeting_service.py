@@ -27,7 +27,7 @@ from app.schemas.meeting_schema import (
     MeetingScheduleRequest,
     TaskUpdateRequest,
 )
-from app.services import category_service, permissions
+from app.services import category_service, notifications, permissions
 from app.services.google_calendar_service import create_calendar_event
 
 
@@ -922,11 +922,32 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             )
             if not assignee:
                 raise HTTPException(status_code=404, detail="Assignee not found")
+            previous_assignee = task.assignee_user_id
             task.assignee_user_id = assignee.id
-            # Keep the display label in step unless the caller set it
-            # explicitly in the same request.
-            if "owner_name" not in data:
-                task.owner_name = assignee.name
+            # `owner_name` is deliberately LEFT ALONE.
+            #
+            # It used to be overwritten with the assignee's name, which made
+            # sense while it was the only name a card displayed. Now that
+            # Assignee and Owner are separate fields answering different
+            # questions, overwriting destroys the only record of what the
+            # meeting actually said — and shows up as both fields changing
+            # when you touch one.
+            #
+            # The card renders `assignee_name || owner`, so the right name is
+            # still displayed without falsifying the other field. This also
+            # makes the interactive path agree with
+            # `scripts/backfill_task_assignees.py`, which has always preserved
+            # the label.
+            # Tell them. Assignment shipped silent — you could hand someone a
+            # card and they would never find out, which made "assigned to me"
+            # something you had to go looking for rather than something that
+            # reached you.
+            #
+            # Only on an actual CHANGE, or re-saving a card would re-notify on
+            # every edit. `notifications.create` also drops self-assignment, so
+            # assigning yourself stays quiet.
+            if previous_assignee != assignee.id:
+                notifications.notify_assigned(db, task, assignee.id, user)
     if "priority" in data and data["priority"]:
         priority = data["priority"].lower()
         if priority not in {"low", "medium", "high"}:

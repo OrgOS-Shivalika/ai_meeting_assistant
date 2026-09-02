@@ -205,6 +205,7 @@ def sync_comment_mentions(db: Session, comment, *, author_user_id=None) -> int:
             db.delete(row)
 
     added = 0
+    newly_mentioned = []
     for user_id in wanted:
         if user_id in existing:
             continue
@@ -213,9 +214,50 @@ def sync_comment_mentions(db: Session, comment, *, author_user_id=None) -> int:
             task_id=comment.task_id,
             user_id=user_id,
         ))
+        newly_mentioned.append(user_id)
         added += 1
     db.flush()
+
+    # Notify only the NEWLY mentioned. An edit re-runs this whole function, so
+    # notifying `wanted` would ping everyone again every time the author fixes
+    # a typo — the same reasoning that keeps surviving rows' `read_at`.
+    #
+    # The red dot alone was never enough: it is only visible to someone already
+    # looking at the board, which is precisely the person who does not need
+    # telling.
+    if newly_mentioned:
+        _notify_mentions(db, comment, newly_mentioned, author_user_id)
+
     return added
+
+
+def _notify_mentions(db: Session, comment, user_ids, author_user_id) -> None:
+    """Raise a notification per newly mentioned person.
+
+    `wanted` has already been filtered through `task_view_clause` upstream, so
+    everyone here can actually open the card. That ordering matters: a
+    notification pointing at a 403 is worse than silence — it tells someone
+    work exists and then refuses to show it.
+    """
+    from app.db.models import Task, User
+    from app.services import notifications
+
+    task = db.query(Task).filter(Task.id == comment.task_id).first()
+    if task is None:
+        return
+    author = (
+        db.query(User).filter(User.id == author_user_id).first()
+        if author_user_id else None
+    )
+    if author is None:
+        return  # no actor, no "X mentioned you" — skip rather than invent one
+
+    excerpt = strip_mentions(comment.body or "")
+    for user_id in user_ids:
+        notifications.notify_mentioned(
+            db, user_id=user_id, task=task, comment=comment,
+            actor=author, excerpt=excerpt,
+        )
 
 
 def unread_task_ids(db: Session, user, task_ids) -> set:
