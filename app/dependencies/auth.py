@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from app.db.database import get_db
@@ -6,8 +6,11 @@ from sqlalchemy.orm import Session
 from app.db.models import User
 from app.config.settings import settings
 from app.utils.admin_enums import PromptRole
-from datetime import timezone
+from datetime import datetime, timezone
 import uuid
+
+from app.services import auth_service
+from app.utils.auth_cookie import set_auth_cookie
 
 SECRET_KEY = settings.AUTH_SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -120,8 +123,68 @@ _PASSWORD_CHANGE_ALLOWED_SUFFIXES = (
 )
 
 
+# Re-issue the cookie once a session is this far through its life. At the
+# 7-day TTL that is 3.5 days, so anyone who opens the app at least twice a
+# week never sees a login screen — which is what "keep me signed in" is
+# actually asking for.
+#
+# Without this the TTL is a HARD WALL: the token and the cookie are both
+# minted at login and nothing ever renews them, so a daily user was logged
+# out every 7 days no matter how much they used the product.
+_REFRESH_AFTER_FRACTION = 0.5
+
+# Never refresh on the way out — logout appends a `delete_cookie` to the same
+# response, and whichever Set-Cookie lands last wins. A refresh here would
+# hand the browser a fresh session on the very request meant to end it.
+_NO_REFRESH_SUFFIXES = ("/auth/logout", "/auth/login", "/auth/change-password")
+
+
+def _maybe_refresh_session(
+    request: Request, response: Response, user: User, token: str
+) -> None:
+    """Slide the session forward when it is past half its life.
+
+    Deliberately narrow about when it fires:
+
+    * COOKIE sessions only. A Bearer-token client (Swagger, a script) has no
+      cookie to refresh and should not suddenly be handed one.
+    * Not on login/logout/change-password, each of which writes its own
+      cookie on the same response.
+    * Tokens with no `iat`/`exp` are left alone — those predate this and will
+      age out on their own.
+
+    The `remember` claim is carried across, so a session cookie stays a
+    session cookie. Refreshing it into a persistent one would quietly undo
+    the choice made at login.
+    """
+    if request.cookies.get(settings.AUTH_COOKIE_NAME) != token:
+        return
+    path = request.url.path.rstrip("/")
+    if any(path.endswith(s) for s in _NO_REFRESH_SUFFIXES):
+        return
+
+    claims = token_claims(token)
+    exp, iat = claims.get("exp"), claims.get("iat")
+    if exp is None or iat is None:
+        return
+    lifetime = float(exp) - float(iat)
+    if lifetime <= 0:
+        return
+    elapsed = datetime.now(timezone.utc).timestamp() - float(iat)
+    if elapsed < lifetime * _REFRESH_AFTER_FRACTION:
+        return
+
+    remember = bool(claims.get("remember", True))
+    set_auth_cookie(
+        response,
+        auth_service.create_token({"user_id": str(user.id), "remember": remember}),
+        remember=remember,
+    )
+
+
 def get_current_user(
     request: Request,
+    response: Response,
     bearer_token: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
@@ -134,6 +197,11 @@ def get_current_user(
     user = resolve_user_from_token(db, token)
     if user is None:
         raise credentials_exception
+
+    # Slide the expiry forward for an active session. Runs after the token
+    # has been fully validated above, so this can only ever extend a session
+    # that was already good — it cannot resurrect a revoked or expired one.
+    _maybe_refresh_session(request, response, user, token)
 
     # Forced password change. Enforced here rather than as a per-route
     # dependency so a route added tomorrow inherits it — the failure mode

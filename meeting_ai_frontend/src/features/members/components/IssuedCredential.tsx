@@ -3,11 +3,14 @@ import { AlertTriangle, Check, Copy, Mail } from "lucide-react";
 import type { EmailStatus } from "../api";
 
 /**
- * A credential, shown once, with whether it reached the person.
+ * A one-time link, shown once, with whether it reached the person.
  *
- * Used at the end of both flows that mint one — adding a member and
- * resetting a password. Two things make this a component rather than
- * markup at each call site:
+ * Used at the end of both flows that mint one — inviting a member and
+ * resetting a password. It used to display a generated credential; it does
+ * not any more, and that is the point of the change. What is on screen now
+ * lets its holder SET a password once, briefly, rather than being one.
+ *
+ * Three things make this a component rather than markup at each call site:
  *
  * **The delivery outcome leads.** Whether the admin still has a job to do
  * is the first thing they need, and it is the one thing they cannot work
@@ -17,8 +20,11 @@ import type { EmailStatus } from "../api";
  * **`sent` is not `delivered`.** The server reports that the mail server
  * accepted the message, which happens before any recipient is contacted —
  * so a typo'd address still reads as sent, then bounces minutes later.
- * The copy says "on its way", never "they have it", and the password stays
- * on screen as the fallback in all three states.
+ * The copy says "on its way", never "they have it", and the link stays on
+ * screen as the fallback in all three states.
+ *
+ * **It expires.** Unlike what it replaces, this stops working — so the
+ * caller states the window rather than letting an admin file it away.
  *
  * Deliberately has no backdrop-click dismissal and no Escape handler,
  * unlike every other dialog here: those reflexes are exactly what destroys
@@ -27,8 +33,8 @@ import type { EmailStatus } from "../api";
 export default function IssuedCredential({
   title,
   email,
-  password,
-  passwordLabel = "Password",
+  value,
+  valueLabel = "Activation link",
   emailStatus,
   emailError,
   sentDetail,
@@ -40,8 +46,8 @@ export default function IssuedCredential({
 }: {
   title: string;
   email: string;
-  password: string;
-  passwordLabel?: string;
+  value: string;
+  valueLabel?: string;
   emailStatus: EmailStatus;
   emailError: string | null;
   /** One line under the green header — what the recipient now has. */
@@ -67,7 +73,7 @@ export default function IssuedCredential({
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(password);
+      await navigator.clipboard.writeText(value);
       setCopied(true);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = window.setTimeout(() => setCopied(false), 2000);
@@ -138,15 +144,15 @@ export default function IssuedCredential({
         )}
 
         <p className="text-[11px] font-semibold text-[#777681] uppercase tracking-wide mb-1.5">
-          {passwordLabel}
+          {valueLabel}
         </p>
         <div className="flex items-center gap-2 mb-4">
           <code className="flex-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm font-mono text-[#0F1523] break-all select-all">
-            {password}
+            {value}
           </code>
           <button
             onClick={copy}
-            aria-label="Copy password"
+            aria-label="Copy link"
             className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-slate-700 hover:bg-gray-50 transition-colors"
           >
             {copied ? (

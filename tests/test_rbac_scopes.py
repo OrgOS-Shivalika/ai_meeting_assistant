@@ -357,6 +357,16 @@ _ACCEPTED_CASCADES = {
     ("category_admins", "user_id"),
     # Correct to follow: someone's own chat history goes with them.
     ("rag_conversations", "user_id"),
+    # Correct to follow: a mention is an index INTO a comment body, not a
+    # record in its own right. The comment survives — it belongs to whoever
+    # wrote it — but "this deleted account was mentioned" is not a fact worth
+    # keeping, and an orphan would make an unread count nobody can clear.
+    ("comment_mentions", "user_id"),
+    # MUST follow. A reset token is a live credential for exactly one
+    # account; leaving one behind after the account is deleted means a
+    # redeemable link pointing at a user that no longer exists. CASCADE is
+    # the only safe answer here, not merely the tidy one.
+    ("password_reset_tokens", "user_id"),
 }
 
 #: Nullable with NO `ondelete`, so Postgres would raise instead of
@@ -661,14 +671,13 @@ def test_templates_escape_html():
 
     hostile = '<script>alert("x")</script>'
     for bodies in (
-        mail_templates.invite_bodies(
-            recipient_name=hostile, email="a@b.co", password="pw",
-            access_role="MEMBER", organization_name=hostile,
-            invited_by_name=hostile,
+        mail_templates.invite_link_bodies(
+            recipient_name=hostile, invite_url="https://x.test/reset-password?token=t",
+            organization_name=hostile, invited_by_name=hostile, ttl_hours=168,
         ),
-        mail_templates.reset_bodies(
-            recipient_name=hostile, email="a@b.co", password="pw",
-            organization_name=hostile, reset_by_name=hostile,
+        mail_templates.reset_link_bodies(
+            recipient_name=hostile, reset_url="https://x.test/reset-password?token=t",
+            organization_name=hostile, ttl_minutes=30,
         ),
     ):
         _text, html = bodies
@@ -676,44 +685,92 @@ def test_templates_escape_html():
         assert "&lt;script&gt;" in html
 
 
-def test_both_templates_carry_password_and_login_url():
-    from app.config.settings import settings
+def test_no_email_template_can_carry_a_password():
+    """The invariant that replaced the old flow: NOTHING emails a password.
+
+    Provisioning used to mail a generated one, which put a live credential
+    into a system nobody here controls — readable at every hop, sitting in
+    backups, and still readable months later in a mailbox that outlives the
+    employment. Both messages now carry a single-use link instead.
+
+    Asserted structurally, against the module rather than one call: a future
+    template that takes a `password=` argument is the regression, and it
+    would not be caught by checking the two that exist today.
+    """
+    import inspect
+
     from app.services import mail_templates
 
-    login = f"{settings.APP_PUBLIC_URL.rstrip('/')}/login"
-    invite = mail_templates.invite_bodies(
-        recipient_name="Ada", email="ada@b.co", password="SECRET-PW",
-        access_role="MEMBER", organization_name="Acme", invited_by_name="Grace",
+    offenders = [
+        name
+        for name, fn in inspect.getmembers(mail_templates, inspect.isfunction)
+        if not name.startswith("_")
+        and "password" in inspect.signature(fn).parameters
+    ]
+    assert not offenders, (
+        f"email template(s) still accept a password: {offenders}. "
+        "Provisioning sends an activation link; nothing mails a credential."
     )
-    reset = mail_templates.reset_bodies(
-        recipient_name="Ada", email="ada@b.co", password="SECRET-PW",
-        organization_name="Acme", reset_by_name="Grace",
+
+    # And the senders that used to do it are gone, not merely unused — a
+    # dormant function that mails a password is one call site from being a
+    # live one again.
+    from app.services import admin_service
+
+    for gone in ("send_invite", "send_password_reset", "_generate_temporary_password"):
+        assert not hasattr(admin_service, gone), (
+            f"admin_service.{gone} is back; it emailed a plaintext password"
+        )
+
+
+def test_provisioning_never_stores_a_password_anyone_knows():
+    """A created account's password must be unknowable, not merely temporary.
+
+    `_unusable_password` is 256 bits from `secrets` that is hashed and
+    dropped, so the only credential the account ever has is the one its owner
+    sets through the activation link. The request schema has no password
+    field at all, which is what stops a future caller from reintroducing the
+    old flow.
+    """
+    import inspect
+
+    from app.schemas.admin_schema import MemberCreateRequest
+    from app.services import admin_service
+
+    assert "password" not in MemberCreateRequest.model_fields, (
+        "MemberCreateRequest accepts a password again — an admin must not be "
+        "able to choose someone else's credential"
     )
-    for label, (text, html) in (("invite", invite), ("reset", reset)):
-        for body_name, body in (("text", text), ("html", html)):
-            assert "SECRET-PW" in body, f"{label} {body_name} lost the password"
-            assert login in body, f"{label} {body_name} lost the sign-in link"
 
-    # The reset has to say the thing an invite never has to say.
-    assert "signed out" in reset[0].lower()
+    for fn_name in ("create_member", "create_admin"):
+        src = inspect.getsource(getattr(admin_service, fn_name))
+        assert "_unusable_password()" in src, (
+            f"{fn_name} no longer sets an unknowable placeholder password"
+        )
+        assert "create_invite_token" in src, (
+            f"{fn_name} no longer issues an activation link"
+        )
 
 
-def test_reset_password_mails_after_the_commit():
-    """Order matters both ways: mailing before the commit would send a
-    password for a change that might not save, and mailing at all is the
-    point — this is the one flow whose password is server-generated, so
-    nobody has it written down."""
+def test_reset_password_mails_the_link_after_the_commit():
+    """Order matters both ways: mailing before the commit would send a link
+    for a change that might not save, and mailing at all is the point —
+    the account holder has to be able to get back in."""
     import inspect
 
     from app.services import admin_service
 
     src = inspect.getsource(admin_service.reset_password).split('"""')[-1]
     commit = src.find("db.commit()")
-    send = src.find("send_password_reset(")
-    assert send != -1, "reset_password no longer emails the new password"
+    send = src.find("send_reset_email(")
+    assert send != -1, "reset_password no longer emails the reset link"
     assert commit != -1 and commit < send, (
         "reset_password mails before committing — a failed save would send a "
-        "password that does not work"
+        "link for a reset that did not happen"
+    )
+    assert "create_reset_token" in src, (
+        "admin reset must issue a RESET token (30 min), not an invite (7 days) "
+        "— the account is live and someone may already be inside it"
     )
 
 

@@ -1,14 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  AlertCircle,
-  Check,
-  Copy,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Loader2,
-  Mail,
-} from "lucide-react";
+import { AlertCircle, Loader2, Mail } from "lucide-react";
 import { membersApi, type CategoryRef, type CreateMemberResult } from "../api";
 import GrantPicker, { type GrantSelection } from "./GrantPicker";
 import IssuedCredential from "./IssuedCredential";
@@ -21,15 +12,19 @@ const ROLE_ORDER: AccessRole[] = ["MEMBER", "ADMIN", "ORG_ADMIN"];
 /**
  * Two-step "Add Member" flow.
  *
- *   1. `form`   — email, password, role.
- *   2. `review` — the details read back, with the password shown and a
- *                 warning to copy it, and only then the create action.
+ *   1. `form`   — email, role, scope.
+ *   2. `review` — the details read back, then the create action.
  *
- * The review step is where the password lives because this is the only
- * moment it is ever visible: the server keeps a bcrypt hash, so once this
- * modal closes nobody — org admin included — can recover it. Showing it
- * before the write means the creator has copied it before an account
- * exists that depends on it.
+ * There is no password field, and that is the change this flow exists
+ * around. An admin choosing someone else's password means the account's
+ * first credential is a secret another person knows and an email server
+ * carried. The account is now created with a value nobody knows, and the
+ * person sets their own via a single-use activation link.
+ *
+ * The third step still shows something once — the link, as a fallback for
+ * when mail is unconfigured or bounces. It is a weaker thing to hold than
+ * a password: single-use, time-limited, and it grants the admin nothing
+ * they lacked, since they could re-invite the account anyway.
  */
 export default function AddMemberModal({
   categories,
@@ -42,16 +37,15 @@ export default function AddMemberModal({
    * Fired once the account exists, so the caller can refresh its list.
    *
    * Does NOT mean "close me". The modal stays up on a third step to show
-   * the password and whether the invite reached them — closing here would
-   * put the one unrecoverable value in the response behind whatever the
-   * admin clicked next. Dismissal is `onClose`, from the Done button.
+   * the activation link and whether the invite reached them — closing here
+   * would put the only copy of that link behind whatever the admin clicked
+   * next. Dismissal is `onClose`, from the Done button.
    */
   onCreated: (result: CreateMemberResult) => void;
 }) {
   const [step, setStep] = useState<"form" | "review" | "result">("form");
   const [created, setCreated] = useState<CreateMemberResult | null>(null);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState<AccessRole>("MEMBER");
   // A category admin can create members and admins inside their own
   // categories, but not org admins — that role is scoped to nothing, so
@@ -60,8 +54,6 @@ export default function AddMemberModal({
   const roleOptions = isOrgAdmin
     ? ROLE_ORDER
     : ROLE_ORDER.filter((r) => r !== "ORG_ADMIN");
-  const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Only meaningful for ADMIN. Collected here so a new admin arrives with
@@ -74,7 +66,7 @@ export default function AddMemberModal({
   const grantCount = grants.categoryIds.length + grants.teamIds.length;
 
   // Escape closes, except mid-write: the request is already in flight and
-  // the password it echoes back has to be shown, not dismissed.
+  // the activation link it echoes back has to be shown, not dismissed.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !submitting) onClose();
@@ -84,24 +76,12 @@ export default function AddMemberModal({
   }, [submitting, onClose]);
 
   const emailLooksValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
-  const passwordLongEnough = password.length >= 8;
   // A category admin has to attach the new person to something they hold.
   // Created outside their scope, the account would be invisible to them
   // the moment it existed — the server refuses this for the same reason.
   const scopeRequired = !isOrgAdmin;
   const canReview =
-    emailLooksValid && passwordLongEnough && (!scopeRequired || grantCount > 0);
-
-  const copyPassword = async () => {
-    try {
-      await navigator.clipboard.writeText(password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard can be blocked on http origins; the value is
-      // select-all-able on screen as a fallback.
-    }
-  };
+    emailLooksValid && (!scopeRequired || grantCount > 0);
 
   const submit = async () => {
     setSubmitting(true);
@@ -120,15 +100,14 @@ export default function AddMemberModal({
       // member it is read access to those categories.
       const result = await membersApi.createMember({
         email: email.trim(),
-        password,
         access_role: role,
         category_ids: grants.categoryIds,
         team_ids: grants.teamIds,
       });
       // Hand over to the result step rather than closing. `onCreated` still
       // fires so the list refreshes underneath, but the modal owns its own
-      // dismissal now — the password and the invite outcome are both in
-      // this response and neither can be fetched again.
+      // dismissal now — the activation link and the invite outcome are both
+      // in this response and neither can be fetched again.
       setCreated(result);
       setStep("result");
       setSubmitting(false);
@@ -145,19 +124,20 @@ export default function AddMemberModal({
   // Third step. Its own view rather than a branch inside the shell below,
   // because it shares nothing with the form: no backdrop dismissal, no
   // Escape, no Back — the reflexes that close a dialog are what would
-  // destroy the only copy of the password.
+  // destroy the only copy of the link.
   if (step === "result" && created) {
     return (
       <IssuedCredential
-        title="Member added"
+        title="Member invited"
         email={created.user.email}
-        password={created.password}
+        value={created.invite_url}
+        valueLabel="Activation link"
         emailStatus={created.email_status}
         emailError={created.email_error}
-        sentDetail="They have been emailed their sign-in details. Keep the copy below until they confirm they are in — a wrong address is accepted by the mail server and only bounces later."
-        failedDetail="The account exists and the password below works. Send it over a channel you trust."
-        skippedDetail="No mail server is configured, so nothing was sent. Only a hash is stored, so nobody can look this up later — if it is lost, reset their password to issue another."
-        footer="They will be asked to choose their own password the first time they sign in. Until they do, this one works for signing in and nothing else."
+        sentDetail="They have been emailed a link to set their own password. Keep the copy below until they confirm they are in — a wrong address is accepted by the mail server and only bounces later."
+        failedDetail="The account exists but the invitation did not send. Pass the link below on over a channel you trust."
+        skippedDetail="No mail server is configured, so nothing was sent. Send them the link below — if it is lost or expires, add them again or reset their password to issue a new one."
+        footer="The link works once and expires in 7 days. They choose their own password — nobody here, including you, ever sees it."
         extra={
           created.linked_meetings > 0 ? (
             <div className="rounded-lg border border-gray-200 px-3 py-2 mb-4">
@@ -237,43 +217,6 @@ export default function AddMemberModal({
                 Use the address on their calendar invitations — that is how past
                 meetings get linked to this account.
               </p>
-            </div>
-
-            <div className="mb-3">
-              <label
-                htmlFor="new-member-password"
-                className="block text-xs font-semibold text-[#777681] mb-1.5"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="new-member-password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  placeholder="At least 8 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 pr-10 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-              {password.length > 0 && !passwordLongEnough && (
-                <p className="text-[11px] text-red-600 mt-1">
-                  Must be at least 8 characters.
-                </p>
-              )}
             </div>
 
             <div className="mb-4">
@@ -366,25 +309,6 @@ export default function AddMemberModal({
                   {ROLE_LABEL[role]}
                 </dd>
               </div>
-              <div className="flex items-center justify-between px-3 py-2 gap-3">
-                <dt className="text-xs font-semibold text-[#777681]">Password</dt>
-                <dd className="flex items-center gap-2 min-w-0">
-                  <code className="px-2 py-0.5 rounded bg-slate-50 border border-gray-200 text-sm font-mono text-[#0F1523] select-all truncate">
-                    {password}
-                  </code>
-                  <button
-                    onClick={copyPassword}
-                    className="flex items-center gap-1 px-2 py-1 shrink-0 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 rounded transition-colors"
-                  >
-                    {copied ? (
-                      <Check className="w-3 h-3" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </dd>
-              </div>
             </dl>
 
             {/* Members get a scope summary too — it is the same review
@@ -430,39 +354,21 @@ export default function AddMemberModal({
             )}
 
             {/* What happens on "Create Member", stated before it happens —
-                the reset flow does the same on its confirm step. This panel
-                used to say sharing the password was the admin's job, which
-                stopped being true once invite email landed: it is sent
-                automatically, and telling someone to hand-deliver a
-                credential that is already in the recipient's inbox is how
-                passwords end up in chat logs for no reason. */}
+                the reset flow does the same on its confirm step. No "copy
+                the password anyway" panel any more: there is no password to
+                copy, which is the entire point of the change. */}
             <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-indigo-50 border border-indigo-200">
               <Mail className="w-4 h-4 shrink-0 mt-0.5 text-indigo-700" />
               <div>
                 <p className="text-xs font-semibold text-indigo-900">
-                  They'll be emailed their sign-in details
+                  They'll be emailed an invitation
                 </p>
                 <p className="text-[11px] text-indigo-800 mt-0.5">
-                  The invite goes to{" "}
+                  A link to set their own password goes to{" "}
                   <span className="font-medium">{email.trim()}</span> as soon as
                   you create the account, and you'll be told whether it actually
-                  sent. They'll be asked to choose their own password the first
-                  time they sign in.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 p-3 mb-4 rounded-lg bg-amber-50 border border-amber-200">
-              <KeyRound className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
-              <div>
-                <p className="text-xs font-semibold text-amber-900">
-                  Copy the password anyway
-                </p>
-                <p className="text-[11px] text-amber-800 mt-0.5">
-                  This is the only time it will be visible — it is stored as a
-                  one-way hash, so nobody, including you, can retrieve it later.
-                  It is your fallback for the case the email does not arrive,
-                  and for when no mail server is configured.
+                  sent. Nobody here ever sees the password they choose — and if
+                  the mail does not arrive, you'll get the link to pass on.
                 </p>
               </div>
             </div>
