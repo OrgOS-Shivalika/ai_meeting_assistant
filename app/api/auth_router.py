@@ -1,12 +1,23 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
 from app.dependencies.auth import get_current_user, token_claims
 from app.services import admin_service, auth_service, permissions
 from app.schemas.admin_schema import PasswordChangeRequest
-from app.schemas.auth_schema import UserCreate, UserLogin, Token
+from app.schemas.auth_schema import (
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    Token,
+    UserCreate,
+    UserLogin,
+)
+from app.services import password_reset_service
 from app.config.settings import settings
+from app.utils.auth_cookie import set_auth_cookie
+from app.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 # Two routers, same `/auth` sub-path, mounted under different top-level
 # prefixes in main.py:
@@ -16,34 +27,9 @@ public_router = APIRouter(prefix="/auth", tags=["Authentication"])
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def _set_auth_cookie(response: Response, token: str, remember: bool = True) -> None:
-    """Attach the session JWT as an HttpOnly cookie.
-
-    HttpOnly + SameSite is the whole point of the move off localStorage:
-    the browser sends it automatically on same-origin requests and the WS
-    handshake, but no page script can read it, so an XSS payload can't
-    steal the session. Secure/SameSite come from settings so a dev on
-    http://localhost and an HTTPS deployment can both work.
-
-    `remember` is the login form's "Keep me signed in". Omitting `max_age`
-    (and `expires`) is what makes a cookie a SESSION cookie — the browser
-    drops it when it closes. With `max_age` set it survives, which is what
-    the checkbox is asking for. The token's own 7-day TTL is unchanged
-    either way: this decides how long the BROWSER keeps the cookie, not how
-    long the credential stays valid.
-
-    Until now the checkbox was wired to nothing and everyone got the
-    persistent cookie, so ticking it off on a shared machine did not
-    actually sign you out when you closed the browser."""
-    response.set_cookie(
-        key=settings.AUTH_COOKIE_NAME,
-        value=token,
-        max_age=settings.AUTH_COOKIE_MAX_AGE if remember else None,
-        httponly=True,
-        secure=settings.AUTH_COOKIE_SECURE,
-        samesite=settings.AUTH_COOKIE_SAMESITE,
-        path="/",
-    )
+# Moved to `utils/auth_cookie` so `dependencies/auth` can set the same cookie
+# for the sliding refresh without importing this router.
+_set_auth_cookie = set_auth_cookie
 
 
 @public_router.post("/register")
@@ -166,3 +152,106 @@ def change_password(
         remember=remember,
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Self-service password reset
+# ---------------------------------------------------------------------------
+#
+# Both endpoints are PUBLIC by necessity — someone who cannot sign in cannot
+# authenticate to ask for help. That makes them the most exposed surface in
+# the app, so the rules they follow are in
+# `services/password_reset_service`, which is where the reasoning lives.
+
+# The one response the request endpoint ever gives. A single constant rather
+# than two call sites, because the whole defence is that these are
+# indistinguishable and two strings drift apart.
+_RESET_REQUESTED_MESSAGE = (
+    "If an account exists for that email, a reset link is on its way."
+)
+
+
+@public_router.post("/forgot-password", status_code=202)
+def forgot_password(
+    data: ForgotPasswordRequest,
+    request: Request,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Start a password reset. Always 202, always the same body.
+
+    The work runs as a BACKGROUND task, and that is a security property, not
+    a performance one: sending mail takes an SMTP round-trip, so doing it
+    inline would make a request for a REAL address measurably slower than one
+    for an address that does not exist. Identical text plus a timing side
+    channel is still an enumeration oracle.
+    """
+    client_ip = request.client.host if request.client else None
+    background.add_task(
+        _run_reset_request, data.email, client_ip
+    )
+    return {"message": _RESET_REQUESTED_MESSAGE}
+
+
+def _run_reset_request(email: str, client_ip: str | None) -> None:
+    """Background half of `forgot_password`.
+
+    Opens its OWN session: the request-scoped one from `get_db` is closed
+    the moment the response goes out, and this runs after that.
+
+    Swallows everything. A background task has no caller to report to, and an
+    exception escaping here would only appear in the logs — which is exactly
+    what this does deliberately, minus the noisy traceback on a mail outage.
+    """
+    from app.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        password_reset_service.request_reset(db, email, requested_ip=client_ip)
+    except Exception as exc:
+        logger.warning(
+            "Password reset request failed: %s: %s", type(exc).__name__, exc
+        )
+    finally:
+        db.close()
+
+
+@public_router.post("/reset-password")
+def reset_password(
+    data: ResetPasswordRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Redeem a reset link and set the new password.
+
+    Deliberately does NOT sign the caller in. Proving control of a mailbox is
+    not the same as proving control of the account, and a reset that lands
+    you straight into a live session turns a forwarded email into a full
+    takeover. They get a login form, which their new password opens.
+    """
+    try:
+        user = password_reset_service.consume_token(
+            db, data.token, data.new_password
+        )
+    except password_reset_service.ResetTokenInvalid:
+        # One message for unknown / expired / already-used. Distinguishing
+        # them tells a prober whether a token ever existed for the account.
+        raise HTTPException(
+            status_code=400,
+            detail="This reset link is no longer valid. Please request a new one.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Belt and braces: `consume_token` moved `password_set_at`, which already
+    # revokes every JWT minted before it. Clearing the cookie too means the
+    # browser that just reset does not sit on a dead token and get a
+    # mid-session bounce on its next click.
+    response.delete_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        path="/",
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+    )
+    logger.info("Password reset redeemed for %s", user.email)
+    return {"message": "Password updated. You can sign in with it now."}

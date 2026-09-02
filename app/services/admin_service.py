@@ -29,7 +29,7 @@ from app.schemas.admin_schema import (
     RoleUpdateRequest,
 )
 from app.services import permissions
-from app.services import mail_service, mail_templates
+from app.services import mail_service, mail_templates, password_reset_service
 from app.services.auth_service import hash_password, verify_password
 from app.utils.admin_enums import AccessRole, ParticipantMatchSource
 from app.utils.logger import setup_logger
@@ -43,8 +43,22 @@ logger = setup_logger(__name__)
 _TEMP_PASSWORD_BYTES = 18
 
 
-def _generate_temporary_password() -> str:
-    return secrets.token_urlsafe(_TEMP_PASSWORD_BYTES)
+def _unusable_password() -> str:
+    """A password nobody knows, not even the server that wrote it.
+
+    A provisioned account still needs SOMETHING in `users.password`: the
+    column is NOT NULL, and leaving it empty or a known constant would mean
+    every un-activated account shares a guessable credential. So it gets 256
+    bits from `secrets` that are hashed immediately and never returned, never
+    logged, never emailed. The only way into the account is the activation
+    link, and the only password it will ever have is the one its owner
+    chooses.
+
+    This is the whole shape of the change: the old flow generated a password
+    the server knew, the admin saw, and the mail server carried. This one
+    generates a value that is unknowable by construction.
+    """
+    return secrets.token_urlsafe(32)
 
 
 # --------------------------------------------------------------------------
@@ -337,15 +351,17 @@ def create_admin(
         # alone, so there is no credential to email.
         return get_member(db, actor.organization_id, existing.id), None, None
 
-    temporary_password = _generate_temporary_password()
     user = User(
         name=payload.name.strip(),
         email=email,
-        password=hash_password(temporary_password),
+        # Unknowable by construction — see `_unusable_password`. The account
+        # is reachable only through the activation link.
+        password=hash_password(_unusable_password()),
         organization_id=actor.organization_id,
         access_role=AccessRole.ADMIN,
-        # They can log in, and then must set their own password before
-        # the API will do anything else for them.
+        # Still set: until they redeem the invite and choose a password, the
+        # auth dependency keeps them out of everything but the few endpoints
+        # needed to do so. Belt and braces behind an unusable password.
         must_change_password=True,
         password_set_at=None,
     )
@@ -366,10 +382,15 @@ def create_admin(
         "Provisioned admin %s over %d categories, linked %d prior meetings (by %s)",
         user.email, len(categories), linked, actor.email,
     )
-    email_result = send_invite(user, temporary_password, invited_by=actor)
+    # After the commit, never before: an invitation for an account that
+    # failed to save sends someone a link that 400s.
+    raw_token = password_reset_service.create_invite_token(db, user)
+    email_result = password_reset_service.send_invite_link_email(
+        user, raw_token, invited_by_name=actor.name
+    )
     return (
         get_member(db, actor.organization_id, user.id),
-        temporary_password,
+        password_reset_service.invite_url(raw_token),
         email_result,
     )
 
@@ -448,13 +469,15 @@ def create_member(
     user = User(
         name=name,
         email=email,
-        password=hash_password(payload.password),
+        # The creator does NOT choose this, and nobody ever sees it — see
+        # `_unusable_password`. Letting an admin pick a password for someone
+        # else means the account's first credential is one another person
+        # knows; the activation link removes that entirely.
+        password=hash_password(_unusable_password()),
         organization_id=actor.organization_id,
         access_role=payload.access_role,
-        # The creator knows this password, so it can't stay the account's
-        # real one. The auth dependency blocks everything except
-        # /auth/me, /auth/change-password and /auth/logout until it's
-        # replaced.
+        # The auth dependency blocks everything except /auth/me,
+        # /auth/change-password and /auth/logout until they activate.
         must_change_password=True,
         password_set_at=None,
     )
@@ -477,13 +500,16 @@ def create_member(
         len(categories), len(teams), linked, actor.email,
     )
 
-    # After the commit, never before: an invite for an account that failed
-    # to save would send someone a password that doesn't work.
-    email_result = send_invite(user, payload.password, invited_by=actor)
+    # After the commit, never before: an invitation for an account that
+    # failed to save sends someone a link that 400s.
+    raw_token = password_reset_service.create_invite_token(db, user)
+    email_result = password_reset_service.send_invite_link_email(
+        user, raw_token, invited_by_name=actor.name
+    )
 
     return (
         get_member(db, actor.organization_id, user.id),
-        payload.password,
+        password_reset_service.invite_url(raw_token),
         linked,
         email_result,
     )
@@ -726,72 +752,6 @@ def _resolve_categories(
     return categories
 
 
-def send_password_reset(
-    user: User, password: str, *, reset_by: User
-) -> mail_service.SendResult:
-    """Email someone the temporary password an admin just issued them.
-
-    Same best-effort contract as :func:`send_invite` — the password is
-    already live by the time this runs, so a mail failure must not undo it
-    and the dialog still shows the value for manual sharing.
-
-    Worth having even though the admin can copy the password by hand: this
-    one is server-generated, so unlike the invite flow nobody has it
-    written down anywhere, and it is the message most likely to actually
-    need delivering.
-    """
-    org = user.organization
-    text_body, html_body = mail_templates.reset_bodies(
-        recipient_name=user.name,
-        email=user.email,
-        password=password,
-        organization_name=org.name if org else None,
-        reset_by_name=reset_by.name,
-    )
-    result = mail_service.send_email(
-        to=user.email,
-        subject=mail_templates.reset_subject(org.name if org else None),
-        text_body=text_body,
-        html_body=html_body,
-    )
-    logger.info(
-        "Password-reset email %s for %s (by %s)",
-        result.status, user.email, reset_by.email,
-    )
-    return result
-
-
-def send_invite(
-    user: User, password: str, *, invited_by: User
-) -> mail_service.SendResult:
-    """Email a newly created member their sign-in details.
-
-    Best-effort by design. The account is already committed by the time
-    this runs, so a mail failure must not undo it — the caller reports the
-    outcome and the UI falls back to showing the password for manual
-    sharing. Returns the result rather than raising for the same reason.
-    """
-    org = user.organization
-    text_body, html_body = mail_templates.invite_bodies(
-        recipient_name=user.name,
-        email=user.email,
-        password=password,
-        access_role=permissions.access_role(user),
-        organization_name=org.name if org else None,
-        invited_by_name=invited_by.name,
-    )
-    result = mail_service.send_email(
-        to=user.email,
-        subject=mail_templates.invite_subject(org.name if org else None),
-        text_body=text_body,
-        html_body=html_body,
-    )
-    logger.info(
-        "Invite email %s for %s (by %s)", result.status, user.email, invited_by.email
-    )
-    return result
-
-
 def _resolve_teams(db: Session, org_id: UUID, team_ids: list[int]) -> list[Team]:
     """Load teams, rejecting any outside this org. All-or-nothing, same
     reasoning as :func:`_resolve_categories`."""
@@ -985,24 +945,30 @@ def reset_password(
             detail="Use the change-password page to set your own password.",
         )
 
-    temporary_password = _generate_temporary_password()
-    target.password = hash_password(temporary_password)
+    # Same change as provisioning: the account gets a value nobody knows,
+    # and the owner sets a real one through the link. Mailing an admin-chosen
+    # password is the identical defect whether the account is new or not.
+    target.password = hash_password(_unusable_password())
     target.must_change_password = True
-    # Doubles as the revocation point for existing sessions, so it is set
-    # even though the owner has not chosen this password themselves.
+    # The revocation point for existing sessions — every JWT minted before
+    # now is refused. That is the point of a reset: the usual reason to run
+    # one is that somebody else may be holding a session.
     target.password_set_at = datetime.now(timezone.utc)
     db.commit()
     logger.info("Reset password for %s by %s", target.email, actor.email)
 
-    # After the commit, never before — same reasoning as the invite: mailing
-    # a password for a change that failed to save is worse than not mailing
-    # at all. Best-effort, so a mail failure leaves the reset standing and
-    # the dialog still shows the value.
-    email_result = send_password_reset(target, temporary_password, reset_by=actor)
+    # After the commit, never before. Best-effort, so a mail failure leaves
+    # the reset standing and the dialog shows the link to pass on by hand.
+    #
+    # A RESET token, not an invite one: 30 minutes, not a week. The account
+    # is live and someone may already be inside it, so the window in which a
+    # forwarded link still works should be short.
+    raw_token = password_reset_service.create_reset_token(db, target)
+    email_result = password_reset_service.send_reset_email(target, raw_token)
 
     return (
         get_member(db, actor.organization_id, target.id),
-        temporary_password,
+        mail_templates.reset_link_url(raw_token),
         email_result,
     )
 
@@ -1030,6 +996,12 @@ def change_password(
     user.password = hash_password(new_password)
     user.must_change_password = False
     user.password_set_at = datetime.now(timezone.utc)
+    # A forgot-password link already sitting in this person's inbox stays
+    # redeemable otherwise — and someone changing their password because they
+    # think it is compromised is exactly who cannot afford that.
+    password_reset_service.invalidate_outstanding(
+        db, user.id, reason="password changed"
+    )
     db.commit()
     logger.info("Password changed for %s", user.email)
     return {"status": "ok"}

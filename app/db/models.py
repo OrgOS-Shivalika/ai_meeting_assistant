@@ -620,6 +620,49 @@ class Organization(Base):
     meetings = relationship("Meeting", back_populates="organization")
 
 
+class PasswordResetToken(Base):
+    """One self-service password-reset link. Migration `al12pwreset`.
+
+    Only the SHA-256 of the token lives here — the raw value exists in the
+    email and the URL and nowhere else, so a database leak yields no usable
+    links. Redemption looks the row up BY HASH, which also means the query
+    itself cannot be used as a timing oracle on the raw token.
+
+    A row is dead when `used_at` is set OR `expires_at` has passed. Both are
+    checked on redemption; `used_at` is also what burns every other
+    outstanding token for the account the moment one is redeemed or the
+    password changes by any other route.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    # 'reset' (self-service, 30 min) or 'invite' (admin-provisioned, 7 days).
+    # Migration am13invitetoken. Changes the TTL and the email wording only —
+    # redemption is one code path for both, because two routes that each set a
+    # password is how one of them ends up missing a check.
+    purpose = Column(String(16), nullable=False, server_default="reset")
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    # Audit only. Never consulted to authorize a reset — behind a proxy this
+    # is whatever the last hop claimed, so it is evidence, not a control.
+    requested_ip = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    user = relationship("User")
+
+
 class User(Base):
     __tablename__ = "users"
 

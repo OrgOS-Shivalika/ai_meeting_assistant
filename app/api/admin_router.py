@@ -97,10 +97,10 @@ def create_member(
     409 if the email already has an account anywhere. Promoting or
     re-roling an existing user goes through `PATCH /admin/members/{id}`.
     """
-    member, password, linked, email = admin_service.create_member(db, user, payload)
+    member, invite_url, linked, email = admin_service.create_member(db, user, payload)
     return MemberCreateResponse(
         user=member,
-        password=password,
+        invite_url=invite_url,
         linked_meetings=linked,
         email_status=email.status,
         email_error=email.error,
@@ -131,12 +131,12 @@ def create_admin(
 
     Promoting someone who already has an account (common — they probably
     attended a meeting first) reuses that account and leaves their
-    password alone, so `temporary_password` comes back null.
+    password alone, so `invite_url` comes back null.
     """
-    member, temporary_password, email = admin_service.create_admin(db, user, payload)
+    member, invite_url, email = admin_service.create_admin(db, user, payload)
     return AdminCreateResponse(
         user=member,
-        temporary_password=temporary_password,
+        invite_url=invite_url,
         email_status=email.status if email else "skipped",
         email_error=email.error if email else None,
     )
@@ -187,12 +187,12 @@ def reset_password(
     recreate the account, which discards the attendance links that give
     that person access to their own meeting history.
     """
-    member, temporary_password, email = admin_service.reset_password(
+    member, reset_url, email = admin_service.reset_password(
         db, user, user_id
     )
     return PasswordResetResponse(
         user=member,
-        temporary_password=temporary_password,
+        reset_url=reset_url,
         sessions_revoked=True,
         email_status=email.status,
         email_error=email.error,

@@ -1501,14 +1501,161 @@ scoped edit-and-restore, not `git checkout`, on a file with other pending work.
 - Token TTL is unchanged at 7 days in both cases — `remember` decides how long
   the BROWSER keeps the cookie, not how long the credential is valid.
 
+- **Sliding expiry — the actual "I keep getting logged out".** The checkbox fix
+  above made the control honest but changed nothing for people already getting
+  signed out, because the 7-day TTL was a HARD WALL: token and cookie are both
+  minted at login and NOTHING renewed them, so a daily user was kicked out
+  every 7 days no matter how much they used the product.
+  - `dependencies/auth._maybe_refresh_session` re-issues the cookie once a
+    token is past HALF its life (3.5 days), from inside `get_current_user`,
+    after the token has fully validated — so it can only extend a session that
+    was already good, never resurrect a revoked or expired one.
+  - `_set_auth_cookie` moved to **`app/utils/auth_cookie.set_auth_cookie`**:
+    the router and the dependency both write this cookie and cannot import each
+    other. `auth_router._set_auth_cookie` is now an alias.
+  - Deliberately narrow — the four ways this goes wrong, all covered by tests:
+    COOKIE sessions only (a Bearer client must not be handed a cookie); NOT on
+    `/auth/logout` (logout appends `delete_cookie` to the same response and the
+    LAST Set-Cookie wins — a refresh there resurrects the session it was meant
+    to end), nor login/change-password which write their own; tokens without
+    `iat`/`exp` left alone; and the `remember` claim carried across so a session
+    cookie is never silently upgraded to persistent.
+  - Verified with REAL signature-valid tokens minted with a backdated `iat`,
+    asserting on Set-Cookie: 0.5d -> no refresh, 5d -> refreshed (new token
+    0.6s old, `Max-Age=604800`), 5d with remember=False -> refreshed WITHOUT
+    Max-Age, 8d -> 401 and no refresh, logout -> exactly one Set-Cookie and it
+    is the `Max-Age=0` deletion, Bearer -> no Set-Cookie. Mutation-checked:
+    disabling the call makes the 5d case stop refreshing and the suite fails.
+  - `get_current_user` gained a `response: Response` param. Regression-checked
+    by stashing the auth changes: kanban k1/k2/k4 give an IDENTICAL 9 failed /
+    39 passed either way, so those failures are pre-existing and untouched.
+
+### 2026-09-02 (cont.) — self-service password reset
+
+The login page had linked to `/forgot-password` for a while; the route did not
+exist. Now it does, end to end.
+
+- **Migration `al12pwreset`** — `password_reset_tokens` (LOCAL only, NOT on
+  prod yet). A table, not a stateless token, because a reset link must be
+  revocable BEFORE it expires; a JWT cannot do that without server state, at
+  which point it is this table with extra steps.
+- `services/password_reset_service.py` holds the reasoning. The properties,
+  each with a test:
+  - **No enumeration.** Identical 202 + identical body for real and unknown
+    addresses, and the work runs in a `BackgroundTasks` task so a real address
+    does not cost an extra SMTP round-trip. Same text with a timing side
+    channel is still an oracle. Unknown / expired / used tokens all return ONE
+    message for the same reason.
+  - **Only the SHA-256 is stored.** Plain SHA-256 not bcrypt, deliberately:
+    the input is 256 bits of `secrets` entropy, so there is no dictionary and
+    nothing for a slow KDF to buy. Lookup is BY HASH, so the query is not a
+    timing oracle on the raw token either.
+  - **30-minute TTL, single use**, and redeeming one link burns every sibling.
+  - **`invalidate_outstanding` is wired into `admin_service.change_password`.**
+    Without it a forgot-password link already in an inbox stays live after an
+    admin reset — precisely when someone is trying to lock an attacker out.
+  - **Redemption moves `password_set_at`**, this codebase's JWT revocation
+    point, so a reset signs out every other live session.
+  - **Reset does NOT sign the caller in.** Controlling a mailbox is not
+    controlling the account; auto-login would turn a forwarded email into a
+    full takeover.
+  - **Per-account rate limit** (3 / 15 min), silent — the caller still gets
+    202, so the limit itself leaks nothing. NOT per-IP on purpose: behind
+    Railway's proxy the client address is whatever the last hop claims, so an
+    IP counter is both bypassable and liable to lock out a whole NAT. An edge
+    rate-limit is the right place for that.
+- `tests/test_password_reset.py` — **29/29**, needs a live Postgres. Probe
+  accounts deleted in `finally`, mail stubbed at `mail_service.send_email`.
+- Frontend: `ForgotPasswordPage`, `ResetPasswordPage`, both routes registered.
+  The confirmation screen is vague on purpose and shows for every address.
+- Link built from **`APP_PUBLIC_URL`**, currently the ngrok tunnel. **If that
+  is wrong in a deployment, every reset email points at the wrong host** — the
+  one config that silently breaks this feature.
+
+### 2026-09-02 (cont.) — provisioning stops emailing passwords
+
+The old flow mailed a credential: `create_admin` generated one, `create_member`
+let the ADMIN choose one, and both put it in an inbox. That is a live password
+sitting in a system nobody here controls — readable at every hop, in backups,
+and still readable months later in a mailbox that outlives the employment.
+
+- **Migration `am13invitetoken`** — `purpose` on `password_reset_tokens`
+  ('reset' | 'invite'). A discriminator, not a second table: redemption is ONE
+  code path for both, because two routes that each set a password is how one
+  of them ends up skipping a check. Purpose changes only the TTL (30 min vs
+  7 days) and the email wording. **LOCAL only.**
+- `_unusable_password()` — 256 bits from `secrets`, hashed and dropped. The
+  column is NOT NULL so provisioning must write *something*; this makes it
+  unknowable by construction rather than merely temporary. The only password
+  an account ever has is the one its owner chooses.
+- **`MemberCreateRequest` lost its `password` field entirely.** That removal IS
+  the enforcement — there is no request shape that can set someone else's
+  credential, so no future caller can reintroduce the flow by accident.
+- **Deleted, not just unused:** `admin_service.send_invite`,
+  `send_password_reset`, `_generate_temporary_password`, and
+  `mail_templates.{invite,reset}_bodies`, `{invite,reset}_subject`,
+  `_credentials_box`. A dormant function that mails a password is one call site
+  away from being live again.
+- The admin-initiated reset got the same treatment, and deliberately issues a
+  **RESET** token (30 min) not an invite (7 days): the account is live and
+  someone may already be inside it.
+- API now returns `invite_url` / `reset_url` where it returned a password. Not
+  an equivalent trade: single-use, expiring, and it lets its holder SET a
+  credential rather than being one — and the admin could re-provision the
+  account anyway, so it grants them nothing new.
+- **`tests/test_password_reset.py` 45/45.** New checks assert the invariant
+  structurally, not per-call: no `mail_templates` function accepts a
+  `password=` parameter, and the deleted senders must stay gone.
+  `test_rbac_scopes` 37/37 — which also **closes the long-standing red FK
+  guard**: `comment_mentions.user_id` and `password_reset_tokens.user_id` are
+  now registered in `_ACCEPTED_CASCADES` with their reasoning (a reset token
+  outliving its user would be a redeemable link for a nonexistent account).
+- Frontend: AddMemberModal lost its password field and both "copy the password"
+  panels; `IssuedCredential` shows a link. `tsc` + `vite build` clean.
+
+### 2026-09-02 (cont.) — delete-task button jammed after one use
+
+Reported: deleting a card left the trash icon spinning, and no further card
+could be deleted.
+
+- **Root cause:** `TaskDetailDrawer` is NEVER UNMOUNTED. `BoardPage` renders it
+  permanently at the bottom of the tree and hides it with `taskId={null}`.
+  `handleDelete` set `deleting=true` and cleared it only in the CATCH arm — the
+  success path called `onClose()` and relied on unmounting to reset the flag.
+  Nothing unmounts, so the flag survived and disabled the button for the rest
+  of the session.
+- **Same bug, quieter:** `editingTitle` / `editingDescription` leaked
+  identically. Edit a title, close without saving, open another card — it
+  opened straight into edit mode. `savingField` was already safe (cleared in a
+  `finally`).
+- **Fix, in two places on purpose:** `finally` in `handleDelete`, AND a reset
+  block at the top of the `taskId` effect, deliberately BEFORE its
+  `if (taskId == null) return`. The effect version is the structural one —
+  it covers every route in and out of a card, including ones added later.
+- **The trap to remember:** this drawer's state does not die with the card.
+  Any `useState` added here needs an entry in that reset block, or it silently
+  bleeds from one card into the next.
+
 ---
 
 ## 7. Open threads
 
-~~prod behind on migrations~~ **CLEARED 2026-09-02** — Railway migrated to
-`ak11coldefer`, verified row-for-row (see §6). Prod DB and local are now at the
-same revision, and the schema is AHEAD of deployed prod code (`26eccfc`), which
-is the safe direction: every change was additive or a constraint rebuild.
+~~prod behind on migrations~~ **CLEARED 2026-09-02 (second migration of the
+day)** — Railway taken `ak11coldefer -> al12pwreset -> am13invitetoken` and
+verified: `password_reset_tokens` has all 8 columns, all 4 indexes, and its FK
+to `users` is `ON DELETE CASCADE`; `purpose` is NOT NULL defaulting to
+'reset'; the `ak11coldefer` deferrable constraint is still `(True, True)`. Row
+counts identical across 9 tables — zero rows lost. Prod DB and local are both
+at `am13invitetoken`.
+
+The DB is now AHEAD of deployed prod code (`26eccfc`), which is the safe
+direction — every migration this session was additive or a constraint rebuild.
+**Still undeployed:** mentions, board routing/columns, sliding sessions,
+forgot-password, and the invite-link provisioning. Everything before it IS on prod — migrated and
+verified row-for-row earlier the same day (see §6).
+
+Also unset on Railway: **`APP_PUBLIC_URL`** must point at the real public host
+or every reset email links to the wrong place. Locally it is the ngrok tunnel.
 
 (`aj10bgimage` was created and then reverted before prod ever saw it — see §6.
 The chain runs `ai09mentionread -> ak11coldefer` with no gap.) Prod code is still
@@ -1558,13 +1705,9 @@ traces get a meeting/org parent; correct `TECHNICAL_REFERENCE.md` §14.1 and
 **Uncommitted:** the @mentions feature — 4 new files, 5 modified. See the
 2026-09-01 entry in §6. Offline-green and migration-free, but unshipped.
 
-**Red test, pre-existing, cheap:** `tests/test_rbac_scopes.py` fails its
-`test_no_unreviewed_foreign_keys_into_users` guard on
-`comment_mentions.user_id` (NOT NULL + CASCADE), left over from the mentions
-work. CASCADE is almost certainly the right answer — a mention row means
-nothing once the account is gone — so the fix is to confirm that in
-`admin_service.delete_member` and add the key to `_ACCEPTED_CASCADES`. Left
-alone because the guard exists precisely so a human decides.
+~~Red FK-guard test~~ **CLEARED 2026-09-02** — `comment_mentions.user_id` and
+`password_reset_tokens.user_id` are both registered in `_ACCEPTED_CASCADES`
+with their reasoning. `tests/test_rbac_scopes.py` is 37/37.
 
 **Someone else is mid-edit on `MeetingCard.tsx` (2026-09-01).** HEAD
 (`b322562`) has the status pill as a SOLID fill with a white label; the working

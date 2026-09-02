@@ -1,5 +1,4 @@
 import { apiClient } from "../../services/apiClient";
-import { withEncodedPasswords } from "../../services/passwordTransport";
 import type { AccessRole } from "../auth/types";
 
 export interface TeamOption {
@@ -49,11 +48,14 @@ export type EmailStatus = "sent" | "skipped" | "failed";
 export interface CreateAdminResult {
   user: OrgMember;
   /**
-   * Returned exactly once, at creation, and null when an existing
-   * account was promoted instead (that path reuses their password).
-   * Also emailed to the recipient when SMTP is configured.
+   * The activation link, returned once so it can be passed on when mail is
+   * unconfigured or bounces. Null when an existing account was promoted —
+   * that path reuses their login and issues no invitation.
+   *
+   * Not a password: single-use, time-limited, and it lets its holder SET a
+   * credential rather than being one.
    */
-  temporary_password: string | null;
+  invite_url: string | null;
   email_status: EmailStatus;
   email_error: string | null;
 }
@@ -61,12 +63,11 @@ export interface CreateAdminResult {
 export interface CreateMemberResult {
   user: OrgMember;
   /**
-   * The password, echoed back once. Stored server-side only as a bcrypt
-   * hash, so this response is the last time it can ever be read — the UI
-   * must show it before navigating away. Returned even when the invite
-   * email was sent, because mail bounces and spam filters exist.
+   * The activation link. Returned even when the invite email was sent,
+   * because mail bounces and spam filters exist — this is the admin's
+   * fallback for getting the person in.
    */
-  password: string;
+  invite_url: string;
   email_status: EmailStatus;
   email_error: string | null;
   /** Past meetings this person attended that got linked to the new account. */
@@ -76,13 +77,14 @@ export interface CreateMemberResult {
 export interface ResetPasswordResult {
   user: OrgMember;
   /**
-   * Shown once. Unrecoverable afterwards — returned even when the email
-   * was sent, because mail bounces and spam filters exist.
+   * A reset link, not a password. Shorter-lived than an invitation (30
+   * minutes): the account is live and someone may already be inside it, so
+   * the window in which a forwarded link still works should be small.
    */
-  temporary_password: string;
+  reset_url: string;
   /** Every session that user held is now refused. */
   sessions_revoked: boolean;
-  /** Whether the new password reached them, or is still yours to pass on. */
+  /** Whether the link reached them, or is still yours to pass on. */
   email_status: EmailStatus;
   email_error: string | null;
 }
@@ -110,9 +112,11 @@ export const membersApi = {
    * the follow-up call was refused with "That person is not in a category
    * you manage" — after the account had already been created.
    */
+  // No password field, and the server has none either — it rejects the key
+  // outright. Provisioning issues an activation link and the person sets
+  // their own password; nothing here ever carries a credential.
   createMember: (payload: {
     email: string;
-    password: string;
     access_role: AccessRole;
     name?: string;
     category_ids?: number[];
@@ -121,10 +125,7 @@ export const membersApi = {
     apiClient("/admin/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Base64 in transit so the chosen password isn't legible in the
-      // network payload. The backend always decodes, then applies the
-      // 8..128 rule to the decoded value.
-      body: JSON.stringify(withEncodedPasswords(payload, ["password"])),
+      body: JSON.stringify(payload),
     }),
 
   /** Every category in the org — the option list for the grant picker. */

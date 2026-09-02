@@ -32,16 +32,16 @@ export default function ConfirmResetPasswordModal({
   if (issued) {
     return (
       <IssuedCredential
-        title="New password issued"
+        title="Reset link issued"
         email={member.email}
-        password={issued.temporary_password}
-        passwordLabel="Temporary password"
+        value={issued.reset_url}
+        valueLabel="Reset link"
         emailStatus={issued.email_status}
         emailError={issued.email_error}
-        sentDetail="They have been emailed the new password. Keep the copy below until they confirm they are back in — mail can bounce or be filtered."
-        failedDetail="The password below is live regardless, and they are already signed out. Send it over a channel you trust."
-        skippedDetail="No mail server is configured, so nothing was sent. Only a hash is stored, so nobody can look this up later — if it is lost, run the reset again to issue another."
-        footer="They will be asked to replace it the next time they sign in, and until they do, the API refuses everything except signing in and setting a password."
+        sentDetail="They have been emailed a link to set a new password. Keep the copy below until they confirm they are back in — mail can bounce or be filtered."
+        failedDetail="Their old password is already dead and every session is signed out, so they cannot get in until they use this. Send the link below over a channel you trust."
+        skippedDetail="No mail server is configured, so nothing was sent. Send them the link below — if it is lost or expires, run the reset again to issue another."
+        footer="The link works once and expires in 30 minutes — shorter than an invitation, because the account is live and someone else may be holding it. They choose the password; nobody here sees it."
         onClose={onClose}
       />
     );

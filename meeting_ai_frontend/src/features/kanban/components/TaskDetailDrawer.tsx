@@ -95,12 +95,38 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
       onClose();
     } catch (e: any) {
       alert(e?.message || "Failed to delete task");
+    } finally {
+      // `finally`, not just the catch arm. The success path used to leave
+      // this true and lean on onClose() unmounting the drawer — it does not
+      // unmount, so the flag survived and jammed every later delete. The
+      // effect above also clears it; both, because either one alone is a
+      // silent single point of failure for a button that then cannot be
+      // clicked again.
       setDeleting(false);
     }
   };
 
   // Fetch detail when taskId changes.
   useEffect(() => {
+    // Reset the per-card UI state FIRST, before the early return.
+    //
+    // This drawer is never unmounted — BoardPage renders it permanently and
+    // passes `taskId={null}` to hide it — so anything left set here survives
+    // into the next card. `deleting` did exactly that: the success path calls
+    // onClose() and relied on unmounting to clear the flag, so after one
+    // successful delete the button stayed spinning and disabled FOREVER, and
+    // no further card could be deleted without a page reload.
+    //
+    // The editing flags leaked the same way, more quietly: open a card, click
+    // to edit the title, close without saving, open another — and the second
+    // card opened straight into edit mode.
+    //
+    // Resetting here rather than in each handler covers every route in and
+    // out of a card, including ones added later.
+    setDeleting(false);
+    setEditingTitle(false);
+    setEditingDescription(false);
+
     if (taskId == null) {
       setTask(null);
       return;

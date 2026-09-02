@@ -65,29 +65,34 @@ class AdminCreateRequest(BaseModel):
 
 class AdminCreateResponse(BaseModel):
     user: OrgMemberResponse
-    # Returned exactly once, at creation. Also emailed to the recipient
-    # when SMTP is configured, but still returned regardless — mail can
-    # bounce or be filtered, and without a fallback the account would have
-    # to be re-provisioned.
-    temporary_password: Optional[str] = None
+    # The activation link, returned once so the creator can pass it on when
+    # mail is unconfigured or bounces. It is a bearer credential for setting
+    # the password — but it is single-use, time-limited, and the admin could
+    # re-provision the account anyway, so handing it to them adds no power
+    # they did not already have. A PASSWORD in the same slot did: it survived
+    # in an inbox indefinitely and was the account's real credential.
+    #
+    # Null when an existing account was promoted — that path reuses their
+    # login and issues no invitation.
+    invite_url: Optional[str] = None
     email_status: str = "skipped"
     email_error: Optional[str] = None
 
 
-class MemberCreateRequest(EncodedPasswordModel):
+class MemberCreateRequest(BaseModel):
     """Add a user to the caller's organization with a chosen role.
 
-    The org admin sets the password here and passes it to the person out
-    of band. That means the creator knows the credential, which is why
-    the created account carries `must_change_password` — the shared
-    secret is a delivery mechanism, not the person's real password.
+    **No password field, deliberately.** The creator used to pick one and
+    pass it on out of band, which meant the account's first credential was a
+    secret another person knew and an email server had carried. Provisioning
+    now sends a single-use activation link and the owner chooses a password
+    the server has never seen.
+
+    Removing the field is the enforcement: there is no request shape that can
+    set someone else's password, so no future caller can reintroduce the
+    flow by accident.
     """
     email: EmailStr
-    # Base64 on the wire, so the real 8..128 rule lives in `_password_rules`
-    # and is checked after decoding. Declaring it here instead would measure
-    # the envelope: a legitimate 128-character password encodes to 172
-    # characters and would be rejected as too long.
-    password: str = Field(max_length=1024)
 
     _password_fields: ClassVar[tuple[str, ...]] = ("password",)
     _password_rules: ClassVar[dict[str, tuple[int, int]]] = {
@@ -115,14 +120,12 @@ class MemberCreateRequest(EncodedPasswordModel):
 
 class MemberCreateResponse(BaseModel):
     user: OrgMemberResponse
-    # Echoed back so the UI can render the "copy this now" panel from the
-    # server's response rather than from local form state — that way what
-    # is displayed is what was actually stored.
-    #
-    # Still returned even when the invite email succeeded: mail can bounce
-    # or land in spam, and the org admin having no fallback would mean
-    # re-provisioning the account.
-    password: str
+    # The activation link, so the creator can pass it on when mail is
+    # unconfigured or bounces. Not a password: this is single-use and
+    # time-limited, and it lets its holder SET a credential rather than
+    # being one. Whoever created the account could re-provision it anyway,
+    # so this grants them nothing new — a mailed password did.
+    invite_url: str
     # Invite email outcome. 'sent' | 'skipped' | 'failed' —
     # 'skipped' means no SMTP is configured, which is an expected
     # deployment state and not an error worth alarming the user about.
@@ -154,12 +157,12 @@ class RoleUpdateRequest(BaseModel):
 class PasswordResetResponse(BaseModel):
     """A freshly issued temporary password, returned once.
 
-    Same one-shot contract as `AdminCreateResponse.temporary_password`: the
+    Same one-shot contract as `AdminCreateResponse.invite_url`: the
     server stores only a bcrypt hash, so if this value is missed the reset
     has to be run again.
     """
     user: OrgMemberResponse
-    temporary_password: str
+    reset_url: str
     # Every session that user had is now refused — `password_set_at` moved,
     # and tokens issued before it no longer validate. Reported so the UI can
     # say so rather than leaving the admin to assume otherwise.

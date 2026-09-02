@@ -5,6 +5,8 @@ import MeetingTypesPage from "../features/meetings/pages/MeetingTypesPage";
 import ActionItemsPage from "../features/meetings/pages/ActionItemsPage";
 import LoginPage from "../features/auth/pages/LoginPage";
 import RegisterPage from "../features/auth/pages/RegisterPage";
+import ForgotPasswordPage from "../features/auth/pages/ForgotPasswordPage";
+import ResetPasswordPage from "../features/auth/pages/ResetPasswordPage";
 import GoogleCallbackPage from "../features/auth/pages/GoogleCallbackPage";
 import ProtectedRoute from "../features/auth/components/ProtectedRoute";
 import RequireRole from "../features/auth/components/RequireRole";
@@ -41,6 +43,19 @@ export const router = createBrowserRouter([
   {
     path: "/register",
     element: <RegisterPage />,
+  },
+  {
+    // Public by necessity: someone who cannot sign in cannot authenticate to
+    // ask for help. The endpoints behind these two carry the enumeration and
+    // rate-limit defences — see services/password_reset_service.
+    path: "/forgot-password",
+    element: <ForgotPasswordPage />,
+  },
+  {
+    // The emailed link lands here with ?token=. Reachable while signed out,
+    // which is the normal case, and it does NOT sign anyone in on success.
+    path: "/reset-password",
+    element: <ResetPasswordPage />,
   },
   {
     // Reachable with a session but BEFORE the forced-password-change
