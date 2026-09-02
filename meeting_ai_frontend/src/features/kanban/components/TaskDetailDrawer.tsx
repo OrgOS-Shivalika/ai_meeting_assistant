@@ -22,7 +22,9 @@ import {
   User,
   X,
 } from "lucide-react";
-import { deleteTask, fetchTaskDetail, patchTask } from "../api";
+import { deleteTask, fetchOrgMembers, fetchTaskDetail, patchTask } from "../api";
+import type { OrgMember } from "../api";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import type {
   MeetingParticipantSummary,
   TaskDetail,
@@ -84,6 +86,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
   const [savingField, setSavingField] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Assigning grants access, so it is an admin action server-side. Hiding
+  // the control keeps a viewer from meeting a 403 they cannot act on.
+  const { canManage } = usePermissions();
 
   const handleDelete = async () => {
     if (!task) return;
@@ -237,6 +242,17 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
   const handleChangePriority = async (priority: "low" | "medium" | "high") => {
     if (!task || task.priority === priority) return;
     await applyPatch("priority", { priority });
+  };
+
+  // Assigning is a GRANT: `permissions.task_view_clause` ORs in
+  // `assignee_user_id == user.id`, so this hands the person read+write on the
+  // card whether or not they attended the meeting. The server enforces
+  // admin-only and same-org; the picker is simply not shown to anyone who
+  // would be refused.
+  const handleChangeAssignee = async (userId: string | null) => {
+    if (!task) return;
+    if ((userId || "") === (task.assignee_user_id || "")) return;
+    await applyPatch("assignee_user_id", { assignee_user_id: userId });
   };
 
   const handleChangeOwner = async (ownerName: string | null) => {
@@ -402,6 +418,27 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                   </div>
                 </div>
 
+                {/* Assignee — the ACCOUNT. Distinct from Owner below,
+                    which is the label the meeting analyzer produced. Both are
+                    shown because they answer different questions: Owner is
+                    what was said in the meeting, Assignee is who the system
+                    can act on — filter by, notify, grant access to.
+
+                    Admin-only, mirroring the server: assigning grants access,
+                    so it is not a field a viewer may set. */}
+                {canManage && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                      <User className="w-2.5 h-2.5" /> Assignee
+                    </label>
+                    <AssigneePicker
+                      task={task}
+                      onChange={handleChangeAssignee}
+                      saving={savingField === "assignee_user_id"}
+                    />
+                  </div>
+                )}
+
                 {/* Owner */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
@@ -556,6 +593,64 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 }
 
 // ---------------------------------------------------------------------------
+// Assignee picker — org accounts, not meeting participants.
+//
+// Deliberately a different source from OwnerPicker below. Participants are
+// whoever was in the room; assignees must be people with a login, because the
+// value is a foreign key into `users`. On this data those sets barely overlap:
+// 181 participants, 0 of them linked to an account.
+function AssigneePicker({
+  task,
+  onChange,
+  saving,
+}: {
+  task: TaskDetail;
+  onChange: (userId: string | null) => void | Promise<void>;
+  saving: boolean;
+}) {
+  const [members, setMembers] = useState<OrgMember[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    // Org-scoped server-side — this endpoint never returns another
+    // organization's people.
+    fetchOrgMembers()
+      .then((m) => alive && setMembers(m))
+      .catch(() => {
+        /* the select just stays empty; not worth an error banner */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <select
+      value={task.assignee_user_id || ""}
+      disabled={saving}
+      onChange={(e) => void onChange(e.target.value || null)}
+      className="w-full px-2 py-1.5 rounded-md border border-gray-200 text-[13px] bg-white disabled:opacity-50"
+    >
+      <option value="">Unassigned</option>
+      {members.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.name}
+        </option>
+      ))}
+      {/* The assignee may have been removed from the org since. Without this
+          the select would silently show "Unassigned" for a card that is in
+          fact still assigned. */}
+      {task.assignee_user_id &&
+        !members.some((m) => m.id === task.assignee_user_id) && (
+          <option value={task.assignee_user_id}>
+            {task.assignee_name || "Unknown user"}
+          </option>
+        )}
+    </select>
+  );
+}
+
+
 // Owner picker — small dropdown of meeting participants + "Other…"
 // fallback for arbitrary names. Lighter than TaskAssignmentEditor
 // because the drawer already owns the saving lifecycle.

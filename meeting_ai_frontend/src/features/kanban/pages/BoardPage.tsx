@@ -16,13 +16,14 @@ import {
   arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Filter, Search } from "lucide-react";
+import { Filter, Search, User } from "lucide-react";
 import { createBoardTask, moveTask, updateColumn } from "../api";
 import { useBoardOutletContext } from "./BoardLayout";
 import BoardColumn from "../components/BoardColumn";
 import TaskCard from "../components/TaskCard";
 import AddColumnButton from "../components/AddColumnButton";
 import BoardFilters, {
+  ASSIGNED_TO_ME,
   EMPTY_FILTER_STATE,
   NO_CATEGORY,
   NO_MEETING,
@@ -32,6 +33,7 @@ import BoardFilters, {
   type FilterState,
 } from "../components/BoardFilters";
 import TaskDetailDrawer from "../components/TaskDetailDrawer";
+import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
 import type { BoardDetail, BoardTaskSummary } from "../types";
 import { SearchInput } from "@/components/ui/input";
 import { FilterPill } from "@/components/ui/segmented";
@@ -68,6 +70,10 @@ export default function BoardPage() {
   // loading/error states; by the time this component renders, board
   // is guaranteed non-null.
   const { board, refresh, setBoardOptimistic } = useBoardOutletContext();
+  // For the "Assigned to me" filter. Compared against the card's
+  // `assignee_user_id`, never against a name — see the filter below.
+  const { user: currentUser } = useCurrentUser();
+  const currentUserId = currentUser?.id ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Drag state — the active task while a drag is in progress, used for
@@ -178,8 +184,15 @@ export default function BoardPage() {
       tasks: col.tasks.filter((t) => {
         // 1. Priority (single-select)
         if (filters.priority && t.priority !== filters.priority) return false;
-        // 2. Assignee (single-select; UNASSIGNED sentinel matches null owners)
-        if (filters.assignee) {
+        // 2. Person. Two different questions share this control:
+        //    ASSIGNED_TO_ME matches the resolved ACCOUNT (`assignee_user_id`),
+        //    every other value matches the `owner` LABEL the analyzer wrote.
+        //    They cannot be merged — most cards have an owner label and no
+        //    account, so filtering "me" by name would miss anything spelled
+        //    differently and hit anyone who happens to share a name.
+        if (filters.assignee === ASSIGNED_TO_ME) {
+          if (!currentUserId || t.assignee_user_id !== currentUserId) return false;
+        } else if (filters.assignee) {
           const ownerKey = t.is_unassigned ? UNASSIGNED : t.owner || "";
           if (filters.assignee !== ownerKey) return false;
         }
@@ -216,11 +229,16 @@ export default function BoardPage() {
           if (dueFromTs != null && ts < dueFromTs) return false;
           if (dueToTs != null && ts > dueToTs) return false;
         }
-        // 7. Search (fuzzy across title + owner + meeting + team + category)
+        // 7. Search (fuzzy across title + both names + meeting + team + category)
+        //
+        // BOTH names, not just the label. The card displays
+        // `assignee_name || owner`, so searching only `owner` would fail to
+        // find a card by the very name it is showing.
         if (searchLower) {
           const hay = [
             t.task,
             t.owner,
+            t.assignee_name,
             t.meeting_title,
             t.team_name,
             t.category_name,
@@ -233,7 +251,7 @@ export default function BoardPage() {
         return true;
       }),
     }));
-  }, [board, filters, search]);
+  }, [board, filters, search, currentUserId]);
 
   // -------------------------------------------------------------------
   // Drag handlers
@@ -445,6 +463,26 @@ export default function BoardPage() {
           placeholder="Search cards…"
           className="h-[38px] w-52"
         />
+        {/* "My cards" sits in the HEADER, not in the collapsed filter
+            strip, because it is the one filter people use constantly and a
+            filter you cannot find is a filter that does not exist. It writes
+            the same `filters.assignee` value as the Person dropdown, so the
+            two can never disagree — toggling this off clears it, and picking
+            someone else in the dropdown un-highlights this. */}
+        <FilterPill
+          active={filters.assignee === ASSIGNED_TO_ME}
+          onClick={() =>
+            setFilters((prev) => ({
+              ...prev,
+              assignee: prev.assignee === ASSIGNED_TO_ME ? null : ASSIGNED_TO_ME,
+            }))
+          }
+          aria-pressed={filters.assignee === ASSIGNED_TO_ME}
+          title="Show only cards assigned to me"
+        >
+          <User className="size-3.5" />
+          My cards
+        </FilterPill>
         <FilterPill
           active={filtersOpen || activeFilterCount > 0}
           count={activeFilterCount > 0 ? activeFilterCount : undefined}

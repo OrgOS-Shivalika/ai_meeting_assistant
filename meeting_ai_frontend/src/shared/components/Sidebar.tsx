@@ -29,6 +29,7 @@ import { authService } from "../../services/authService";
 import { fetchUnreadMentions } from "../../features/kanban/api";
 import { useCategories } from "../../features/meetings/hooks/useCategories";
 import { useCurrentUser } from "../../features/auth/hooks/useCurrentUser";
+import NotificationBell from "./NotificationBell";
 import { cn } from "@/lib/utils";
 import type { Category } from "../../features/meetings/types";
 
@@ -298,8 +299,12 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        {/* Footer — settings + sign out */}
+        {/* Footer — notifications + settings + sign out.
+            The bell sits here rather than in a header because this app has no
+            header: the layout is Sidebar + content, and inventing one for a
+            single control would be a bigger change than the control. */}
         <div className="flex flex-col gap-0.5 border-t border-hairline p-2">
+          <NotificationBell collapsed={collapsed} />
           <Link
             to="/settings"
             title={collapsed ? "Settings" : undefined}

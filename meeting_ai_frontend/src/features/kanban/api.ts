@@ -209,3 +209,50 @@ export interface UnreadMentions {
 /** This viewer's unread @mentions, rolled up for the sidebar + board list. */
 export const fetchUnreadMentions = (): Promise<UnreadMentions> =>
   apiClient("/mentions/unread");
+
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export interface NotificationItem {
+  id: number;
+  kind: "task_assigned" | "task_mentioned" | "task_due_soon";
+  task_id: number | null;
+  comment_id: number | null;
+  /** Snapshot taken when it happened — see the server model on why it is
+   *  stored rather than joined: "X assigned you Y" is a claim about the past. */
+  payload: { task?: string; actor_name?: string; excerpt?: string; due_date?: string };
+  read: boolean;
+  created_at: string;
+}
+
+export const fetchNotifications = (): Promise<{
+  unread_count: number;
+  items: NotificationItem[];
+}> => apiClient("/notifications");
+
+/** Omit `ids` to mark everything read. Scoped to the caller server-side. */
+export const markNotificationsRead = (ids?: number[]): Promise<{ marked: number }> =>
+  apiClient("/notifications/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+
+export type NotificationPrefs = Record<
+  "task_assigned" | "task_mentioned" | "task_due_soon",
+  boolean
+>;
+
+export const fetchNotificationPrefs = (): Promise<NotificationPrefs> =>
+  apiClient("/notifications/prefs");
+
+export const updateNotificationPrefs = (
+  patch: Partial<NotificationPrefs>,
+): Promise<NotificationPrefs> =>
+  apiClient("/notifications/prefs", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
