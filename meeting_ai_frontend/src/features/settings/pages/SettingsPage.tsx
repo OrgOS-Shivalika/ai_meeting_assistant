@@ -20,6 +20,18 @@ import {
 import Layout from "../../../shared/components/Layout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  applyBackground,
+  applyBackgroundImage,
+  BACKGROUNDS,
+  clearBackgroundImage,
+  fileToBackgroundDataUrl,
+  getBackgroundId,
+  getBackgroundImage,
+  setBackground,
+  setBackgroundImage,
+} from "../../../shared/background";
+import { getTheme, setTheme, type Theme } from "../../../shared/theme";
 import { Input } from "@/components/ui/input";
 import { Field as UiField } from "@/components/ui/label";
 import { PageContainer, PageHeader } from "@/components/ui/page-header";
@@ -202,6 +214,160 @@ export default function SettingsPage() {
 // ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
+/** Personal page background. Local to this browser and to this person — see
+ *  `shared/background.ts` for why it is not stored server-side. */
+/** Light / dark. Applies on click and persists itself. */
+function ThemePicker() {
+  const [theme, setThemeState] = useState<Theme>(getTheme);
+
+  const choose = (next: Theme) => {
+    setThemeState(next);
+    setTheme(next);
+    // Re-run the background so a light colour preset is dropped on the way
+    // into dark and restored on the way out.
+    applyBackground(getBackgroundId());
+    applyBackgroundImage(getBackgroundImage());
+  };
+
+  return (
+    <div className="border-t border-hairline py-5">
+      <p className="vb-title-sm">Appearance</p>
+      <p className="mt-0.5 mb-3 text-[12px] text-muted-ink">
+        Only you see this. Defaults to your system setting until you choose.
+      </p>
+      <div className="flex gap-2">
+        {(["light", "dark"] as Theme[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => choose(t)}
+            aria-pressed={theme === t}
+            className={`rounded-md border px-3 py-1.5 text-[11px] font-medium capitalize transition-all ${
+              theme === t
+                ? "border-ink ring-1 ring-ink"
+                : "border-hairline hover:border-muted-soft"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BackgroundPicker() {
+  const [selected, setSelected] = useState(getBackgroundId);
+  const [image, setImage] = useState<string | null>(getBackgroundImage);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const choose = (id: string) => {
+    setSelected(id);
+    // Applies immediately: a preview that needs a save button to take effect
+    // makes people guess what they are choosing.
+    setBackground(id);
+    // A colour is a different answer to the same question, so picking one
+    // drops the image rather than leaving it on top where the colour would
+    // appear to do nothing.
+    if (image) {
+      clearBackgroundImage();
+      setImage(null);
+    }
+  };
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const dataUrl = await fileToBackgroundDataUrl(file);
+      setBackgroundImage(dataUrl);
+      setImage(dataUrl);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't use that image.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-hairline py-5">
+      <p className="vb-title-sm">Background</p>
+      <p className="mt-0.5 mb-3 text-[12px] text-muted-ink">
+        Only you see this — a colour, or an image of your own. Saved in this
+        browser, so it won't follow you to another device.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {BACKGROUNDS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            onClick={() => choose(b.id)}
+            aria-pressed={selected === b.id}
+            title={b.label}
+            className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
+              selected === b.id
+                ? "border-ink ring-1 ring-ink"
+                : "border-hairline hover:border-muted-soft"
+            }`}
+          >
+            <span
+              className="size-4 rounded-full border border-hairline"
+              style={{ backgroundColor: b.value }}
+            />
+            {b.label}
+          </button>
+        ))}
+
+        {/* Upload tile, same shape as the colour tiles so the two read as one
+            set of choices rather than two features. */}
+        <label
+          className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
+            image ? "border-ink ring-1 ring-ink" : "border-hairline hover:border-muted-soft"
+          } ${busy ? "opacity-50" : ""}`}
+          title="Use your own image"
+        >
+          <span
+            className="size-4 overflow-hidden rounded-full border border-hairline bg-surface-soft bg-cover bg-center"
+            style={image ? { backgroundImage: `url("${image}")` } : undefined}
+          />
+          {busy ? "Processing…" : image ? "Your image" : "Upload image"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => {
+              void upload(e.target.files?.[0]);
+              // Reset so re-picking the SAME file fires onChange again.
+              e.target.value = "";
+            }}
+          />
+        </label>
+
+        {image && (
+          <button
+            type="button"
+            onClick={() => {
+              clearBackgroundImage();
+              setImage(null);
+              setError(null);
+            }}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-[11px] font-medium text-muted-ink hover:border-muted-soft"
+          >
+            Remove image
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-2 text-[11px] font-medium text-error">{error}</p>
+      )}
+    </div>
+  );
+}
+
 function ProfileSection() {
   const { user } = useCurrentUser();
   const [name, setName] = useState(user?.name || "");
@@ -284,6 +450,12 @@ function ProfileSection() {
           </div>
         </Field>
       </div>
+
+      {/* Applies on click and persists itself, so it sits ABOVE the
+          Cancel/Save bar — those buttons belong to the profile fields and do
+          not govern it. */}
+      <ThemePicker />
+      <BackgroundPicker />
 
       <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
         <Button variant="ghost" size="sm">

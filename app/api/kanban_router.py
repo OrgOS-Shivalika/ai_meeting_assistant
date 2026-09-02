@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -75,7 +75,8 @@ kanban_router = APIRouter(tags=["kanban"])
 # ---------------------------------------------------------------------------
 
 
-def _serialize_task(task: Task, comment_count: int = 0) -> BoardTaskSummary:
+def _serialize_task(task: Task, comment_count: int = 0,
+                    has_unread_mention: bool = False) -> BoardTaskSummary:
     """Convert a Task ORM row to a board-card response.
 
     `comment_count` is passed in (not lazy-loaded) so the caller can
@@ -119,6 +120,7 @@ def _serialize_task(task: Task, comment_count: int = 0) -> BoardTaskSummary:
         category_name=category_name,
         created_at=task.created_at,
         comment_count=comment_count,
+        has_unread_mention=has_unread_mention,
     )
 
 
@@ -201,6 +203,12 @@ def get_board(
         db, board_id, user, meeting_id
     )
 
+    # One query for the whole board rather than a lookup per card.
+    from app.services.kanban import mentions as _mentions
+    _unread = _mentions.unread_task_ids(
+        db, user, [t.id for _c, ts in columns_data for t, _cc in ts],
+    )
+
     columns_out = [
         ColumnWithTasks(
             id=c.id,
@@ -211,7 +219,8 @@ def get_board(
             wip_limit=c.wip_limit,
             bound_status=c.bound_status,
             tasks=[
-                _serialize_task(t, comment_count=cc)
+                _serialize_task(t, comment_count=cc,
+                                has_unread_mention=t.id in _unread)
                 for t, cc in tasks
             ],
         )
@@ -541,3 +550,42 @@ def list_task_activity(
         total=total,
         has_more=(offset + len(rows)) < total,
     )
+
+
+@kanban_router.post("/tasks/{task_id}/mentions/read", status_code=204)
+def mark_mentions_read(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Clear this viewer's unread-mention dot on one card.
+
+    An explicit POST rather than a side effect of GETting the card: a GET that
+    mutates would also fire on prefetches and on anything that renders a card
+    without a human looking at it, and the dot would clear itself.
+
+    `require_task` first, so marking read is only possible on a card the caller
+    can actually open; the update is then scoped to their own user id, so this
+    can never clear somebody else's dot.
+    """
+    from app.services.kanban import mentions as _mentions
+
+    kanban_service.require_task(db, task_id, user)
+    _mentions.mark_task_mentions_read(db, user, task_id)
+    return Response(status_code=204)
+
+
+@kanban_router.get("/mentions/unread")
+def unread_mentions(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """This viewer's unread @mentions, rolled up.
+
+    `{count, task_ids, board_ids}` — the sidebar shows a dot when `count > 0`,
+    the board list dots the boards named in `board_ids`. One endpoint for both
+    so the two indicators cannot disagree.
+    """
+    from app.services.kanban import mentions as _mentions
+
+    return _mentions.unread_summary(db, user)

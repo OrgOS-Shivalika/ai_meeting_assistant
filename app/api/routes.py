@@ -16,7 +16,8 @@ from app.utils.logger import setup_logger
 import uuid
 from app.config.settings import settings
 from app.db.database import SessionLocal
-from app.services import meeting_service
+from app.db.models import User
+from app.services import meeting_service, permissions
 from app.store.job_store import jobs
 
 
@@ -315,3 +316,60 @@ def update_task(
     user=Depends(get_current_user),
 ):
     return meeting_service.update_task(db, user, task_id, payload)
+
+
+# ---------------------------------------------------------------------------
+# Organization directory — the @mention picker's source.
+#
+# Deliberately NOT `/admin/members`. That endpoint answers "who may I
+# administer": it is scoped by `admin_visible_user_ids` and strips org admins,
+# so a plain member sees a partial list — 2 of the 4 people in their org
+# locally, and it would omit most of the company in production, including
+# everyone they would most want to tag. A picker built on it looks broken.
+#
+# This is a directory: id and display name, everyone in the CALLER'S OWN
+# organization and nobody else. `users.organization_id` is NOT NULL, so that
+# filter is a complete tenant partition — it is the one line that keeps one
+# org's member list out of another's, and `tests/test_mentions.py` fails if it
+# is removed.
+# ---------------------------------------------------------------------------
+@router.get("/org/members")
+def list_org_directory(
+    task_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """People in the caller's organization, for the mention picker.
+
+    With `task_id`, each entry also carries `can_view` — whether that person
+    can already open that card. The picker greys those out rather than hiding
+    them: a mention grants nothing either way, and silently omitting a
+    colleague is more confusing than showing them as unreachable.
+    """
+    from app.services.kanban import mentions as _mentions
+
+    people = (
+        db.query(User)
+        .filter(User.organization_id == user.organization_id)
+        .order_by(User.name.asc())
+        .all()
+    )
+
+    can_view: dict = {}
+    if task_id is not None:
+        # 404s for a task outside the org, and enforces that the CALLER can
+        # see the card before revealing who else can.
+        permissions.get_viewable_task(db, user, task_id)
+        can_view = _mentions.annotate_viewers(db, task_id, people)
+
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            # No email. The picker only needs a label, and the directory is
+            # readable by every member — widening it to addresses is a
+            # separate decision nobody has asked for.
+            **({"can_view": can_view.get(p.id, False)} if task_id is not None else {}),
+        }
+        for p in people
+    ]

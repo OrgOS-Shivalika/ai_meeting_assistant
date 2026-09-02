@@ -3,6 +3,7 @@
 //
 // Card detail drawer (full description, comments, activity log) is
 // K4 — this component only renders + signals drag handles.
+import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Calendar, CheckCircle2, MessageSquare, User } from "lucide-react";
@@ -30,7 +31,7 @@ interface Props {
   onOpen?: (task: BoardTaskSummary) => void;
 }
 
-export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
+function TaskCard({ task, isOverlay = false, onOpen }: Props) {
   // useSortable wires this card up as both a draggable AND a drop target
   // (sortable items can act as anchors for "drop before" / "drop after"
   // gestures within a column).
@@ -66,6 +67,8 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
         onOpen?.(task);
       }}
       className={cn(
+        // `relative` so the unread dot can sit on the card's corner.
+        "relative",
         // Floating card — the one place the system allows a soft shadow.
         "cursor-grab rounded-md border border-hairline bg-canvas p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all active:cursor-grabbing",
         isDragging && "opacity-30",
@@ -75,6 +78,18 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
           : "hover:border-muted-soft",
       )}
     >
+      {/* Unread @mention — the phone-style dot. Sits ON the card's corner
+          rather than in the content flow, so it never shifts the title and is
+          visible at a glance while scanning a column. Per-viewer: the same
+          card is dotted for the person mentioned and plain for everyone else. */}
+      {task.has_unread_mention && (
+        <span
+          className="absolute -top-1 right-4 size-2.5 rounded-full bg-red-500 ring-2 ring-canvas"
+          title="You were mentioned"
+          aria-label="Unread mention"
+        />
+      )}
+
       {/* Title + priority */}
       <div className="mb-2.5 flex items-start justify-between gap-2">
         <h4
@@ -138,3 +153,10 @@ export default function TaskCard({ task, isOverlay = false, onOpen }: Props) {
     </div>
   );
 }
+
+// A board can hold ~900 cards, and every one of them runs a `useSortable`
+// hook. Without memo, any parent render — a search keystroke, opening the
+// drawer, a drag — re-runs all of them. The props are already stable: card
+// objects keep their identity through the parent's filter, and `onOpen` is a
+// useCallback in BoardPage. Break either and this silently stops working.
+export default memo(TaskCard);

@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.db.models import (
     Category,
@@ -41,6 +41,7 @@ from app.schemas.kanban_schema import (
     TaskMoveRequest,
 )
 from app.services import permissions
+from app.services.kanban import mentions
 from app.services.kanban.activity import record_activity
 from app.services.kanban.defaults import DEFAULT_COLUMNS
 from app.services.kanban.positions import (
@@ -285,11 +286,31 @@ def get_board_detail(
     # `_serialize_task` can read team / category names without an N+1.
     # Two parallel joinedload chains (not nested) because team and
     # category are sibling relationships on Meeting.
+    #
+    # `load_only` is not a micro-optimisation, it is the whole cost of this
+    # endpoint. A card shows a meeting TITLE, but `meetings` also holds
+    # `transcript`, `transcript_text`, `transcript_raw` and `summary`, and a
+    # plain joinedload fetches every column. On a 928-card board that was
+    # 38 MB of transcript dragged across the wire to render 148 kB of cards,
+    # and it took ~7 s. Naming the four columns the card actually reads takes
+    # it to well under a second.
+    #
+    # Cards repeat meetings (928 cards over 83 meetings here), so the same
+    # meeting row is also sent once per card — hence the size. If more meeting
+    # fields are ever needed on a card, add them HERE rather than dropping
+    # load_only, or the 7 s comes straight back.
     task_q = (
         db.query(Task)
         .options(
-            joinedload(Task.meeting).joinedload(Meeting.team),
-            joinedload(Task.meeting).joinedload(Meeting.category),
+            joinedload(Task.meeting).load_only(
+                Meeting.id, Meeting.title, Meeting.team_id, Meeting.category_id,
+            ),
+            joinedload(Task.meeting).joinedload(Meeting.team).load_only(
+                Team.id, Team.name,
+            ),
+            joinedload(Task.meeting).joinedload(Meeting.category).load_only(
+                Category.id, Category.name,
+            ),
         )
         .filter(Task.column_id.in_(column_ids) if column_ids else False)
         .order_by(Task.position.asc().nullslast(), Task.id.asc())
@@ -843,6 +864,14 @@ def create_task_comment(
     if not body:
         raise HTTPException(status_code=400, detail="Comment body cannot be empty")
 
+    # Mentions are validated against the AUTHOR'S org and their display names
+    # rewritten from the database — the client supplies the whole body, so
+    # neither the ids nor the names it puts in one can be trusted. See
+    # `mentions.validate_and_normalize`.
+    body = mentions.validate_and_normalize(
+        db, body, organization_id=user.organization_id,
+    )
+
     comment = TaskComment(
         task_id=task.id,
         author_user_id=user.id,
@@ -852,6 +881,10 @@ def create_task_comment(
     db.add(comment)
     db.flush()
 
+    # Index the mentions for the unread dot. After flush so `comment.id`
+    # exists; the author is excluded inside.
+    mentions.sync_comment_mentions(db, comment, author_user_id=user.id)
+
     record_activity(
         db,
         task_id=task.id,
@@ -859,7 +892,10 @@ def create_task_comment(
         actor_user_id=user.id,
         actor_name=user.name,
         before=None,
-        after={"comment_id": comment.id, "body_preview": body[:120]},
+        # Flattened to plain `@Name`: the activity feed has no mention
+        # renderer, so raw `@[Name](uuid)` markup would surface there.
+        after={"comment_id": comment.id,
+               "body_preview": mentions.strip_mentions(body)[:120]},
     )
     db.commit()
     db.refresh(comment)
@@ -892,7 +928,15 @@ def update_comment(
     body = payload.body.strip()
     if not body:
         raise HTTPException(status_code=400, detail="Comment body cannot be empty")
-    comment.body = body
+    # Editing can introduce mentions too, so it takes the identical path —
+    # validating only on create would leave the edit endpoint as the hole.
+    comment.body = mentions.validate_and_normalize(
+        db, body, organization_id=user.organization_id,
+    )
+    # Re-index: an edit can add or remove a mention. Rows that survive keep
+    # their read state.
+    db.flush()
+    mentions.sync_comment_mentions(db, comment, author_user_id=user.id)
     db.commit()
     db.refresh(comment)
     return comment

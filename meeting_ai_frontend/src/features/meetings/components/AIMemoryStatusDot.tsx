@@ -6,6 +6,13 @@ interface AIMemoryStatusDotProps {
   graphStatus?: MemoryLifecycleStatus;
   size?: "xs" | "sm";
   showLabel?: boolean;
+  /**
+   * The sparkle is sitting on a solid-coloured pill rather than a pale tint.
+   * Its own hue is then unreliable — "ready" green on a green Completed pill
+   * is invisible — so it renders white and leans on the `quiet` opacity split
+   * instead: faint = nothing to do, bright = processing (pulsing) or failed.
+   */
+  onFill?: boolean;
 }
 
 type CombinedState =
@@ -65,6 +72,7 @@ export default function AIMemoryStatusDot({
   graphStatus,
   size = "xs",
   showLabel = false,
+  onFill = false,
 }: AIMemoryStatusDotProps) {
   const state = combine(embeddingStatus, graphStatus);
   if (state === "absent" && !showLabel) return null;
@@ -86,7 +94,10 @@ export default function AIMemoryStatusDot({
     >
       <Sparkles
         className={`${dim} shrink-0 ${style.animate}`}
-        style={{ color: style.color, opacity: style.quiet ? 0.55 : 1 }}
+        style={{
+          color: onFill ? "#fff" : style.color,
+          opacity: style.quiet ? 0.55 : 1,
+        }}
       />
       {showLabel && (
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">

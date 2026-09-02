@@ -8,6 +8,7 @@
 // view on success. The parent BoardPage's refresh tick will eventually
 // reconcile the board's cached version too.
 import { useEffect, useMemo, useState } from "react";
+import { markMentionsRead } from "../api";
 import ReactMarkdown from "react-markdown";
 import {
   Calendar,
@@ -123,6 +124,27 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
     return () => {
       cancelled = true;
     };
+  }, [taskId]);
+
+  // Opening the card clears this viewer's unread-mention dot.
+  //
+  // An explicit POST rather than a side effect of the detail GET: a mutating
+  // GET would also fire on prefetches and on anything that renders a card
+  // without a human reading it, and the dot would clear itself.
+  //
+  // Fire-and-forget — failing to clear a dot must never block the drawer from
+  // opening. `onChange()` refreshes the board so the dot disappears without a
+  // manual reload.
+  useEffect(() => {
+    if (taskId == null) return;
+    let alive = true;
+    markMentionsRead(taskId)
+      .then(() => { if (alive) onChange?.(); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // `onChange` is intentionally out of the deps: the parent re-creates it on
+    // every render, and including it would mark-read in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
   // Esc closes the drawer. We DON'T capture every Escape — only when

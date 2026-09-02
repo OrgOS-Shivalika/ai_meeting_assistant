@@ -6,6 +6,7 @@ import Layout from "../../../shared/components/Layout";
 import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { createBoard, fetchBoards } from "../api";
 import type { BoardSummary } from "../types";
+import { fetchUnreadMentions } from "../api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,6 +18,17 @@ import { accent } from "@/lib/vibrant";
 export default function BoardListPage() {
   const navigate = useNavigate();
   const [boards, setBoards] = useState<BoardSummary[]>([]);
+  // Boards holding an unread @mention for this viewer. Fetched separately from
+  // the board list so `/boards` keeps its shape — the two are rendered
+  // together but are different questions ("what exists" vs "what wants me").
+  const [unreadBoards, setUnreadBoards] = useState<number[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetchUnreadMentions()
+      .then((u) => alive && setUnreadBoards(u.board_ids))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -176,7 +188,16 @@ export default function BoardListPage() {
                         <LayoutGrid />
                       </IconChip>
                       <div className="min-w-0">
-                        <h3 className="vb-title-md truncate">{b.name}</h3>
+                        <h3 className="vb-title-md truncate">
+                          {b.name}
+                          {unreadBoards.includes(b.id) && (
+                            <span
+                              className="ml-1.5 inline-block size-2 shrink-0 rounded-full bg-red-500 align-middle"
+                              title="You were mentioned on a card here"
+                              aria-label="Unread mention"
+                            />
+                          )}
+                        </h3>
                         <p className="mt-0.5 text-xs text-muted-ink">
                           {b.column_count}{" "}
                           {b.column_count === 1 ? "column" : "columns"}
