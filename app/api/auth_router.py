@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_user, token_claims
 from app.services import admin_service, auth_service, permissions
 from app.schemas.admin_schema import PasswordChangeRequest
 from app.schemas.auth_schema import UserCreate, UserLogin, Token
@@ -16,18 +16,29 @@ public_router = APIRouter(prefix="/auth", tags=["Authentication"])
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def _set_auth_cookie(response: Response, token: str) -> None:
+def _set_auth_cookie(response: Response, token: str, remember: bool = True) -> None:
     """Attach the session JWT as an HttpOnly cookie.
 
     HttpOnly + SameSite is the whole point of the move off localStorage:
     the browser sends it automatically on same-origin requests and the WS
     handshake, but no page script can read it, so an XSS payload can't
     steal the session. Secure/SameSite come from settings so a dev on
-    http://localhost and an HTTPS deployment can both work."""
+    http://localhost and an HTTPS deployment can both work.
+
+    `remember` is the login form's "Keep me signed in". Omitting `max_age`
+    (and `expires`) is what makes a cookie a SESSION cookie — the browser
+    drops it when it closes. With `max_age` set it survives, which is what
+    the checkbox is asking for. The token's own 7-day TTL is unchanged
+    either way: this decides how long the BROWSER keeps the cookie, not how
+    long the credential stays valid.
+
+    Until now the checkbox was wired to nothing and everyone got the
+    persistent cookie, so ticking it off on a shared machine did not
+    actually sign you out when you closed the browser."""
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
         value=token,
-        max_age=settings.AUTH_COOKIE_MAX_AGE,
+        max_age=settings.AUTH_COOKIE_MAX_AGE if remember else None,
         httponly=True,
         secure=settings.AUTH_COOKIE_SECURE,
         samesite=settings.AUTH_COOKIE_SAMESITE,
@@ -42,8 +53,13 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
 @public_router.post("/login", response_model=Token)
 def login(data: UserLogin, response: Response, db: Session = Depends(get_db)):
     user = auth_service.authenticate_user(db, data)
-    token = auth_service.create_token({"user_id": str(user.id)})
-    _set_auth_cookie(response, token)
+    # The choice rides in the token so it survives a re-issue — see
+    # `change_password`, which would otherwise silently upgrade a
+    # deliberately non-persistent session to a 7-day one.
+    token = auth_service.create_token(
+        {"user_id": str(user.id), "remember": data.remember_me}
+    )
+    _set_auth_cookie(response, token, remember=data.remember_me)
     # The body token is retained for non-browser API clients (Swagger,
     # scripts) that authenticate via the Authorization header. Browser
     # sessions rely solely on the HttpOnly cookie set above and never
@@ -117,6 +133,7 @@ def get_me(
 @router.post("/change-password")
 def change_password(
     payload: PasswordChangeRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -136,5 +153,16 @@ def change_password(
     result = admin_service.change_password(
         db, user, payload.current_password, payload.new_password
     )
-    _set_auth_cookie(response, auth_service.create_token({"user_id": str(user.id)}))
+    # Carry the caller's original "keep me signed in" answer across the
+    # re-issue. Defaulting to persistent here would hand a 7-day cookie to
+    # someone who explicitly asked not to have one, just because they changed
+    # their password.
+    remember = bool(
+        token_claims(request.cookies.get(settings.AUTH_COOKIE_NAME)).get("remember", True)
+    )
+    _set_auth_cookie(
+        response,
+        auth_service.create_token({"user_id": str(user.id), "remember": remember}),
+        remember=remember,
+    )
     return result

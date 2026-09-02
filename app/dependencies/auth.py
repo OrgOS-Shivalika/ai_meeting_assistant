@@ -31,6 +31,22 @@ def _token_from_request(request: Request, bearer_token: str | None) -> str | Non
     return cookie_token or bearer_token
 
 
+def token_claims(token: str | None) -> dict:
+    """Decoded claims, or `{}` on any failure.
+
+    For reading a NON-identity claim (currently `remember`) off the caller's
+    live cookie. Never use this to establish who someone is — that path must
+    go through `resolve_user_from_token`, which also enforces the
+    password-change revocation check this deliberately skips.
+    """
+    if not token:
+        return {}
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return {}
+
+
 def resolve_user_from_token(db: Session, token: str | None) -> User | None:
     """Decode a JWT string → User, or None on any failure.
 
