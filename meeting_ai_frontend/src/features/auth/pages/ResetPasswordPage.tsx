@@ -26,6 +26,11 @@ import { Field } from "@/components/ui/label";
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
+  // Invitations link here too — same token machinery, same form — but the
+  // reader's situation is the opposite. Someone accepting an invitation has
+  // never had a password, so "Reset your password" reads as a mistake and
+  // makes them wonder whose account they are about to change.
+  const isWelcome = searchParams.get("welcome") === "1";
   const navigate = useNavigate();
 
   const [newPassword, setNewPassword] = useState("");
@@ -76,7 +81,7 @@ export default function ResetPasswordPage() {
   if (!token) {
     return (
       <AuthShell
-        eyebrow="Reset password"
+        eyebrow={isWelcome ? "Welcome" : "Reset password"}
         heading="This link is incomplete"
         subheading="The reset link is missing its token. It may have been cut short by your email client."
         variant="login"
@@ -94,8 +99,8 @@ export default function ResetPasswordPage() {
   if (done) {
     return (
       <AuthShell
-        eyebrow="Reset password"
-        heading="Password updated"
+        eyebrow={isWelcome ? "Welcome" : "Reset password"}
+        heading={isWelcome ? "You're all set" : "Password updated"}
         subheading="Sign in with your new password."
         variant="login"
       >
@@ -104,10 +109,14 @@ export default function ResetPasswordPage() {
             <ShieldCheck className="mt-0.5 size-4 shrink-0 text-success" />
             <div className="text-[12px] leading-relaxed text-muted-ink">
               <p className="font-medium text-ink">
-                You've been signed out everywhere else.
+                {isWelcome
+                  ? "Your account is ready."
+                  : "You've been signed out everywhere else."}
               </p>
               <p className="mt-1">
-                Every other device and browser now needs the new password.
+                {isWelcome
+                  ? "Nobody else knows this password — not even the person who invited you."
+                  : "Every other device and browser now needs the new password."}
               </p>
             </div>
           </div>
@@ -122,15 +131,22 @@ export default function ResetPasswordPage() {
 
   return (
     <AuthShell
-      eyebrow="Reset password"
-      heading="Choose a new password"
-      subheading="At least 8 characters. You'll be signed out on your other devices."
+      eyebrow={isWelcome ? "Welcome" : "Reset password"}
+      heading={isWelcome ? "Set your password" : "Choose a new password"}
+      subheading={
+        isWelcome
+          ? "At least 8 characters. Only you will ever know it."
+          : "At least 8 characters. You'll be signed out on your other devices."
+      }
       variant="login"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-[18px]">
         {error && <AuthError>{error}</AuthError>}
 
-        <Field label="New password" htmlFor="new-password">
+        <Field
+          label={isWelcome ? "Password" : "New password"}
+          htmlFor="new-password"
+        >
           <PasswordInput
             id="new-password"
             placeholder="••••••••"
@@ -147,7 +163,10 @@ export default function ResetPasswordPage() {
           )}
         </Field>
 
-        <Field label="Confirm new password" htmlFor="confirm-password">
+        <Field
+          label={isWelcome ? "Confirm password" : "Confirm new password"}
+          htmlFor="confirm-password"
+        >
           <PasswordInput
             id="confirm-password"
             placeholder="••••••••"
@@ -165,11 +184,11 @@ export default function ResetPasswordPage() {
           {isLoading ? (
             <>
               <Loader2 className="size-4 animate-spin" />
-              Updating…
+              {isWelcome ? "Setting up…" : "Updating…"}
             </>
           ) : (
             <>
-              Set new password
+              {isWelcome ? "Create my account" : "Set new password"}
               <ArrowRight className="size-4" />
             </>
           )}

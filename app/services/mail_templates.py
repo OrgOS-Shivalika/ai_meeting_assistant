@@ -131,8 +131,9 @@ def reset_link_bodies(
 ) -> tuple[str, str]:
     """Return ``(text_body, html_body)`` for a SELF-service reset link.
 
-    Distinct from :func:`reset_bodies`, which announces a reset an admin has
-    already performed. This one is a request the recipient may not have made,
+    Distinct from the admin-initiated reset mail this replaced, which
+    announced a change already made. This one is a request the recipient
+    may not have made,
     so the two messages have opposite jobs:
 
     * No credential is enclosed and nothing has changed yet — say so, because
@@ -232,8 +233,7 @@ def invite_link_bodies(
 ) -> tuple[str, str]:
     """Return ``(text_body, html_body)`` for an activation invitation.
 
-    Replaces the old :func:`invite_bodies`, which enclosed a generated
-    password. Mailing a password puts a live credential into a system nobody
+    Replaces the old invite mail, which enclosed a generated password. Mailing a password puts a live credential into a system nobody
     here controls — readable at every hop, sitting in backups, and still
     readable months later in a mailbox that outlives the employment. This
     message carries a single-use link instead, so the only password the

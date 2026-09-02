@@ -317,8 +317,9 @@ def create_admin(
     """Create an admin account in the actor's org and grant it
     categories.
 
-    Returns ``(serialized_user, temporary_password)``. The password is
-    returned only here and never stored in plaintext.
+    Returns ``(serialized_user, invite_url, email_result)``. No password:
+    the account is created with an unknowable placeholder and the person
+    sets their own through the activation link.
 
     Re-provisioning an existing account is allowed and does NOT reset
     their password: someone who already attended a meeting has an
@@ -910,12 +911,13 @@ def _category_option(category: Category, teams) -> dict:
 def reset_password(
     db: Session, actor: User, user_id: UUID
 ) -> tuple[dict, str, mail_service.SendResult]:
-    """Issue a new temporary password for someone else's account.
+    """Kill someone else's password and email them a link to set a new one.
 
-    Returns ``(serialized_user, temporary_password, email_result)``. The
-    password is returned regardless of whether the email went out — the
-    server keeps a bcrypt hash, so this is the one and only chance to read
-    it, and mail bounces and spam filters exist.
+    Returns ``(serialized_user, reset_url, email_result)``. The link comes
+    back regardless of whether the email went out, because mail bounces and
+    spam filters exist and the admin then has to pass it on by hand. It is
+    NOT a password: single-use, 30 minutes, and it only lets its holder set
+    a credential.
 
     Exists because the alternative was worse. A provisioned password is
     shown exactly once, and without a re-issue path the only recovery for
