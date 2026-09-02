@@ -16,6 +16,10 @@ class UserCreate(UserBase, EncodedPasswordModel):
 class UserLogin(EncodedPasswordModel):
     email: EmailStr
     password: str
+    # "Keep me signed in". Decides whether the browser gets a persistent
+    # cookie or a session one; defaults True so an older client that does not
+    # send the field keeps the behaviour it has today.
+    remember_me: bool = True
 
     _password_fields: ClassVar[tuple[str, ...]] = ("password",)
 

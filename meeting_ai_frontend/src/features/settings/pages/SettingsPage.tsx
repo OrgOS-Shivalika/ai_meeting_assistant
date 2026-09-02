@@ -233,7 +233,7 @@ function ThemePicker() {
     <div className="border-t border-hairline py-5">
       <p className="vb-title-sm">Appearance</p>
       <p className="mt-0.5 mb-3 text-[12px] text-muted-ink">
-        Only you see this. Defaults to your system setting until you choose.
+        Only you see this. Light unless you pick dark.
       </p>
       <div className="flex gap-2">
         {(["light", "dark"] as Theme[]).map((t) => (

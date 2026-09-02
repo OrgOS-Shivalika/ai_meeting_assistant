@@ -20,13 +20,15 @@ export function getTheme(): Theme {
     // Private browsing or storage disabled — a theme preference is not worth
     // breaking the app over.
   }
-  // No stored choice: follow the OS. Someone whose machine is in dark mode
-  // should not be handed a white screen on first load.
-  try {
-    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
-  } catch {
-    /* matchMedia missing in some embedded webviews */
-  }
+  // No stored choice: LIGHT, deliberately — not the OS setting.
+  //
+  // Light is the theme this product is designed and reviewed in; dark is a
+  // preference someone opts into. Following `prefers-color-scheme` handed the
+  // dark theme to anyone whose machine happened to be dark, including people
+  // who had never asked for it and had no idea a toggle existed.
+  //
+  // Only the UNSET default changes: a stored "dark" above still wins, so
+  // nobody who chose dark loses it.
   return "light";
 }
 

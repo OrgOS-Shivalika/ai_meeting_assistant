@@ -1458,20 +1458,60 @@ undo a mutation test also reverted the UNRELATED `background_image_key` column
 added earlier in the session. Both were re-applied and re-verified. Use a
 scoped edit-and-restore, not `git checkout`, on a file with other pending work.
 
+### 2026-09-02 — prod migrated to `ak11coldefer`, and "keep me signed in" wired up
+
+- **Railway migrated `ah08boardroute -> ai09mentionread -> ak11coldefer`.**
+  Pre-flight first, because `ak11coldefer` REBUILDS a unique constraint and
+  would abort on a duplicate: checked `comment_mentions` absent (yes) and
+  `(board_id, position)` duplicates in `kanban_columns` (none, 29 rows).
+  Prod is PG 18.6.
+- Verified on the OUTCOME, not the exit code: `comment_mentions` has its 6
+  columns, all 3 indexes, and 3 FKs all `ON DELETE CASCADE`; the column
+  constraint reads `(True, True)` = DEFERRABLE INITIALLY DEFERRED. Row counts
+  identical before/after across 8 tables (tasks 2673, meetings 276, users 22,
+  teams 114, categories 36, boards 7, columns 29, comments 11). **Zero rows
+  lost.** Local DB untouched, both now at `ak11coldefer`.
+- The mentions code (`26cf9b8`) is no longer a deploy hazard, and column
+  drag-reorder will work on prod.
+
+- **"Keep me signed in" was a decorative checkbox.** `LoginPage` set
+  `rememberMe` state and never sent it; every session got the persistent 7-day
+  cookie regardless, so ticking it OFF on a shared machine did nothing.
+  - `UserLogin.remember_me` (defaults **True**, so an older client keeps
+    today's behaviour); `_set_auth_cookie(..., remember)` omits `max_age`
+    when false, which is what makes a cookie a SESSION cookie.
+  - The choice rides in the JWT as a `remember` claim, so `change_password`'s
+    re-issue mirrors it instead of silently upgrading a deliberately
+    non-persistent session to 7 days. New `dependencies/auth.token_claims()`
+    reads it — non-identity claims only, it deliberately skips the
+    password-change revocation check.
+  - `authFlag` now stores in sessionStorage when not remembering. A
+    localStorage flag would outlive a session cookie and wave the next visit
+    into the app, which then 401s and bounces to /login.
+  - The checkbox now DEFAULTS ON. Defaulting it off would have signed every
+    existing user out on their next browser restart — a regression dressed as
+    a fix.
+  - Verified on the Set-Cookie header over HTTP (the only thing that actually
+    decides persistence): `remember=True` -> `Max-Age=604800`,
+    `remember=False` -> no Max-Age, field omitted -> `Max-Age=604800`, token
+    claim True/False correct, and change-password on a session login re-issues
+    WITHOUT Max-Age. Mutation-checked: restoring the unconditional `max_age`
+    makes `remember=False` persistent again and the check fails. Probe user
+    created and deleted; no leftovers.
+- Token TTL is unchanged at 7 days in both cases — `remember` decides how long
+  the BROWSER keeps the cookie, not how long the credential is valid.
+
 ---
 
 ## 7. Open threads
 
-**Blocking again as of 2026-09-01:** prod is at `ah08boardroute`, local head
-is **`ak11coldefer`** — TWO migrations behind: `ai09mentionread`
-(`comment_mentions`) and `ak11coldefer` (deferrable column-position
-constraint). The mentions code is committed (`26cf9b8`) and WILL 500 on every
-comment create/edit and every board load without that table; column
-drag-reorder will fail with a UniqueViolation until the constraint is rebuilt.
-`alembic upgrade head` must precede the next deploy.
+~~prod behind on migrations~~ **CLEARED 2026-09-02** — Railway migrated to
+`ak11coldefer`, verified row-for-row (see §6). Prod DB and local are now at the
+same revision, and the schema is AHEAD of deployed prod code (`26eccfc`), which
+is the safe direction: every change was additive or a constraint rebuild.
 
-(`aj10bgimage` was created and then reverted the same day — see §6. The chain
-now runs `ai09mentionread -> ak11coldefer` with no gap.) Prod code is still
+(`aj10bgimage` was created and then reverted before prod ever saw it — see §6.
+The chain runs `ai09mentionread -> ak11coldefer` with no gap.) Prod code is still
 `26eccfc`; nothing from 2026-08-31 or 2026-09-01 is deployed.
 
 Working tree: only the background picker is uncommitted (4 files —

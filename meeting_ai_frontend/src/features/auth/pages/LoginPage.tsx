@@ -16,7 +16,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  // Defaults ON: until now the checkbox was decorative and EVERY session got
+  // a persistent 7-day cookie. Defaulting it off would have signed everyone
+  // out on their next browser restart — a regression wearing a fix's clothes.
+  const [rememberMe, setRememberMe] = useState(true);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -24,7 +27,7 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
     try {
-      await authService.login({ email, password });
+      await authService.login({ email, password, remember_me: rememberMe });
       navigate("/");
     } catch {
       setError("Invalid email or password. Please try again.");

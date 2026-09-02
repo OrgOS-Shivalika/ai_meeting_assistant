@@ -20,8 +20,9 @@ export const authService = {
     });
     // The backend set an HttpOnly `access_token` cookie on this response —
     // JS can't (and shouldn't) read it. We only record a local flag so the
-    // route guard knows a session exists.
-    setAuthFlag();
+    // route guard knows a session exists. It has to expire when the cookie
+    // does, so "keep me signed in" decides where it is stored.
+    setAuthFlag(credentials?.remember_me !== false);
     return data;
   },
 
