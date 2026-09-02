@@ -35,8 +35,10 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 |---|---|
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
-| Local DB | `localhost:5433/meeting_ai`, alembic head `ae05rbac` |
-| Prod (Railway) | **at head `ae05rbac`** as of 2026-08-11. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Local DB | `localhost:5433/meeting_ai`, alembic head **`am13invitetoken`** (2026-09-02) |
+| Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Prod app | **`https://aimeetingassistant-production.up.railway.app`** — HTTPS only, plain http 301-redirects. Verified 2026-09-02, so `AUTH_COOKIE_SECURE=true` is safe there. |
+| Outbound email | Google Workspace relay, `SMTP_USER` and `SMTP_FROM` both `@smoothops.info` (aligned). **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
 | mem0 | OSS self-hosted, table `mem0_facts`, 112 rows |
 | Langfuse | self-hosted v2. **Local `.env` now points at RAILWAY** (`https://langfuse-production-d9d4.up.railway.app`), not `localhost:3000`. The docker-compose `langfuse` service still runs but nothing traces to it — stop it or repoint `LANGFUSE_BASE_URL` to use it again. |
 | Celery in dev | host worker via `make celery` (`--pool=solo`), NOT the container |
@@ -1636,9 +1638,81 @@ could be deleted.
   Any `useState` added here needs an entry in that reset block, or it silently
   bleeds from one card into the next.
 
+### 2026-09-02 (cont.) — deployed, then chased invite mail into the spam folder
+
+- **Deploy verified live** by probing prod, not by assuming:
+  `POST /public/auth/forgot-password` -> 202 and `GET /forgot-password` -> 200,
+  neither of which exists in the old build. 11 commits shipped at once
+  (`26eccfc..690d477`): mentions, board routing + draggable columns, dark mode,
+  sliding sessions, forgot-password, invite links.
+- **Env answers, verified against the code rather than guessed:**
+  - `AUTH_COOKIE_SECURE` had never existed in `.env` or `.env.example` — it is
+    read with a `"false"` default, so it is a variable you ADD. Now documented
+    (commented out) in `.env.example` along with SAMESITE / MAX_AGE.
+  - It is **web-service only**. Every reader is an HTTP path (`auth_router`,
+    the sliding refresh); Celery never builds a `Response`. Checked the
+    converse too: nothing in `app/celery_tasks/` touches `mail_service`,
+    `mail_templates`, `password_reset_service` or `APP_PUBLIC_URL`, so the mail
+    env is web-only as well. **If invite/reset mail is ever moved onto the
+    queue, the worker silently starts skipping sends** — `is_configured()`
+    returns False without `SMTP_HOST` and logs "skipped" as a success.
+  - Turning SECURE on invalidates NOTHING: existing cookies were set without
+    the flag and keep working, upgrading on next login or on the next sliding
+    refresh. WebSockets stay authenticated because `.env.production` has
+    `VITE_API_URL=/`, so `buildWsUrl` takes the same-origin branch and derives
+    `wss://` from the page. A `VITE_API_URL=http://...` would break that.
+- **No new Python dependency** (`hashlib`, `secrets` are stdlib) and no stale
+  SPA risk — `index.html` is served `Cache-Control: no-store`. A cached old
+  frontend would work anyway: `MemberCreateRequest` IGNORES a leftover
+  `password` field rather than 422-ing.
+- Wired up the `welcome=1` the invite link already carried but the page ignored
+  — invitees were being shown "Reset your password" for a password they had
+  never had.
+- Fixed two docstrings in `admin_service` still promising a
+  `temporary_password` return. Exactly the landmine-1 pattern.
+
+### 2026-09-02 (cont.) — invite mail lands in spam: it is DNS, not the code
+
+- Symptom: invitations delivered but filed as spam, so nobody could activate.
+- **Not the code, and not SMTP.** `SMTP_USER` and `SMTP_FROM` are both
+  `@smoothops.info`, so From/envelope alignment — the classic cause — is fine.
+- **Root cause found in DNS.** `smoothops.info` publishes only a
+  `google-site-verification` TXT record:
+  - SPF: **missing**
+  - `google._domainkey.smoothops.info`: **NXDOMAIN** (no DKIM)
+  - `_dmarc.smoothops.info`: **NXDOMAIN**
+  Mail sent as that domain through Workspace is therefore completely
+  unauthenticated, which is indistinguishable from a forgery. Spam is the
+  correct verdict on the evidence Gmail has.
+- **This is not new, it is newly FATAL.** The old invites almost certainly went
+  to spam too — nobody noticed, because the admin had the password on screen
+  and passed it on by hand. Removing the password from the email is what turned
+  a tolerated deliverability problem into a blocker.
+- Deliberately changed no code. No subject line or header tweak outweighs a
+  domain with no SPF and no DKIM, and editing the template would only muddy the
+  test once DNS is fixed.
+
 ---
 
 ## 7. Open threads
+
+**BLOCKING, and it is DNS not code (2026-09-02):** invitations and password
+resets land in Gmail's spam folder because `smoothops.info` has **no SPF, no
+DKIM and no DMARC**. Since provisioning no longer emails a password, that link
+is the ONLY way a new member can get in — so this blocks onboarding outright.
+Three records at the registrar, in this order:
+
+1. `smoothops.info` TXT -> `v=spf1 include:_spf.google.com ~all`
+   (keep the existing google-site-verification record; only ONE spf record)
+2. DKIM: Google Admin -> Apps -> Google Workspace -> Gmail -> *Authenticate
+   email*, add the `google._domainkey` TXT it generates, then **Start
+   authentication**. Most-skipped step, because it needs the console not just
+   DNS.
+3. `_dmarc.smoothops.info` TXT -> `v=DMARC1; p=none; rua=mailto:...`
+   only once 1 and 2 pass.
+
+Confirm with Gmail's *Show original*: SPF/DKIM/DMARC all PASS.
+
 
 ~~prod behind on migrations~~ **CLEARED 2026-09-02 (second migration of the
 day)** — Railway taken `ak11coldefer -> al12pwreset -> am13invitetoken` and
