@@ -256,3 +256,44 @@ export const updateNotificationPrefs = (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+
+
+// ---------------------------------------------------------------------------
+// Workflow (per-board transitions)
+// ---------------------------------------------------------------------------
+
+export interface WorkflowTransition {
+  /** 'allow' is a transition. The two blocks name ONE column in
+   *  `to_column_id` and win over any allow rule — they exist to say a column
+   *  is sealed on purpose, which "no rule" cannot express. */
+  kind?: "allow" | "block_entry" | "block_exit";
+  /** null = "from anywhere" — one row instead of one per source column. */
+  from_column_id: number | null;
+  to_column_id: number;
+  admins_only: boolean;
+  require_assignee: boolean;
+  require_due_date: boolean;
+}
+
+export interface BoardWorkflow {
+  /** False means NO workflow: every move is allowed. Sent explicitly rather
+   *  than inferred from an empty list, because "unconfigured" and "configured
+   *  to forbid everything" are opposite states that would otherwise look
+   *  identical to the UI. */
+  configured: boolean;
+  transitions: WorkflowTransition[];
+}
+
+export const fetchBoardWorkflow = (boardId: number): Promise<BoardWorkflow> =>
+  apiClient(`/boards/${boardId}/workflow`);
+
+/** Replaces the WHOLE ruleset. Send [] to remove the workflow. */
+export const saveBoardWorkflow = (
+  boardId: number,
+  transitions: WorkflowTransition[],
+): Promise<{ configured: boolean; count: number }> =>
+  apiClient(`/boards/${boardId}/workflow`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transitions }),
+  });

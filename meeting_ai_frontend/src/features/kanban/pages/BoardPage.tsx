@@ -16,7 +16,7 @@ import {
   arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Filter, Search, User } from "lucide-react";
+import { Filter, GitBranch, Search, User, X } from "lucide-react";
 import { createBoardTask, moveTask, updateColumn } from "../api";
 import { useBoardOutletContext } from "./BoardLayout";
 import BoardColumn from "../components/BoardColumn";
@@ -33,8 +33,11 @@ import BoardFilters, {
   type FilterState,
 } from "../components/BoardFilters";
 import TaskDetailDrawer from "../components/TaskDetailDrawer";
+import WorkflowModal from "../components/WorkflowModal";
+import DeleteColumnModal from "../components/DeleteColumnModal";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import { useCurrentUser } from "../../auth/hooks/useCurrentUser";
-import type { BoardDetail, BoardTaskSummary } from "../types";
+import type { BoardDetail, BoardTaskSummary, ColumnWithTasks } from "../types";
 import { SearchInput } from "@/components/ui/input";
 import { FilterPill } from "@/components/ui/segmented";
 
@@ -73,6 +76,13 @@ export default function BoardPage() {
   // For the "Assigned to me" filter. Compared against the card's
   // `assignee_user_id`, never against a name — see the filter below.
   const { user: currentUser } = useCurrentUser();
+  const { canManage } = usePermissions();
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [deletingColumn, setDeletingColumn] = useState<ColumnWithTasks | null>(null);
+  // A move the server refuses must SAY so. Without this a workflow rule
+  // looks like a broken board: the card animates back and nothing
+  // explains why.
+  const [moveError, setMoveError] = useState<string | null>(null);
   const currentUserId = currentUser?.id ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -329,6 +339,9 @@ export default function BoardPage() {
         // an admin action, so a member dragging a column gets a 403 here
         // and simply sees it snap back.
         console.error("[KANBAN] column reorder failed, rolling back", e);
+        setMoveError(
+          e instanceof Error ? e.message : "Couldn't reorder the columns.",
+        );
         setBoardOptimistic(prevBoard);
       }
       return;
@@ -415,6 +428,12 @@ export default function BoardPage() {
       void refresh();
     } catch (e) {
       console.error("[KANBAN] move failed, rolling back", e);
+      // The server's message is the useful part — "Assign this card to
+      // someone before moving it there" tells you what to do; a generic
+      // failure does not.
+      setMoveError(
+        e instanceof Error ? e.message : "That move wasn't allowed.",
+      );
       setBoardOptimistic(prevBoard);
     }
   };
@@ -483,6 +502,16 @@ export default function BoardPage() {
           <User className="size-3.5" />
           My cards
         </FilterPill>
+        {canManage && (
+          <FilterPill
+            active={workflowOpen}
+            onClick={() => setWorkflowOpen(true)}
+            title="Which column a card may move to"
+          >
+            <GitBranch className="size-3.5" />
+            Workflow
+          </FilterPill>
+        )}
         <FilterPill
           active={filtersOpen || activeFilterCount > 0}
           count={activeFilterCount > 0 ? activeFilterCount : undefined}
@@ -527,6 +556,7 @@ export default function BoardPage() {
                   visibleTasks={col.tasks}
                   onOpenTask={handleOpenTask}
                   onAddCard={handleAddCard}
+                  onDelete={canManage ? setDeletingColumn : undefined}
                 />
               ))}
             </SortableContext>
@@ -549,6 +579,50 @@ export default function BoardPage() {
         onClose={closeDrawer}
         onChange={refresh}
       />
+
+      {deletingColumn && (
+        <DeleteColumnModal
+          // The board's REAL columns, not the filtered view — a filter can
+          // hide the very column someone wants to move the cards into.
+          column={deletingColumn}
+          columns={board.columns}
+          onCancel={() => setDeletingColumn(null)}
+          onDeleted={() => {
+            setDeletingColumn(null);
+            void refresh();
+          }}
+        />
+      )}
+
+      {workflowOpen && (
+        <WorkflowModal
+          board={board}
+          // Adding or deleting a status in there is a real column change, so
+          // the board behind the screen has to reload before it is closed.
+          onBoardChange={refresh}
+          onClose={() => {
+            setWorkflowOpen(false);
+            void refresh();
+          }}
+        />
+      )}
+
+      {/* Refusal banner. Dismissible and self-clearing on the next successful
+          move — a rule you break twice should tell you twice. */}
+      {moveError && (
+        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-lg border border-error/40 bg-error/10 px-4 py-2.5 shadow-raised">
+            <span className="text-[12px] font-medium text-ink">{moveError}</span>
+            <button
+              onClick={() => setMoveError(null)}
+              aria-label="Dismiss"
+              className="text-muted-soft hover:text-ink"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

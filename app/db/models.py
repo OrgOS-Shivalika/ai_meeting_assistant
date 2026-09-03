@@ -633,6 +633,51 @@ class Organization(Base):
     meetings = relationship("Meeting", back_populates="organization")
 
 
+class WorkflowTransition(Base):
+    """One allowed column move on one board, plus what must hold first.
+    Migration `ap16workflow`.
+
+    **A board with no rows allows everything.** That default is what lets this
+    ship onto 60 live boards without freezing them — configuring a board is
+    opt-in, and an empty ruleset is "no workflow", not "no moves".
+
+    `from_column_id IS NULL` means "from any column", so "Blocked is reachable
+    from anywhere" is one row rather than N.
+    """
+
+    __tablename__ = "workflow_transitions"
+    __table_args__ = (
+        CheckConstraint(
+            "from_column_id IS NULL OR from_column_id <> to_column_id",
+            name="ck_workflow_no_self_transition",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    board_id = Column(
+        Integer, ForeignKey("kanban_boards.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    from_column_id = Column(
+        Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=True
+    )
+    to_column_id = Column(
+        Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=False
+    )
+    # 'allow' | 'block_entry' | 'block_exit'. Migration aq17wfblock. A block
+    # names its column in `to_column_id` and WINS over any allow rule — it is a
+    # declaration, and one that could be overridden by adding an arrow
+    # elsewhere would not be worth writing.
+    kind = Column(String(16), nullable=False, server_default="allow")
+    admins_only = Column(Boolean, nullable=False, server_default=text("false"))
+    require_assignee = Column(Boolean, nullable=False, server_default=text("false"))
+    require_due_date = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class Notification(Base):
     """One thing that happened, addressed to one person. Migration
     `ao15notifications`.

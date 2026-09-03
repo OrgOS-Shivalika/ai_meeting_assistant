@@ -1904,24 +1904,259 @@ swallowed their own text — precisely when you are trying to read them.
   along; only rewriting the checker showed blue-50 / rose-50 / rose-100 really
   were missing.
 
+### 2026-09-03 (cont.) — Jira slice 3: configurable workflows (BACKEND)
+
+Per-board transitions with validators. Migration **`ap16workflow`**
+(`workflow_transitions`), LOCAL only.
+
+- **A board with NO rows allows everything.** 60 boards are already in daily
+  use; "deny unless listed" would have frozen every one of them. Configuring a
+  board is opt-in, and `board_has_workflow()` short-circuits before any
+  specific move is considered — which is also why the index leads with
+  `board_id`.
+- **Keyed on COLUMNS, not statuses** — a column is what a drag targets, and two
+  columns can share a `bound_status` while meaning different things.
+- `from_column_id IS NULL` = "from anywhere", so "Blocked is reachable from
+  every state" is ONE row rather than N. A specific `from -> to` rule wins over
+  the wildcard; that ordering is explicit in `find_transition`, since a
+  specific rule exists precisely to say something different about one origin.
+- Validators: `admins_only`, `require_assignee`, `require_due_date`.
+  `require_assignee` checks `assignee_user_id`, NOT `owner_name` — the label
+  can say "Conversation Group", so requiring it would let a card satisfy the
+  rule with nobody responsible. This validator was impossible to express
+  before slice 1.
+- **ENFORCED IN BOTH PATHS**, and that is the point of the feature:
+  `kanban_service.move_task` (drag) AND `meeting_service.update_task`
+  (`column_id` in a PATCH). A rule in one is not a rule — the other is one
+  HTTP call away. Mutation-checked: deleting the PATCH gate makes
+  `test_workflow`'s back-door assertion fail.
+- Config is WHOLE-SET replacement (`PUT /boards/{id}/workflow`), admin-only.
+  Per-row CRUD lets a board sit half-saved with a column unreachable and no
+  way to tell whether that was intended.
+- `tests/test_workflow.py` **20/20**. Two fixture bugs found and fixed while
+  writing it, both of which made assertions pass VACUOUSLY:
+  1. the "member" was picked with `User.id != admin.id` and turned out to be
+     another ADMIN, so every `admins_only` check passed trivially;
+  2. once that was fixed, the probe board was linked to no category, so the
+     member was refused at 403 by RBAC *before* the workflow ran. The test now
+     routes a category the member can view at the board and ASSERTS the member
+     can see it, so a refusal can only come from the workflow.
+- **NOT built: the config UI.** The endpoints work; there is no screen to
+  drive them, so a workflow can only be set via the API today.
+- Deliberately no `require_comment` validator — it turns a drag into a dialog,
+  and a validator the UI cannot satisfy is just a wall. Worth adding with the
+  UI.
+
+### 2026-09-03 (cont.) — workflow config UI
+
+- `WorkflowModal.tsx`, opened from a **Workflow** pill in the board header
+  (admin-only, beside My cards / Filter). A modal rather than a third board
+  tab: no router change, no new outlet-context consumer, and it is a settings
+  action.
+- Edits the WHOLE ruleset and saves one PUT, mirroring the server. Per-row
+  saving would let a board sit half-configured with a column unreachable and
+  no way to tell whether that was deliberate.
+- **The empty state is the important one.** No rules = every move allowed,
+  which is the OPPOSITE of a workflow that forbids everything. A list showing
+  nothing without saying so reads as "locked down".
+- Warns (does not block) when a column has no inbound transition — correct for
+  a start column, a mistake anywhere else, and only the author knows which.
+- `Add transition` picks the first pair not already listed, so clicking twice
+  cannot produce the duplicate the server rejects.
+- **Also surfaced move refusals.** `handleDragEnd` previously caught the error,
+  logged to console and rolled back — so a workflow rule looked like a broken
+  board: the card animated back and nothing said why. Now shows the SERVER's
+  message ("Assign this card to someone before moving it there"), which is the
+  part that tells you what to do.
+- Endpoints exercised over HTTP: unconfigured -> configured -> cleared, plus
+  400s for a bad body and a self-transition. `test_workflow` 20/20 unchanged.
+
+### 2026-09-03 (cont.) — workflow diagram (the Jira-style view)
+
+`WorkflowDiagram.tsx` — statuses as boxes, transitions as arrows, above the
+existing rules list. Same split Jira makes: a picture to comprehend, a list to
+edit. A list of "A -> B" rows cannot show a dead end; the diagram does.
+
+- **Hand-drawn SVG, no graph library.** A dependency would be hundreds of KB
+  to lay out a dozen nodes whose order is already known — columns arrive
+  sorted by `position`.
+- **Forward arrows arc ABOVE the row, backward BELOW.** On one side they
+  overlap into spaghetti the moment a workflow allows backtracking, which
+  every real one does.
+- **A wildcard is an `ANY` badge on the target, not N arrows.** Drawing it
+  literally is what makes Jira's own diagrams unreadable: one such rule on a
+  five-column board is five crossing lines that say less than the word.
+- **No lucide icons inside the SVG.** An icon component renders a NESTED
+  `<svg>`, where Tailwind's CSS sizing fights the element's own width/height
+  attributes and positioning gets fragile. Validators are text glyphs
+  (`A` / `@` / `D`) in `<text>`, laid out by the same coordinate system as
+  everything else, with `<title>` carrying the full wording. Legend in the
+  modal. If anyone adds an icon here later, that is the trap.
+- Dragging arrows to CREATE transitions is deliberately not built — a graph
+  editor is a far larger job than the rules list it would replace.
+
+### 2026-09-03 (cont.) — workflow editor becomes a full screen with Diagram/Text
+
+- **Full screen, not a dialog.** A workflow is a graph plus a rule list; boxed
+  in a modal both scroll inside a viewport too small to see the graph, which
+  is the one thing the diagram exists for.
+- **Diagram / Text toggle, top-LEFT, before the title.** It switches the mode
+  of the whole screen; placed by the close button on the right it would read
+  as an action on the dialog instead of on the content.
+- **ONE `rules` array behind both views**, never two editors. Two would be a
+  sync problem where the picture and the list disagree about what is about to
+  be saved.
+- **Clicking an arrow opens that rule in Text, focused and scrolled to.** That
+  is what makes the diagram a way IN to editing rather than a picture beside
+  it — without building a graph editor. Two details it needs:
+  - the click index is `rules.indexOf(r)`, NOT the index within the filtered
+    `directed` list — a wildcard filtered out earlier would shift every
+    subsequent index and open the wrong rule;
+  - a transparent 14px stroke is drawn over each 1.5px arrow, because an
+    arrow you cannot hit with a mouse is not a control.
+- `Add transition` switches to Text first, so the row it creates is visible.
+- Text view uses `hidden`/`flex` rather than unmounting, so a half-edited rule
+  survives flipping to the diagram and back.
+
+### 2026-09-03 (cont.) — 500 on dragging an ASSIGNED card
+
+`PATCH /tasks/{id}/move` -> `InvalidRequestError: 'Task.assignee' is not
+available due to lazy='raise'`. Refreshing the board looked fine, which is the
+tell: the BOARD path eager-loads the assignee, the MOVE path did not.
+
+- **The guard worked.** `lazy="raise"` exists so a forgotten eager-load fails
+  loudly instead of silently firing one query per card on a 900-card board. It
+  caught a path I had not given a loader. The cost of that design is exactly
+  this: a 500 rather than a slow page, which is the trade I took deliberately.
+- **`POST /boards/{id}/tasks` had the SAME hole** and had never fired, because
+  a freshly created card is always unassigned and
+  `task.assignee if task.assignee_user_id else None` short-circuits. Fixed too.
+- Fix keeps the guard rather than defeating it: `_serialize_task` gains an
+  `assignee` parameter with an `_UNRESOLVED` sentinel (distinct from None,
+  which legitimately means "no assignee"). The board path keeps eager-loading;
+  the two single-card paths resolve it with `_assignee_of(db, task)` — ONE
+  query for ONE card — and pass it in. Same pattern the file already uses for
+  `comment_count`.
+- Reproduced over real HTTP on task 1200 with an assignee forced on: 500 ->
+  200, `assignee_name` present, card moved, row restored afterwards.
+
+### 2026-09-03 (cont.) — explicit block rules (migration `aq17wfblock`)
+
+"Nothing may enter X" and "cards in X may not leave". LOCAL only.
+
+- **Both effects already existed implicitly** — no inbound rule means you
+  cannot enter, no outbound means you cannot leave. What was missing was
+  saying you MEANT it: "not configured yet" and "deliberately sealed" looked
+  identical, so a terminal column showed up as a dead-end warning.
+- `workflow_transitions.kind`: `allow` | `block_entry` | `block_exit`. A block
+  names ONE column in `to_column_id`; passing a `from` is REFUSED rather than
+  ignored, because accepting it would imply a pairwise block this does not
+  model.
+- **A block wins over an allow, and is checked FIRST.** Checking after would
+  let an allow decide and make the outcome depend on evaluation order. It is a
+  declaration — one that could be overridden by adding an arrow elsewhere
+  would not be worth writing.
+- `find_transition` filters to `kind == 'allow'`: a block row must never match
+  as the transition that PERMITS the move it exists to forbid.
+- Diagram draws blocks as a column BADGE (`NO ENTRY` / `NO EXIT` / `SEALED`),
+  never as an arrow — an arrow would show a route that exists precisely to be
+  impossible. Editor hides the from/to pickers and validators for a block row
+  and states what it does in words instead.
+- `tests/test_workflow.py` **28/28** — block beats allow both ways, a block row
+  is not itself a usable transition, unrelated moves unaffected, and both
+  malformed configs (block with a `from`, unknown kind) are refused.
+
+### 2026-09-03 (cont.) — the workflow canvas becomes an editor
+
+Four changes, all frontend, no migration. The diagram stopped being a picture
+beside the editor and became the editor.
+
+- **Delete a column** — `DeleteColumnModal.tsx`. The target picker is not a
+  nicety: the API REQUIRES `move_cards_to_column_id` and 422s without it, so a
+  column delete cannot silently discard its cards. Reached from the board's
+  column menu and, now, from the workflow sidebar. Says out loud that workflow
+  transitions touching the column go with it (`ON DELETE CASCADE`).
+- **The status sidebar became editable** — `WorkflowStatusPanel.tsx`. It was a
+  read-only summary that sent you to the Text view to act, which meant reading
+  a status' rules then leaving the diagram to change them. It owns NO state:
+  edits go into the caller's `rules` via `onChange`, because two copies of a
+  ruleset is how the picture and the list end up disagreeing about what is
+  about to be saved. Lock toggles are listed FIRST — they override everything
+  below, so reading the lists before knowing the column is sealed is reading a
+  fiction.
+- **The canvas went full-bleed** — `WorkflowModal.tsx` now picks a different
+  body container per view: `relative min-h-0 flex-1` for the diagram (no
+  padding, no max-width, no scroll — a scroll container fights its own pan) and
+  the old measured column for the text list. `absolute inset-0` replaced a
+  `calc(100vh - 260px)`, which had already drifted once when the Diagram/Text
+  toggle grew the header.
+- **Nodes are draggable, and add/delete a status IS add/delete a column** —
+  a status node can be dragged anywhere; positions are saved in
+  `localStorage` under `wf-layout:{boardId}` (`ponytail:` — cosmetic and
+  per-person, so a column plus a migration would be storage bought for a
+  preference nothing downstream reads). Reset clears the layout as well as
+  pan/zoom, which is the way back out of a mess. Adding a status mounts the
+  board's own `AddColumnButton` on the canvas, so it hits the same
+  `POST /boards/{id}/columns` and produces a REAL column with colour and a
+  status binding — not a diagram-only node. Deleting one opens
+  `DeleteColumnModal`, then prunes the unsaved `rules` that named it (the
+  server cascades its rows; the local copy does not know that, and saving a
+  rule naming a dead column is a 400). Both call `onBoardChange` →
+  `BoardPage.refresh`.
+
+Two landmines this created and closed:
+
+- **Click vs drag on a node.** A press that never moved must still open the
+  sidebar, so the node drag tracks a `moved` flag with 3px of slop and only
+  calls `onSelectColumn` when it stayed put. Without the slop every click
+  registers as a drag and the sidebar never opens.
+- **Arrow geometry had to stop assuming a row.** Arcs used to be "above if
+  forward, below if backward", which is meaningless once a node is dragged off
+  the line. Now the control point is pushed along the edge's own NORMAL, which
+  reproduces the old behaviour for an un-dragged board and still separates the
+  two directions at any angle. Endpoints clip to the node's box so an arrowhead
+  is not hidden under the node it points at.
+
+Extracted to `workflowGeometry.ts` because it fails SILENTLY — a wrong normal
+or a bad clip still renders a picture, just a wrong one, and a single `NaN`
+blanks a `<path>` with no error anywhere. Verified:
+
+    cd meeting_ai_frontend && node src/features/kanban/components/workflowGeometry.check.ts
+    # 11/11 — border clips to each edge, a target INSIDE the box still projects
+    # out, zero-length does not divide by zero, forward/backward bulge to
+    # opposite sides both on and off the row, path string has no NaN
+
+`npx tsc --noEmit -p tsconfig.app.json` clean, `npx vite build` clean. Lint on
+the touched files shows only the pre-existing `react-hooks/refs` (reading
+`drag.current` in a className) and two `static-components` in the panel.
+
+---
+
 ---
 
 ## 7. Open threads
 
-**Prod is TWO migrations behind (2026-09-02):** local is at
-`ao15notifications`, Railway at `am13invitetoken` — missing
-`an14assigneeevent` (setting an assignee 500s on a CheckViolation without it)
-and `ao15notifications` (the whole bell 500s). Both must precede the next
-deploy of the board code.
+**Prod is FOUR migrations behind (2026-09-03):** local is at `aq17wfblock`,
+Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
+assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
+bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,
+which is now also the add/delete-status path on the canvas). All four must
+precede the next deploy of the board code.
 
 **And the WORKER needs mail env before notifications are deployed:** `SMTP_*`
 plus `APP_PUBLIC_URL` on the celery service, not just web. Without them the
 email sweep logs "skipped" as a success and nobody is ever told anything.
 
-**Jira work, slice 1 of N.** Assignment is done; the slices offered and NOT
-built are epics/subtasks + story points, sprints + backlog, and configurable
-workflow transitions. Scope was set by asking, not assumed — "all of Jira" is
-not a deliverable and saying so early is cheaper than saying it later.
+**Jira work, slices 1-3 of N done.** Assignment, notifications and
+configurable workflows are built (workflows now edited on a full-screen
+pannable canvas whose nodes are draggable and whose add/delete IS the board's
+own column create/delete). Offered and NOT built: epics/subtasks + story
+points, sprints + backlog. Scope was set by asking, not assumed — "all of
+Jira" is not a deliverable and saying so early is cheaper than saying it later.
+
+Two deliberate gaps inside workflows: `require_comment` is omitted (it turns a
+drag into a dialog), and node positions are `localStorage` only — no shared
+layout until a team asks to agree on one.
 
 **BLOCKING, and it is DNS not code (2026-09-02):** invitations and password
 resets land in Gmail's spam folder because `smoothops.info` has **no SPF, no

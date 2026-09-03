@@ -28,6 +28,7 @@ from app.schemas.meeting_schema import (
     TaskUpdateRequest,
 )
 from app.services import category_service, notifications, permissions
+from app.services.kanban import workflow
 from app.services.google_calendar_service import create_calendar_event
 
 
@@ -989,6 +990,15 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             # Same reasoning as the board move above — reached via the
             # column, the board check still has to happen.
             permissions.get_viewable_board(db, user, column.board_id)
+            # The SAME workflow gate as the drag path. Enforcing it only in
+            # `move_task` would leave this PATCH as an open back door — a rule
+            # you can step around with one HTTP call is not a rule.
+            #
+            # Before the mutation, so a refused transition leaves the card
+            # untouched. No-ops on a board with no workflow configured.
+            workflow.assert_move_allowed(
+                db, user, task, column.id, board_id=column.board_id
+            )
             task.column_id = column.id
             # Auto-sync board_id if the client didn't explicitly set it.
             if "board_id" not in data:

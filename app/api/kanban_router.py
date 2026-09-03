@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import (
+    KanbanColumn,
     Task,
     TaskActivity,
     TaskComment,
@@ -65,6 +66,7 @@ from app.schemas.kanban_schema import (
 )
 from app.services import notifications
 from app.services.kanban import service as kanban_service
+from app.services.kanban import workflow
 
 kanban_router = APIRouter(tags=["kanban"])
 
@@ -76,8 +78,25 @@ kanban_router = APIRouter(tags=["kanban"])
 # ---------------------------------------------------------------------------
 
 
+def _assignee_of(db: Session, task: Task) -> Optional[User]:
+    """The assignee for ONE task, in one query.
+
+    For the single-card endpoints. The board endpoint must NOT use this — it
+    would be a query per card; it eager-loads instead.
+    """
+    if not task.assignee_user_id:
+        return None
+    return db.query(User).filter(User.id == task.assignee_user_id).first()
+
+
+#: Sentinel for "the caller did not resolve the assignee". Distinct from
+#: None, which legitimately means "this card has no assignee".
+_UNRESOLVED = object()
+
+
 def _serialize_task(task: Task, comment_count: int = 0,
-                    has_unread_mention: bool = False) -> BoardTaskSummary:
+                    has_unread_mention: bool = False,
+                    assignee=_UNRESOLVED) -> BoardTaskSummary:
     """Convert a Task ORM row to a board-card response.
 
     `comment_count` is passed in (not lazy-loaded) so the caller can
@@ -89,10 +108,18 @@ def _serialize_task(task: Task, comment_count: int = 0,
     """
     meeting = task.meeting if task.meeting else None
     meeting_title = meeting.title if meeting else None
-    # `Task.assignee` is lazy="raise", so this is only safe because
-    # `get_board_detail` eager-loads it. That is deliberate: a silent lazy
-    # load here would be one query per card.
-    assignee = task.assignee if task.assignee_user_id else None
+    # `Task.assignee` is lazy="raise" on purpose — a silent lazy load here is
+    # one query PER CARD on a 900-card board. So it is never read implicitly:
+    # either the caller eager-loaded it (the board path) or the caller resolved
+    # it and passed it in (the single-task paths).
+    #
+    # This used to read `task.assignee` directly, which 500'd on
+    # `PATCH /tasks/{id}/move` for any ASSIGNED card — the raise firing exactly
+    # as designed on a path that had not been given the loader. `POST
+    # /boards/{id}/tasks` had the same hole and only escaped it because a
+    # freshly created card is always unassigned, so the `if` short-circuited.
+    if assignee is _UNRESOLVED:
+        assignee = task.assignee if task.assignee_user_id else None
     team = meeting.team if meeting else None
     team_id = team.id if team else None
     team_name = team.name if team else None
@@ -357,7 +384,11 @@ def create_board_task(
     `created` activity event.
     """
     task = kanban_service.create_board_task(db, board_id, user, payload)
-    return _serialize_task(task, comment_count=0)
+    # Single card: resolve the assignee with one query rather than adding a
+    # loader option, and pass it in explicitly. A new card is unassigned today,
+    # so this is defensive — but the next person to set an assignee at creation
+    # would otherwise get a 500 with no obvious cause.
+    return _serialize_task(task, comment_count=0, assignee=_assignee_of(db, task))
 
 
 @kanban_router.delete("/tasks/{task_id}", status_code=204)
@@ -390,7 +421,9 @@ def move_task(
     row if the move crossed a column with a different `bound_status`).
     """
     task, comment_count = kanban_service.move_task(db, task_id, user, payload)
-    return _serialize_task(task, comment_count=comment_count)
+    return _serialize_task(
+        task, comment_count=comment_count, assignee=_assignee_of(db, task)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -703,3 +736,62 @@ def update_notification_prefs(
     user.notification_prefs = prefs
     db.commit()
     return {kind: notifications.wants_email(user, kind) for kind in known}
+
+
+# ---------------------------------------------------------------------------
+# Workflow — which column may move to which, and what must hold first
+# ---------------------------------------------------------------------------
+
+
+@kanban_router.get("/boards/{board_id}/workflow")
+def get_board_workflow(
+    board_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """This board's transitions. An EMPTY list means no workflow — every move
+    is allowed — which is not the same as a workflow that forbids everything,
+    and the `configured` flag says so explicitly rather than leaving the UI to
+    infer it from a length."""
+    board = kanban_service.require_board(db, board_id, user)
+    rows = workflow.list_transitions(db, board.id)
+    return {
+        "configured": bool(rows),
+        "transitions": [
+            {
+                "kind": r.kind,
+                "from_column_id": r.from_column_id,
+                "to_column_id": r.to_column_id,
+                "admins_only": r.admins_only,
+                "require_assignee": r.require_assignee,
+                "require_due_date": r.require_due_date,
+            }
+            for r in rows
+        ],
+    }
+
+
+@kanban_router.put("/boards/{board_id}/workflow")
+def set_board_workflow(
+    board_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Replace this board's whole ruleset. Admin-only — a workflow governs
+    what everyone else may do, so editing it is a management action.
+
+    Send `{"transitions": []}` to remove the workflow entirely and return the
+    board to allowing every move.
+    """
+    board = kanban_service.require_managed_board(db, board_id, user)
+    rules = payload.get("transitions")
+    if not isinstance(rules, list):
+        raise HTTPException(
+            status_code=400, detail="Body must be {\"transitions\": [...]}"
+        )
+    valid = {
+        c.id for c in db.query(KanbanColumn).filter(KanbanColumn.board_id == board.id)
+    }
+    rows = workflow.replace_transitions(db, board.id, rules, valid)
+    return {"configured": bool(rows), "count": len(rows)}

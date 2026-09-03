@@ -51,6 +51,7 @@ from app.services.kanban.positions import (
     rebalance_column,
 )
 from app.utils.logger import setup_logger
+from app.services.kanban import workflow
 
 logger = setup_logger(__name__)
 
@@ -706,6 +707,13 @@ def move_task(
     # still require manage. See `permissions.get_status_changeable_task`.
     task = permissions.get_status_changeable_task(db, user, task_id)
     target_col = require_column(db, payload.column_id, user)
+
+    # The workflow gate. AFTER permission resolution (you must be able to
+    # touch the card at all) and BEFORE any mutation, so a refused move
+    # changes nothing. No-ops on a board with no rules configured.
+    workflow.assert_move_allowed(
+        db, user, task, payload.column_id, board_id=target_col.board_id
+    )
 
     # Sanity: target column must be on a board we can see (already
     # enforced by require_column's join, but if task.board_id is set
