@@ -880,3 +880,82 @@ html.theme-dark .border-gray-100,
 html.theme-dark .border-gray-200 {
   border-color: #4b5563;
 }
+
+/* ---------------------------------------------------------------------------
+   Dark mode: HOVER backgrounds
+   ---------------------------------------------------------------------------
+   A separate block from the chip rescue above, because `hover:bg-gray-50`
+   compiles to `.hover\:bg-gray-50:hover` — a different selector from
+   `.bg-gray-50`, so the chip rules never touched it. The symptom was a row
+   turning near-white under the cursor on a dark page and swallowing its own
+   text, which is exactly when you are reading it.
+
+   96 of these across the app, so it is fixed here rather than at the call
+   sites. Two behaviours, because a hover means different things:
+
+   - NEUTRAL hovers (gray/slate) are "this row is under the cursor" — they
+     lift to a slightly brighter SURFACE, keeping the existing text readable.
+     Deliberately not the solid fills the chip block uses: a chip is a label
+     that owns its foreground, a hovered row is not.
+   - TINTED hovers (indigo/red) carry meaning — primary action, destructive —
+     so they keep their hue as a translucent wash that darkens rather than
+     lightens.
+
+   Selectors are written out per class rather than `[class*="hover:bg-slate-50"]`
+   on purpose: that substring also matches `hover:bg-slate-500`, which is a
+   perfectly good dark hover that must NOT be rewritten.
+--------------------------------------------------------------------------- */
+
+html.theme-dark .hover\:bg-gray-50:hover,
+html.theme-dark .hover\:bg-gray-100:hover,
+html.theme-dark .hover\:bg-gray-100\/50:hover,
+html.theme-dark .hover\:bg-slate-50:hover,
+html.theme-dark .hover\:bg-slate-50\/60:hover,
+html.theme-dark .hover\:bg-slate-100:hover,
+html.theme-dark .hover\:bg-slate-200:hover,
+html.theme-dark .hover\:bg-zinc-50:hover,
+html.theme-dark .hover\:bg-zinc-100:hover,
+html.theme-dark .hover\:bg-neutral-50:hover,
+html.theme-dark .hover\:bg-neutral-100:hover {
+  background-color: var(--vb-surface-strong);
+}
+
+/* The text inside a hovered neutral row must NOT be dragged to white the way
+   the chip block does it — these rows hold ordinary body copy in several
+   colours, and flattening them all would destroy the hierarchy the page is
+   built on. The surface above is dark enough that existing foregrounds hold. */
+
+html.theme-dark .hover\:bg-indigo-50:hover,
+html.theme-dark .hover\:bg-indigo-50\/40:hover,
+html.theme-dark .hover\:bg-indigo-100:hover {
+  background-color: color-mix(in srgb, #6366f1 26%, transparent);
+}
+
+html.theme-dark .hover\:bg-red-50:hover,
+html.theme-dark .hover\:bg-red-100:hover {
+  background-color: color-mix(in srgb, #ef4444 24%, transparent);
+}
+
+html.theme-dark .hover\:bg-emerald-50:hover,
+html.theme-dark .hover\:bg-emerald-100:hover {
+  background-color: color-mix(in srgb, #10b981 22%, transparent);
+}
+
+html.theme-dark .hover\:bg-amber-50:hover,
+html.theme-dark .hover\:bg-amber-100:hover {
+  background-color: color-mix(in srgb, #f59e0b 22%, transparent);
+}
+
+/* Also in use, found by diffing the classes the app actually ships against
+   the ones rescued above. Same two behaviours: informational blue and
+   destructive rose keep their hue as a dark wash. */
+
+html.theme-dark .hover\:bg-blue-50:hover,
+html.theme-dark .hover\:bg-blue-100:hover {
+  background-color: color-mix(in srgb, #3b82f6 24%, transparent);
+}
+
+html.theme-dark .hover\:bg-rose-50:hover,
+html.theme-dark .hover\:bg-rose-100:hover {
+  background-color: color-mix(in srgb, #f43f5e 24%, transparent);
+}

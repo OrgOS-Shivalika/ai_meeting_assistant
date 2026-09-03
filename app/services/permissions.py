@@ -633,11 +633,26 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     # scope rule `board_view_clause` uses, minus the card-inspection arm (which
     # would recurse straight back into this function).
     #
-    # Restricted to `meeting_id IS NULL` deliberately. Meeting-derived cards
-    # keep following their MEETING — otherwise pointing a category at a board
-    # would publish every meeting task that lands there to anyone who can
-    # reach that category, which is a far bigger grant than "you can see this
-    # board" and would leak meetings the viewer cannot open.
+    # NO LONGER restricted to `meeting_id IS NULL` (changed 2026-09-03).
+    #
+    # It used to be, and the reasoning was sound: a meeting-derived card
+    # followed its MEETING, so routing a category at a board could not publish
+    # tasks from meetings the viewer cannot open. The cost was that a board
+    # showed a member one card out of a hundred, which read as broken.
+    #
+    # The product decision is that a board is now the unit of sharing: if you
+    # can reach the board, you see all of it. The consequence, stated plainly
+    # because it is the whole trade — a board that collects tasks from several
+    # categories now shows all of them to anyone who can reach that board.
+    # Board 61 mixes Continuum Core and HR; an Engineering-granted member sees
+    # both. If that ever needs undoing, restore `Task.meeting_id.is_(None)`
+    # here and the old behaviour returns exactly.
+    #
+    # This arm still uses `_board_scope_clause`, NOT `board_view_clause`, and
+    # that is what prevents a privilege loop: a board you can see only because
+    # you hold one card on it (`holds_a_visible_card`) does NOT thereby grant
+    # you the rest of its cards. Otherwise assigning someone a single task
+    # would silently hand them the entire board.
     #
     # `aliased` so the subquery cannot be correlated away against the outer
     # `kanban_boards` when this clause is embedded in `board_view_clause`'s
@@ -646,7 +661,6 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     # forgot the tenant filter would otherwise expose another org's cards.
     board_scoped = aliased(KanbanBoard)
     belongs_to_a_reachable_board = and_(
-        Task.meeting_id.is_(None),
         Task.board_id.in_(
             select(board_scoped.id)
             .where(
@@ -863,7 +877,8 @@ def _board_scope_clause(user: User, board=KanbanBoard) -> ColumnElement:
     """
     cat_parts = _viewable_category_ids(user)
     team_parts = _viewable_team_ids(user)
-    return or_(
+
+    arms = [
         and_(
             board.scope_type == "category",
             or_(*[board.scope_id.in_(p) for p in cat_parts]),
@@ -891,7 +906,31 @@ def _board_scope_clause(user: User, board=KanbanBoard) -> ColumnElement:
             )
             .scalar_subquery()
         ),
-    )
+    ]
+
+    # A board LINKED to nothing — org-scoped and no category or team routing
+    # to it — is an admin surface. It has no category to derive an audience
+    # from, so there is no membership that could justify showing it, and the
+    # honest default for "we cannot tell who this is for" is the smaller
+    # audience.
+    #
+    # Emitted as a Python conditional rather than a SQL role check: the arm
+    # simply does not exist in a member's clause, which is both cheaper and
+    # impossible to get wrong by mis-writing a comparison. Org admins never
+    # reach here — both callers return None for them before this point.
+    #
+    # The tenant check is repeated inside because `scope_type == "org"` says
+    # nothing about WHICH org, and a caller that forgot to filter would
+    # otherwise expose every organization's unlinked boards to any admin.
+    if is_category_admin(user):
+        arms.append(
+            and_(
+                board.scope_type == "org",
+                board.organization_id == user.organization_id,
+            )
+        )
+
+    return or_(*arms)
 
 
 def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
@@ -920,17 +959,20 @@ def board_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     :func:`team_view_clause`, so "can see the category" and "can see the
     category's boards" cannot drift apart.
 
-    What is deliberately NOT here: an ORG-scoped board is still not visible
-    from its scope alone. Org-wide means unbounded, so it is reachable only
-    through arm 1 or arm 4 — a card you may see, or a category of yours
-    pointing at it. And none of this grants WRITE access:
+    Arm 0, added 2026-09-03: an ORG-scoped board is visible to every member
+    of that org. This was previously excluded on the grounds that "org-wide
+    means unbounded" — but every board in this deployment is org-scoped, so
+    the exclusion meant members reached a board only by accident. None of this
+    grants WRITE access:
     :func:`board_manage_clause` is unchanged and still admin-only, so seeing
     a board never implies renaming or deleting it.
 
-    Contents stay filtered independently. Opening a board shows only the cards
-    :func:`task_view_clause` allows, so a visible board is not a visible
-    backlog — the same board legitimately shows different cards to different
-    people.
+    Contents are still filtered by :func:`task_view_clause` — but as of
+    2026-09-03 that clause admits every card on a board you can reach by
+    SCOPE, so for a scope-reachable board the two now agree and you see the
+    whole thing. A board reachable only via arm 1 (you hold one card on it)
+    is the exception that still shows a filtered subset, and deliberately so:
+    the alternative is that assigning one task hands over the whole board.
     """
     if is_org_admin(user):
         return None

@@ -1809,6 +1809,101 @@ Reported: setting the Assignee also changed the Owner to the same name.
   "owner_name synced" to "owner_name is NOT clobbered", with a note saying so.
   A test that silently flipped meaning would be worse than no test.
 
+### 2026-09-03 — the board is now the unit of sharing (RBAC reversal)
+
+Product decision from the user: "every person should be able to see all the
+tasks for the board that they are a part of, doesn't matter if it is
+unassigned or assigned to someone else." That reverses TWO decisions that were
+documented as deliberate, so both docstrings were rewritten rather than left
+contradicting the code.
+
+- **`_board_scope_clause` gains an `org` arm.** Org-scoped boards used to be
+  excluded ("org-wide means unbounded"). But **all 59 boards here are
+  org-scoped**, so the exclusion meant a member reached a board only by
+  accident — via `holds_a_visible_card` — and then saw a fraction of it.
+- **`task_view_clause`'s board arm loses `Task.meeting_id IS NULL`.** Any card
+  on a scope-reachable board is now visible, meeting-derived or not.
+- **Measured, before -> after:** the MEMBER went 9 -> 107 tasks, the ADMIN
+  6 -> 107. Board 61: 1 of 100 -> 100 of 100. Cross-org still 0 (asserted).
+- **The trade, stated because it IS the trade:** boards that collect several
+  categories now show all of them to anyone who can reach the board. Board 61
+  mixes Continuum Core (32) + HR (25) + 42 uncategorised, so an
+  Engineering-granted member now sees the HR tasks. Boards 52 and 60 mix 3
+  categories each. Reverting is one line — restore `Task.meeting_id.is_(None)`.
+- **The privilege loop this had to avoid, and does:** `board_view_clause` has
+  an arm "you hold a card I can see". Had the task clause keyed off
+  `board_view_clause` instead of `_board_scope_clause`, assigning someone ONE
+  card would have silently handed them the whole board. New test
+  `test_board_visibility_by_card_does_not_grant_the_whole_board` asserts the
+  distinction at source level, because it is one word at the call site and
+  fails as silent over-sharing rather than an error.
+- Three existing tests asserted the OLD rules and were inverted with notes
+  saying so — a test that silently flips meaning is worse than no test:
+  `test_board_only_cards_are_visible_from_the_board_scope` ->
+  `test_every_card_on_a_reachable_board_is_visible`; the scope-arms assertion
+  now expects org+category+team; and `test_task_assignment`'s "access revoked
+  on unassign" / "cannot see beforehand" became "stays visible via the board",
+  because on an org-scoped board assignment no longer gates anything.
+- `rbac_scopes` 38/38, `task_assignment` 16/16, everything else unchanged.
+
+### 2026-09-03 (cont.) — board visibility follows the CATEGORY, not the org
+
+Refinement of the same day's reversal. The rule the user actually wants:
+
+* board **linked to a category** -> visible to anyone who can view that
+  category (members included), and they see ALL of its cards;
+* board **linked to nothing** -> ORG_ADMIN and ADMIN only, never members.
+
+- My first pass gave every org member every org-scoped board. Too broad — it
+  ignored the category as the unit of audience.
+- `_board_scope_clause` now builds its arms as a LIST and appends the
+  `scope_type == "org"` arm only `if is_category_admin(user)`. A Python
+  conditional, not a SQL role comparison: the arm simply does not exist in a
+  member's clause, which is cheaper and impossible to get wrong by
+  mis-writing a comparison. Org admins never reach the helper — both callers
+  return None for them first.
+- **"Linked to a category" means routed, not scoped.** NO board here is
+  `scope_type='category'`; all 60 are org-scoped, and 3 in this org are
+  pointed at by `categories.default_board_id`. The existing default-board
+  arms already covered exactly that, so they carry the rule.
+- Measured: MEMBER sees boards 62/66/72 in FULL (4/4, 2/2, 1/1) and not 98.
+  ADMIN sees all five. Cross-org still 0.
+- **Residual case, deliberate:** the member still sees board 61 (linked to
+  nothing) with **2 of 100** cards, because `board_view_clause`'s
+  `holds_a_visible_card` arm lets them open a board they hold work on. Strip
+  that arm and a card assigned on an unlinked board becomes unreachable. They
+  do NOT get the whole board — the scope arm is what grants that, and it does
+  not fire for them. This is the privilege-loop guard doing its job.
+- `test_board_view_is_not_a_blanket_true` now asserts the arms are
+  ROLE-DEPENDENT: member -> {category, team}, admin -> {org, category, team}.
+
+### 2026-09-03 (cont.) — dark mode: hover backgrounds
+
+Reported on the members page: rows turned near-white under the cursor and
+swallowed their own text — precisely when you are trying to read them.
+
+- **Not a members-page bug: 96 occurrences app-wide, 16 distinct classes.**
+- **Why the earlier chip rescue missed it:** `hover:bg-gray-50` compiles to
+  `.hover\:bg-gray-50:hover`, a DIFFERENT selector from `.bg-gray-50`. The
+  chip block only ever matched the latter. Any future `hover:`/`focus:`
+  variant of a light utility needs its own rule for the same reason.
+- Two behaviours, because a hover means two things:
+  neutral (gray/slate/zinc) -> `--vb-surface-strong`, a subtle lift that
+  leaves existing foregrounds intact; tinted (indigo/red/blue/rose/emerald/
+  amber) -> a translucent wash of the same hue, so "primary" and
+  "destructive" still read as themselves.
+- **Deliberately NOT the chip treatment** (solid fill + white text): a chip is
+  a label that owns its foreground, a hovered ROW holds body copy in several
+  colours and flattening them all would destroy the page's hierarchy.
+- **Selectors written out per class, never `[class*="hover:bg-slate-50"]`** —
+  that substring also matches `hover:bg-slate-500`, a perfectly good dark
+  hover that must not be rewritten.
+- Coverage asserted by diffing the classes the app actually ships against the
+  ones rescued: 16/16, none uncovered. The first version of that check was
+  itself buggy (regex never matched, reported 0/16) — the CSS was correct all
+  along; only rewriting the checker showed blue-50 / rose-50 / rose-100 really
+  were missing.
+
 ---
 
 ## 7. Open threads

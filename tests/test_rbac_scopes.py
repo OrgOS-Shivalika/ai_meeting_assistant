@@ -846,47 +846,84 @@ def test_board_view_is_not_a_blanket_true():
         "board_view_clause no longer discriminates by scope"
     )
 
-    # An org-scoped board must still not be visible from its SCOPE alone —
-    # org-wide means unbounded, so it stays reachable only through a card the
-    # viewer may see or a category of theirs routing to it.
+    # The scope arms are ROLE-DEPENDENT as of 2026-09-03, and that is the
+    # whole rule: a board linked to a category is visible to that category's
+    # people, while a board linked to NOTHING has no audience to derive and so
+    # belongs to admins only.
     #
     # Asserted on the bind VALUES, not the SQL text: `scope_type` is
-    # parameterised, so the literal 'org' never appears in the string and any
-    # text-based check here is vacuous. (My first version "checked" this by
-    # substituting a bind name for 'org', which just manufactured a match.)
-    compiled = clause.compile(dialect=postgresql.dialect())
-    scope_values = {
-        str(v) for k, v in compiled.params.items() if k.startswith("scope_type")
-    }
-    assert scope_values == {"category", "team"}, (
-        f"board scope arms are {scope_values or 'empty'}; expected exactly "
-        f"category+team. 'org' here would publish every org-wide board."
+    # parameterised, so the literal never appears in the string and any
+    # text-based check here is vacuous. (An earlier version "checked" this by
+    # substituting a bind name, which just manufactured a match.)
+    def scope_arms(u):
+        compiled = permissions._board_scope_clause(u).compile(
+            dialect=postgresql.dialect()
+        )
+        return {
+            str(v) for k, v in compiled.params.items() if k.startswith("scope_type")
+        }
+
+    assert scope_arms(MEMBER) == {"category", "team"}, (
+        f"member board arms are {scope_arms(MEMBER) or 'empty'}; an 'org' arm "
+        f"here would show members every unlinked board in the org"
+    )
+    assert scope_arms(ADMIN) == {"org", "category", "team"}, (
+        f"admin board arms are {scope_arms(ADMIN) or 'empty'}; "
+        f"without 'org' an admin cannot see a board linked to no category, "
+        f"which is exactly the surface reserved for them"
     )
 
 
-def test_board_only_cards_are_visible_from_the_board_scope():
-    """A card typed straight onto a board has no meeting to inherit from.
+def test_every_card_on_a_reachable_board_is_visible():
+    """The board is the unit of sharing: reach the board, see all of it.
 
-    Every other arm of `task_view_clause` is meeting-shaped, so before this
-    one such a card was invisible to everyone but its assignee and org admins
-    — a member could open a board and find it empty while it visibly held
-    cards for an admin. That is what "members can't see the tasks added to the
-    board" was.
+    REVERSED 2026-09-03. This arm used to carry `tasks.meeting_id IS NULL`, so
+    a meeting-derived card followed its MEETING and a board could show a member
+    one card out of a hundred. The trade is explicit: a board collecting tasks
+    from several categories now shows all of them to anyone who can reach it.
+
+    What must NOT come back is the privilege loop — see the companion test
+    below. This arm keys off `_board_scope_clause`, never `board_view_clause`.
     """
     text = sql(permissions.task_view_clause(None, MEMBER))
     assert "kanban_boards" in text, (
         "task_view_clause has no board-scope arm, so a card added directly to "
         "a board is visible to nobody but its assignee"
     )
-    assert "tasks.meeting_id IS NULL" in text, (
-        "the board-scope arm is not restricted to board-only cards — as "
-        "written it would publish MEETING tasks to anyone who can reach the "
-        "board, which leaks meetings the viewer cannot open"
+    assert "tasks.meeting_id IS NULL" not in text, (
+        "the board-scope arm is restricted to board-only cards again — that "
+        "is the OLD rule, under which a member opened a board and saw one "
+        "card out of a hundred. A board is now the unit of sharing."
     )
     assert "organization_id" in text, (
         "the board-scope arm has no tenant filter; `tasks` carries no "
         "organization_id of its own, so a caller that forgot to scope by org "
         "would expose another tenant's cards"
+    )
+
+
+def test_board_visibility_by_card_does_not_grant_the_whole_board():
+    """The privilege loop this design has to avoid.
+
+    `board_view_clause` has an arm "you hold a card I can see". If the task
+    clause then granted every card on any VISIBLE board, assigning someone a
+    single task would silently hand them the entire board — including cards
+    from meetings and categories they have no access to.
+
+    It does not, because the task arm keys off `_board_scope_clause` (scope
+    only) rather than `board_view_clause` (scope OR holds-a-card). This test
+    exists because that distinction is one word at the call site and its
+    failure mode is silent over-sharing rather than an error.
+    """
+    import inspect
+
+    src = inspect.getsource(permissions.task_view_clause)
+    assert "_board_scope_clause" in src, (
+        "task_view_clause no longer uses the scope-only helper"
+    )
+    assert "board_view_clause(" not in src, (
+        "task_view_clause now calls board_view_clause — that closes the loop: "
+        "hold one card -> board visible -> every card on it visible"
     )
 
 

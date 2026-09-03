@@ -91,10 +91,24 @@ def main() -> int:
             check("a member cannot assign, even to themselves",
                   e.status_code in (401, 403), str(e.status_code))
 
-        print("\nAssigning grants access")
+        print("\nAssignment and visibility")
+        # This used to assert "member cannot see the card beforehand".
+        # Since 2026-09-03 a board is the unit of sharing and this scratch
+        # board is org-scoped, so the card is ALREADY visible — assignment
+        # is no longer what gates it here. Asserting the old thing would
+        # now be asserting a bug.
         before = db.query(Task.id).filter(
             Task.id == task.id, permissions.task_view_clause(db, member)).first()
-        check("member cannot see the card beforehand", before is None)
+        check("card is visible via its board before any assignment",
+              before is not None)
+
+        # The assignee arm must still EXIST — it is what covers a card on a
+        # board the viewer cannot reach by scope, the one remaining case
+        # where assignment is the sole route in.
+        import inspect
+        check("assignee arm still present in task_view_clause",
+              "assignee_user_id == user.id" in inspect.getsource(
+                  permissions.task_view_clause))
 
         meeting_service.update_task(
             db, admin, task.id, TaskUpdateRequest(assignee_user_id=member.id))
@@ -125,9 +139,16 @@ def main() -> int:
                                     TaskUpdateRequest(assignee_user_id=None))
         db.refresh(task)
         check("assignee cleared", task.assignee_user_id is None)
-        gone = db.query(Task.id).filter(
+        # NOT "access revoked" any more, and that is the 2026-09-03 board-as-
+        # unit-of-sharing decision showing up here: this card sits on a board
+        # the member can reach by scope, so unassigning no longer hides it.
+        # Assignment now only ever WIDENS access; it is not the thing gating
+        # this card.
+        still = db.query(Task.id).filter(
             Task.id == task.id, permissions.task_view_clause(db, member)).first()
-        check("access revoked with it", gone is None)
+        check("card stays visible via the board after unassigning",
+              still is not None,
+              "unassigning hid it — the board arm is not covering this card")
 
         print("\nThe resolver refuses to guess")
         org = admin.organization_id
