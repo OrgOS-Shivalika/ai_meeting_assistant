@@ -76,6 +76,7 @@ export default function WorkflowStatusPanel({
 
   // Columns this one is not already connected to, in that direction. Offering
   // one it already has would create the duplicate pair the server rejects.
+  const hasAnywhereIn = inbound.some((x) => x.r.from_column_id === null);
   const freeSources = board.columns.filter(
     (c) => c.id !== columnId && !inbound.some((x) => x.r.from_column_id === c.id),
   );
@@ -120,20 +121,28 @@ export default function WorkflowStatusPanel({
     options,
     onPick,
     label,
+    anywhere = false,
   }: {
     options: typeof board.columns;
-    onPick: (id: number) => void;
+    onPick: (id: number | null) => void;
     label: string;
+    /** Offer the wildcard `from_column_id: null` rule. Only meaningful for
+     *  ways IN — `to_column_id` is NOT NULL, so there is no "to anywhere". */
+    anywhere?: boolean;
   }) =>
-    options.length === 0 ? null : (
+    options.length === 0 && !anywhere ? null : (
       <label className="flex items-center gap-1.5 text-[11px] text-muted-ink">
         <Plus className="size-3 shrink-0" />
         <select
           value=""
-          onChange={(e) => e.target.value && onPick(Number(e.target.value))}
+          onChange={(e) =>
+            e.target.value &&
+            onPick(e.target.value === "*" ? null : Number(e.target.value))
+          }
           className="min-w-0 flex-1 rounded-md border border-hairline bg-canvas px-1.5 py-1 text-[11px]"
         >
           <option value="">{label}</option>
+          {anywhere && <option value="*">Anywhere</option>}
           {options.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -218,6 +227,7 @@ export default function WorkflowStatusPanel({
         )}
         <AddRow
           options={freeSources}
+          anywhere={!hasAnywhereIn}
           label="Add a way in…"
           onPick={(id) =>
             add({
@@ -253,6 +263,9 @@ export default function WorkflowStatusPanel({
           options={freeTargets}
           label="Add a way out…"
           onPick={(id) =>
+            // ponytail: `anywhere` is off here, so `id` is never null — the
+            // guard is one token cheaper than a cast and stays honest.
+            id !== null &&
             add({
               kind: "allow",
               from_column_id: columnId,

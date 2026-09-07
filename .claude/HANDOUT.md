@@ -35,7 +35,7 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 |---|---|
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
-| Local DB | `localhost:5433/meeting_ai`, alembic head **`am13invitetoken`** (2026-09-02) |
+| Local DB | `localhost:5433/meeting_ai`, alembic head **`aq17wfblock`** (queried 2026-09-07). 55 revisions, ONE linear chain, no branches. |
 | Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
 | Prod app | **`https://aimeetingassistant-production.up.railway.app`** — HTTPS only, plain http 301-redirects. Verified 2026-09-02, so `AUTH_COOKIE_SECURE=true` is safe there. |
 | Outbound email | Google Workspace relay, `SMTP_USER` and `SMTP_FROM` both `@smoothops.info` (aligned). **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
@@ -2132,11 +2132,98 @@ the touched files shows only the pre-existing `react-hooks/refs` (reading
 
 ---
 
+### 2026-09-07 — full-codebase read (no changes)
+
+Read-only orientation pass over the whole repo (98k LOC: 495 py, 178 ts/tsx).
+Nothing edited except this file. Three notes corrected against the LIVE system
+rather than the notes:
+
+- **§2 local head was stale.** Said `am13invitetoken`; `select version_num from
+  alembic_version` says **`aq17wfblock`**. Fixed above. 55 revisions, single
+  linear chain, `aq17wfblock` is the only head (verified by diffing every
+  `revision` against every `down_revision`).
+- **`TECHNICAL_REFERENCE.md` §14.1 and §14.11 are both wrong now** — 14.1 still
+  calls the `prof` NameError an OPEN BUG (fixed 2026-08-10, `prof` is hoisted at
+  `meeting_pipeline.py:573`), and 14.11 says Railway is behind at
+  `g3o7j9k1l2m` (it is behind, but at `am13invitetoken` — see §7). Already on
+  the "ready to do" list; recording that the read confirmed it.
+- **World B is empirically dead, not just architecturally.** `agent_profiles`
+  and `prompt_versions` are BOTH 0 rows. So `resolve_agent_runtime_config` is
+  the Phase-8F façade over `resolve_behavior_profile` on every call, and
+  `_legacy_resolve_agent_runtime_config` (the real 7C engine, ~230 lines) is
+  unreachable. Anything reasoning about "which prompt version ran" is reasoning
+  about NULL.
+
+Live row counts, for the next person's sense of scale: meetings 226,
+participants 181, tasks 1306, meeting_chunks 421, entities 1114,
+kanban_boards 60, workflow_transitions 16, notifications 6, users 62,
+organizations 59, template_behavior_profiles 363,
+workspace_behavior_overrides 15, agents_v2 1, cc_clients 1,
+org_memory_facts 99 (still frozen), mem0_facts **167** (was 112 at migration —
+mem0 IS being written to, the native table is the one that is frozen).
+
 ---
+
+---
+
+### 2026-09-07 — deployment-readiness audit of `75af005` (no code changed)
+
+- **Verdict: the code is ready, the deploy is not.** Two blockers, both
+  outside the diff.
+- Green, verified by running it, not by reading it: frontend
+  `tsc -b && vite build` exits 0 in 27.6 s; `main:app` imports with 222
+  routes; `python tests/test_workflow.py` is **28/28** (it is a script, NOT
+  pytest — `pytest tests/test_workflow.py` collects nothing and says
+  "no tests ran", which reads exactly like a pass); live
+  `workflow_transitions` matches the ORM column-for-column and already holds
+  15 `allow` + 1 `block_exit` rows.
+- **Regression check: none.** 24 pytest failures in the kanban/rbac suites,
+  but a sparse worktree at the parent commit `1b87da0` fails the same 24.
+  The one apparent delta (`test_kanban_k4::test_get_task_detail_404_for_
+  unknown_id`) is an artifact of the worktree having no `dist/` — the test
+  GETs the unprefixed `/tasks/99999999`, which the SPA catchall answers 200
+  with `text/html`. These suites are stale against `API_PREFIX=/api` and
+  against a `_VALID_STATUSES` symbol that no longer exists in
+  `app/api/routes.py`; they are not a signal about this commit.
+- **Blocker 1 — prod DB.** Queried Railway directly: still
+  `am13invitetoken`, local `aq17wfblock`. Four migrations short. Nothing runs
+  alembic at deploy time — the Dockerfile CMD is bare uvicorn — so
+  `alembic upgrade head` against prod is a MANUAL step that must precede the
+  code. All four are additive/constraint-only and safe to run early against
+  the currently deployed code.
+- **Blocker 2 — the commit is not on `main`.** See §7.
+- Pre-deploy check owed for `an14assigneeevent`: it drops and recreates
+  `task_activity`'s event_type CHECK, so any prod row with an event_type
+  outside the eleven `_BASE` values + `assignee_changed` fails the ADD.
+  Locally all nine distinct values are inside the set; prod not checked (the
+  query was denied).
+- No new env var, no new dependency, no ORM change without a migration —
+  `models.py`'s additions are exactly `WorkflowTransition` + `kind`.
+  `.dockerignore` already excludes `venv/`, `node_modules/`, `.env`, `tests/`.
+- Local side effects of the audit, both reverted or harmless: rebuilt
+  `meeting_ai_frontend/dist` (gitignored), created and removed a sparse
+  worktree under the scratchpad. Nothing in `app/` touched.
+
+### 2026-09-07 — "Anywhere" as a way in, on the status panel
+
+- `WorkflowStatusPanel.tsx` only: `AddRow` gained an `anywhere` flag that
+  prepends an `Anywhere` option (sentinel `"*"` -> `from_column_id: null`),
+  wired into **Ways in** only. `to_column_id` is NOT NULL, so "to anywhere"
+  does not exist and Ways out keeps its old behaviour.
+- Hidden once a wildcard inbound rule exists — a second `(allow, null, X)`
+  is the duplicate the server 400s on. Note the DB unique index does NOT
+  catch it: Postgres treats NULLs as distinct, so the guard is
+  `replace_transitions`' Python `seen` set, and now the UI as well.
+- Backend needed nothing — wildcards were already supported and covered by
+  `tests/test_workflow.py` (28/28, lines 128/173). The Text view already had
+  `Anywhere`; the diagram already renders wildcard targets. Only the panel
+  was missing it.
+- `tsc -b --force` clean. No new check file: the only added logic is a
+  one-line `.some()` predicate.
 
 ## 7. Open threads
 
-**Prod is FOUR migrations behind (2026-09-03):** local is at `aq17wfblock`,
+**Prod is FOUR migrations behind (2026-09-03, RE-VERIFIED live 2026-09-07):** local is at `aq17wfblock`,
 Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
 assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
 bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,
@@ -2207,8 +2294,12 @@ while nothing is deployed, but it MUST precede the next deploy.
 ~~prod DB ahead of prod code~~ CLEARED — the uppercase-role code shipped in
 PR #15, so the "every user reads as least-privileged" window is closed.
 
-**Only unshipped commit:** `ea10699 favicon changes` on `continum`, not yet
-on `neworigin/main`.
+**Unshipped (2026-09-07):** `continum` == `neworigin/continum` == `75af005`,
+but `neworigin/main` is `e2f6fdd` and is missing the last FIVE commits
+(`58ee0bd b07b857 b72cf81 1b87da0 75af005`) — board-as-unit-of-sharing,
+category board visibility, dark-mode hover, assignee-on-move fix, and the
+whole configurable-workflow slice. Prod deploys from `main`, so none of it
+is live.
 
 **Decisions owed by the user, do not pick unilaterally:**
 - ~~whether the product must support in-room meetings~~ ANSWERED 2026-08-17:
