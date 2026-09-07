@@ -1,5 +1,12 @@
 import { Plus, Trash2, X } from "lucide-react";
-import type { WorkflowTransition } from "../api";
+import type {
+  ColumnAction,
+  ColumnPermissionRule,
+  ColumnPermissions,
+  OrgMember,
+  PermissionMode,
+  WorkflowTransition,
+} from "../api";
 import type { BoardDetail } from "../types";
 
 /**
@@ -24,15 +31,26 @@ export default function WorkflowStatusPanel({
   board,
   rules,
   columnId,
+  perms,
+  members,
   onClose,
   onChange,
+  onPermsChange,
   onDelete,
 }: {
   board: BoardDetail;
   rules: WorkflowTransition[];
   columnId: number;
+  /** The WHOLE board's column permissions, not just this column's. Held by
+   *  the modal for the same reason `rules` is: one staged object, saved in
+   *  one PUT, so the screen and the server never disagree about what is
+   *  about to be written. */
+  perms: ColumnPermissions;
+  /** The organization directory, for the "specific people" picker. */
+  members: OrgMember[];
   onClose: () => void;
   onChange: (next: WorkflowTransition[]) => void;
+  onPermsChange: (next: ColumnPermissions) => void;
   /** Ask the caller to delete this status. It owns the confirm dialog because
    *  deleting a column needs somewhere to put its cards, which is a question
    *  this panel is too small to ask. */
@@ -68,7 +86,6 @@ export default function WorkflowStatusPanel({
       kind,
       from_column_id: null,
       to_column_id: columnId,
-      admins_only: false,
       require_assignee: false,
       require_due_date: false,
     });
@@ -84,8 +101,137 @@ export default function WorkflowStatusPanel({
     (c) => c.id !== columnId && !outbound.some((x) => x.r.to_column_id === c.id),
   );
 
+  // --- who may act on this column -----------------------------------------
+  // Absent == everyone, on the wire and here. Writing `{mode:"everyone"}`
+  // would work too, but then "is anything configured" stops being a
+  // truthiness check and every reader has to know the difference.
+  const colKey = String(columnId);
+  const colPerms = perms[colKey] || {};
+  const modeOf = (a: ColumnAction): PermissionMode =>
+    colPerms[a]?.mode || LEGACY_DEFAULT[a];
+  const peopleOf = (a: ColumnAction): string[] => colPerms[a]?.user_ids || [];
+
+  const setAction = (a: ColumnAction, rule: ColumnPermissionRule | null) => {
+    const forCol = { ...colPerms };
+    if (rule === null) delete forCol[a];
+    else forCol[a] = rule;
+    const next = { ...perms };
+    if (Object.keys(forCol).length === 0) delete next[colKey];
+    else next[colKey] = forCol;
+    onPermsChange(next);
+  };
+
+  // Always writes an EXPLICIT rule, `everyone` included. A select's onChange
+  // only fires on a real change, so nothing is written until somebody picks
+  // something — an untouched column keeps its board defaults.
+  const setMode = (a: ColumnAction, mode: PermissionMode) =>
+    setAction(a, mode === "specific" ? { mode, user_ids: peopleOf(a) } : { mode });
+
+  const togglePerson = (a: ColumnAction, userId: string) => {
+    const have = peopleOf(a);
+    setAction(a, {
+      mode: "specific",
+      user_ids: have.includes(userId)
+        ? have.filter((u) => u !== userId)
+        : [...have, userId],
+    });
+  };
+
+  // What the board does when nobody has set a rule. NOT all `everyone`: only
+  // moving was ever open to every viewer. Showing `everyone` here regardless
+  // is what made the dropdown lie — it read "Everyone" while the board went
+  // on refusing members.
+  const LEGACY_DEFAULT: Record<ColumnAction, PermissionMode> = {
+    move: "everyone",
+    move_out: "everyone",
+    create: "admins",
+    edit: "admins",
+    delete: "admins",
+  };
+
+  const UNSET_NOTE: Partial<Record<ColumnAction, string>> = {
+    edit: "Not set — admins, plus whoever the card is assigned to.",
+    delete: "Not set — admins, plus whoever the card is assigned to.",
+  };
+
+  const PERMISSION_ROWS: [ColumnAction, string][] = [
+    ["move", "Move cards in"],
+    ["move_out", "Move cards out"],
+    ["create", "Add cards"],
+    ["edit", "Edit cards"],
+    ["delete", "Delete cards"],
+  ];
+
+  const MODE_LABELS: [PermissionMode, string][] = [
+    ["everyone", "Everyone"],
+    ["admins", "Admins & org admins"],
+    ["org_admins", "Org admins only"],
+    ["specific", "Specific people…"],
+  ];
+
+  const PermissionRow = ({ action, label }: { action: ColumnAction; label: string }) => {
+    const mode = modeOf(action);
+    const picked = peopleOf(action);
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="shrink-0 text-muted-ink">{label}</span>
+          <select
+            value={mode}
+            onChange={(e) => setMode(action, e.target.value as PermissionMode)}
+            className="min-w-0 flex-1 rounded-md border border-hairline bg-canvas px-1.5 py-1 text-[11px]"
+          >
+            {MODE_LABELS.map(([v, text]) => (
+              <option key={v} value={v}>
+                {text}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {mode === "specific" && (
+          <div className="max-h-28 overflow-y-auto rounded-md border border-hairline bg-canvas px-2 py-1.5">
+            {members.length === 0 && (
+              <p className="text-[10px] text-muted-soft">Loading people…</p>
+            )}
+            {members.map((m) => (
+              <label
+                key={m.id}
+                className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[10px]"
+              >
+                <input
+                  type="checkbox"
+                  checked={picked.includes(m.id)}
+                  onChange={() => togglePerson(action, m.id)}
+                />
+                <span className="truncate text-muted-ink">{m.name}</span>
+              </label>
+            ))}
+            {members.length > 0 && picked.length === 0 && (
+              // The server rejects an empty list rather than storing a rule
+              // that reads as "specific people" and behaves as "nobody".
+              <p className="mt-1 text-[10px] text-error">
+                Pick at least one person, or choose Everyone.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!colPerms[action] && UNSET_NOTE[action] && (
+          // Nothing has been decided for this action, so what the dropdown
+          // shows is the BOARD's default, not a stored rule. Say which,
+          // because "admins" and "admins plus the assignee" are different
+          // answers and only one of them fits in a dropdown.
+          <p className="text-[10px] text-muted-soft">{UNSET_NOTE[action]}</p>
+        )}
+      </div>
+    );
+  };
+
+  // What must be TRUE OF THE CARD before it may take this route. Who may do
+  // it is not here any more — that moved to "Who can" above, where it is asked
+  // once per column instead of once per arrow.
   const VALIDATORS: [keyof WorkflowTransition, string][] = [
-    ["admins_only", "Admins only"],
     ["require_assignee", "Needs assignee"],
     ["require_due_date", "Needs due date"],
   ];
@@ -207,6 +353,18 @@ export default function WorkflowStatusPanel({
         </label>
       </div>
 
+      {/* Who, before where. "Only org admins may put things here" changes the
+          meaning of every rule below it, so reading the routes first would be
+          reading them without the constraint that governs them. */}
+      <p className="mt-4 mb-1.5 text-[10px] font-semibold tracking-wide text-muted-soft uppercase">
+        Who can
+      </p>
+      <div className="flex flex-col gap-2">
+        {PERMISSION_ROWS.map(([action, label]) => (
+          <PermissionRow key={action} action={action} label={label} />
+        ))}
+      </div>
+
       <p className="mt-4 mb-1.5 text-[10px] font-semibold tracking-wide text-muted-soft uppercase">
         Ways in ({inbound.length})
       </p>
@@ -234,7 +392,6 @@ export default function WorkflowStatusPanel({
               kind: "allow",
               from_column_id: id,
               to_column_id: columnId,
-              admins_only: false,
               require_assignee: false,
               require_due_date: false,
             })
@@ -270,7 +427,6 @@ export default function WorkflowStatusPanel({
               kind: "allow",
               from_column_id: columnId,
               to_column_id: id,
-              admins_only: false,
               require_assignee: false,
               require_due_date: false,
             })

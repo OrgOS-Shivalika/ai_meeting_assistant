@@ -184,7 +184,6 @@ export default function WorkflowDiagram({
 
   const validators = (r: WorkflowTransition) =>
     [
-      r.admins_only && { glyph: "A", label: "Admins only" },
       r.require_assignee && { glyph: "@", label: "Needs an assignee" },
       r.require_due_date && { glyph: "D", label: "Needs a due date" },
     ].filter(Boolean) as { glyph: string; label: string }[];

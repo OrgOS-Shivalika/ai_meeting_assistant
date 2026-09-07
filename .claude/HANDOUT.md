@@ -2221,14 +2221,149 @@ mem0 IS being written to, the native table is the one that is frozen).
 - `tsc -b --force` clean. No new check file: the only added logic is a
   one-line `.some()` predicate.
 
+### 2026-09-07 — per-column permissions (who may act, not just where a card may go)
+
+- **Migration `ar18colperms`** (local head is now that, not `aq17wfblock`):
+  `kanban_columns.permissions` JSONB `'{}'`. One column, not a
+  `column_permissions` table — four actions on sixty boards is not a query
+  workload, nothing joins or filters on it, and every read already holds the
+  column row. `{}` is exactly the old behaviour, so the backfill is nothing.
+- Four actions — `move` `create` `edit` `delete`. **`edit` and `update` are
+  ONE action**: same endpoint, same operation, and two switches for it would
+  only ever be set to the same value.
+- Four modes — `everyone` / `admins` (admin OR org admin) / `org_admins` /
+  `specific` (a named list). An ABSENT key means everyone, so `everyone` is
+  never stored; `normalize_column_permissions` drops it.
+- **Org admins pass everything, by design.** These rules are written by board
+  admins and one that could lock the tenant's own owner out of a column would
+  leave a board nobody in the organization can repair. An unknown mode fails
+  CLOSED for everyone else, which is only safe *because* of that bypass.
+- **The checks are NOT behind `board_has_workflow`.** "Only org admins may put
+  things in Done" is a complete configuration on its own and such a board has
+  no transitions at all — behind the short-circuit every one of these would be
+  dead code. This is the property the new tests exist to hold down.
+- Enforcement, all server-side: `move` on the DESTINATION column inside
+  `assert_move_allowed` (so both the drag path and the PATCH back door get it,
+  and both now pass `to_column=` since they already hold the row — no extra
+  query); `create` in `create_board_task`; `delete` in `delete_task`; `edit`
+  in `meeting_service.update_task`, **skipped for a status-only PATCH** because
+  that is a move and is judged by the destination's `move` rule instead.
+- **Ceiling worth knowing:** these NARROW only. `create_board_task` already
+  requires a managed board, so "Everyone" on Add means every admin, not every
+  member. The panel says so on screen rather than lying by omission.
+- API: `GET /boards/{id}/workflow` gained `column_permissions`;
+  the PUT accepts it optionally — **absent means "leave alone", not "clear"**,
+  so an older client cannot silently strip permissions a newer one set.
+  User ids are validated against `users.organization_id` — the one line that
+  stops a rule naming somebody in another tenant.
+- UI: a "Who can" block at the top of `WorkflowStatusPanel` (above the routes,
+  because a lock changes the meaning of every rule under it), staged in
+  `WorkflowModal`'s state beside `rules` and saved in the SAME PUT. People
+  picker is `GET /org/members`, fetched once per modal.
+- Verified by outcome: `tests/test_workflow.py` **51/51** (23 new, incl. the
+  no-transitions case, the org-admin bypass, unknown-mode-fails-closed, the
+  status-only-PATCH split, and five payload-validator refusals). Pytest
+  kanban/rbac set unchanged at 24 failed / 172 passed — the same 24 stale
+  failures as before the change. `tsc -b` clean, `npm run build` 30.0 s exit 0,
+  `main:app` 222 routes.
+- Test trap that cost a rewrite: a member may only manage cards ASSIGNED to
+  them, so the edit/delete assertions set `assignee_user_id` first and assert
+  a baseline pass — without it every refusal would have been RBAC's, not the
+  column's, and the test would have passed for the wrong reason.
+
+### 2026-09-07 (cont.) — "Everyone" was a lie on three of the four actions
+
+Reported from use: Add cards showed **Everyone** and a member still could not
+add a card. Probed it rather than reasoning about it (scratch board, real
+MEMBER, one column, both states) — the dropdown was wrong for three of four:
+
+| action | what "Everyone" actually did |
+|---|---|
+| move | everyone ✓ |
+| add | **admins only** |
+| edit | **admins, or the card's assignee** |
+| delete | **admins, or the card's assignee** |
+
+Cause: I stored nothing for `everyone`, calling it "the default". It was only
+the default for `move`. `create_board_task` took `require_managed_board` and
+edit/delete took `get_manageable_task`, so the column rule could never widen
+past them and the label described a permission the board went on refusing.
+
+**Fixed by making an explicit rule AUTHORITATIVE, with board VIEW scope as the
+floor.** Absent still means "nobody has decided" and the board's own RBAC
+applies untouched, so no existing board changed behaviour — verified both
+directions.
+
+- `everyone` is now stored, not dropped (`normalize_column_permissions`).
+- New `explicit_rule` / `task_rule_explicit`. Every call site branches on
+  "is there a rule" and NOT on the resolved mode: with no rule the fallback
+  has to be the old gate, which is stricter than `everyone`.
+- `create_board_task` opens with `require_board` (view) and falls back to
+  `require_managed_board` only when the column has no `create` rule.
+  `delete_task` and `update_task` do the same against `require_managed_task`.
+- UI: the dropdown's value when nothing is set is now the BOARD's default per
+  action (`move`→Everyone, the rest→Admins), not a blanket Everyone — that
+  mislabelling was the whole bug. Edit and Delete additionally print
+  "Not set — admins, plus whoever the card is assigned to", because that
+  fallback is a rule no dropdown entry can express. A select's `onChange`
+  only fires on a real change, so opening the panel and saving still writes
+  nothing.
+- **Not offered: a way back to "unset"** once a rule is written. Picking
+  Admins is close but drops the assignee carve-out. Add an "Use board default"
+  entry if anyone asks; nobody has.
+- `tests/test_workflow.py` **60/60** (9 more): all four actions as a member on
+  a card they do NOT own under `everyone`, and the mirror — unset still
+  refuses add/edit/delete, still keeps the assignee carve-out, still lets
+  anyone move. Pytest kanban/rbac set unchanged at 24 failed / 172 passed.
+  `tsc -b` clean.
+
+### 2026-09-07 (cont.) — `admins_only` retired, `move_out` added
+
+Two halves of one change: the old per-transition permission flag is gone from
+the arrows, and the per-column block gained the rule the arrows could never
+express.
+
+- **`admins_only` removed** from the Ways in / Ways out rule cards, the Text
+  view, the diagram glyph, the `WorkflowTransition` TS type and the GET
+  response, and its enforcement is deleted from `assert_move_allowed`. The
+  per-column `move` rule says the same thing where people look for it, and two
+  ways to express "admins only" that can disagree is worse than either.
+  **Zero rows had it set** (checked before deleting: `select admins_only,
+  count(*)` → `f|16`), so nothing changed for anyone.
+  `require_assignee` / `require_due_date` STAY — they are conditions on the
+  card, not permissions on the person, and nothing replaces them.
+- The DB column is left in place, unread, with a comment on the model saying
+  so. Dropping it needs a migration and prod is already five behind; an
+  unread boolean costs nothing.
+- **New action `move_out`**, checked against the SOURCE column, so the panel
+  now reads: Move cards in / Move cards out / Add / Edit / Delete. Five
+  actions. Destination rules could never say "only a lead may pull work back
+  out of QA".
+- Ordering note now in the code: `move_out` is checked BEFORE the `block_exit`
+  lookup, so a column that is both sealed and restricted tells a refused member
+  who may move cards out rather than that the column is locked. Both refuse;
+  only the wording differs, and reordering would mean running the block query
+  on every move — including the unconfigured boards the function exits early
+  for.
+- `tests/test_workflow.py` **64/64**. The three old `admins_only` assertions
+  were rewritten rather than deleted: two now use the per-column `move` rule
+  (same property, new mechanism — including the no-back-door PATCH test) and
+  the "specific beats wildcard" one switched to `require_due_date`, which is
+  what actually distinguished the two rules. Four new `move_out` checks,
+  including that it does NOT restrict moving IN.
+- Pytest kanban/rbac set unchanged at 24 failed / 172 passed. `tsc -b` clean,
+  `main:app` 222 routes.
+
 ## 7. Open threads
 
-**Prod is FOUR migrations behind (2026-09-03, RE-VERIFIED live 2026-09-07):** local is at `aq17wfblock`,
+**Prod is FIVE migrations behind (re-verified live 2026-09-07):** local is at `ar18colperms`,
 Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
 assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
 bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,
-which is now also the add/delete-status path on the canvas). All four must
-precede the next deploy of the board code.
+which is now also the add/delete-status path on the canvas). `ar18colperms` joins them (2026-09-07) — without it every board
+endpoint 500s on the missing `kanban_columns.permissions`, which is
+worse than the other four: it breaks boards that use no workflow at
+all. All five must precede the next deploy of the board code.
 
 **And the WORKER needs mail env before notifications are deployed:** `SMTP_*`
 plus `APP_PUBLIC_URL` on the celery service, not just web. Without them the

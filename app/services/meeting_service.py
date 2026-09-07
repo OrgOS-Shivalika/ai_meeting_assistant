@@ -875,11 +875,24 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     # through by attaching a status change to it.
     touched = set(payload.model_dump(exclude_unset=True))
     status_only = bool(touched) and touched <= permissions.STATUS_FIELDS
-    task = (
-        permissions.get_status_changeable_task(db, user, task_id)
-        if status_only
-        else permissions.get_manageable_task(db, user, task_id)
-    )
+    # VIEW scope first, for both shapes. It is the floor the column rules
+    # cannot cross and it is what decides 404-vs-403.
+    task = permissions.get_status_changeable_task(db, user, task_id)
+
+    # Then the edit gate, which a status-only PATCH skips entirely: that is a
+    # move, governed by the DESTINATION column's `move` rule further down.
+    # Charging the same request twice, against two different columns, would
+    # make a legal drag fail for a reason invisible on the card being dragged.
+    #
+    # An explicit `edit` rule on the card's current column decides — it can
+    # open editing to everyone who can see the board, or close it to a named
+    # few. With no rule, the old gate applies unchanged: admins, or the person
+    # the card is assigned to.
+    if not status_only:
+        if workflow.task_rule_explicit(db, task, workflow.ACTION_EDIT):
+            workflow.assert_task_action_allowed(db, user, task, workflow.ACTION_EDIT)
+        else:
+            task = permissions.get_manageable_task(db, user, task_id)
 
     # Phase 14 K2 — capture a snapshot BEFORE mutation so we can emit
     # one activity row per field that actually changed. Keep this
@@ -997,7 +1010,8 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             # Before the mutation, so a refused transition leaves the card
             # untouched. No-ops on a board with no workflow configured.
             workflow.assert_move_allowed(
-                db, user, task, column.id, board_id=column.board_id
+                db, user, task, column.id,
+                board_id=column.board_id, to_column=column,
             )
             task.column_id = column.id
             # Auto-sync board_id if the client didn't explicitly set it.

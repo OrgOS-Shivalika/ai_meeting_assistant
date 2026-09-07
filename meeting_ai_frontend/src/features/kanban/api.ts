@@ -270,10 +270,43 @@ export interface WorkflowTransition {
   /** null = "from anywhere" — one row instead of one per source column. */
   from_column_id: number | null;
   to_column_id: number;
-  admins_only: boolean;
+  /** No `admins_only`: who may make a move is a per-COLUMN permission now
+   *  (`ColumnPermissions.move` / `.move_out`), not a per-transition flag. */
   require_assignee: boolean;
   require_due_date: boolean;
 }
+
+/** Who may act on the cards in one column. Four modes, matching the server:
+ *  everyone / admins (admin OR org admin) / org_admins / specific people.
+ *  Org admins always pass, whatever is set — a board admin must not be able
+ *  to write a rule that locks the organization out of repairing it. */
+export type PermissionMode = "everyone" | "admins" | "org_admins" | "specific";
+
+/** "edit" covers every field change; there is no separate "update". */
+export type ColumnAction =
+  | "move"      // into the column
+  | "move_out"  // out of it — the rule for work LEAVING a status
+  | "create"
+  | "edit"
+  | "delete";
+
+export interface ColumnPermissionRule {
+  mode: PermissionMode;
+  /** Only for `specific`, and required then — an empty list is rejected. */
+  user_ids?: string[];
+}
+
+/** Keyed by column id AS A STRING (JSON object keys always are).
+ *
+ *  A MISSING action is not `everyone` — it means nobody has decided, and the
+ *  board's ordinary RBAC applies: everyone can move, but only admins add, and
+ *  only admins or the card's assignee edit and delete. `LEGACY_DEFAULT` in the
+ *  status panel is that fallback, shown so the dropdown never claims a
+ *  permission the board would refuse. */
+export type ColumnPermissions = Record<
+  string,
+  Partial<Record<ColumnAction, ColumnPermissionRule>>
+>;
 
 export interface BoardWorkflow {
   /** False means NO workflow: every move is allowed. Sent explicitly rather
@@ -282,18 +315,27 @@ export interface BoardWorkflow {
    *  identical to the UI. */
   configured: boolean;
   transitions: WorkflowTransition[];
+  column_permissions: ColumnPermissions;
 }
 
 export const fetchBoardWorkflow = (boardId: number): Promise<BoardWorkflow> =>
   apiClient(`/boards/${boardId}/workflow`);
 
-/** Replaces the WHOLE ruleset. Send [] to remove the workflow. */
+/** Replaces the WHOLE ruleset. Send [] to remove the workflow.
+ *
+ *  `columnPermissions` replaces the whole board's set too. Omitting it leaves
+ *  the stored permissions alone rather than clearing them. */
 export const saveBoardWorkflow = (
   boardId: number,
   transitions: WorkflowTransition[],
+  columnPermissions?: ColumnPermissions,
 ): Promise<{ configured: boolean; count: number }> =>
   apiClient(`/boards/${boardId}/workflow`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transitions }),
+    body: JSON.stringify(
+      columnPermissions === undefined
+        ? { transitions }
+        : { transitions, column_permissions: columnPermissions },
+    ),
   });

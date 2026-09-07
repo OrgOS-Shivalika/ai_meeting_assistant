@@ -757,12 +757,15 @@ def get_board_workflow(
     rows = workflow.list_transitions(db, board.id)
     return {
         "configured": bool(rows),
+        # Per-column "who may act here", keyed by column id. Columns with
+        # nothing set are absent, which the UI reads as open — the same thing
+        # an empty `{}` means on the row itself.
+        "column_permissions": workflow.column_permissions_map(db, board.id),
         "transitions": [
             {
                 "kind": r.kind,
                 "from_column_id": r.from_column_id,
                 "to_column_id": r.to_column_id,
-                "admins_only": r.admins_only,
                 "require_assignee": r.require_assignee,
                 "require_due_date": r.require_due_date,
             }
@@ -783,6 +786,11 @@ def set_board_workflow(
 
     Send `{"transitions": []}` to remove the workflow entirely and return the
     board to allowing every move.
+
+    `column_permissions` is optional and, when present, replaces the whole
+    board's set the same way. ABSENT means "leave them alone" rather than
+    "clear them" — an older client that only knows about transitions must not
+    silently strip the permissions somebody set from a newer one.
     """
     board = kanban_service.require_managed_board(db, board_id, user)
     rules = payload.get("transitions")
@@ -794,4 +802,25 @@ def set_board_workflow(
         c.id for c in db.query(KanbanColumn).filter(KanbanColumn.board_id == board.id)
     }
     rows = workflow.replace_transitions(db, board.id, rules, valid)
-    return {"configured": bool(rows), "count": len(rows)}
+
+    configured_columns = None
+    if "column_permissions" in payload:
+        # Validated against the caller's OWN organization: `users` is
+        # partitioned by `organization_id`, so this is the line that stops a
+        # permission naming somebody in another tenant.
+        org_user_ids = {
+            str(uid)
+            for (uid,) in db.query(User.id).filter(
+                User.organization_id == user.organization_id
+            )
+        }
+        normalized = workflow.normalize_column_permissions(
+            payload["column_permissions"], valid, org_user_ids
+        )
+        configured_columns = workflow.apply_column_permissions(db, board.id, normalized)
+
+    return {
+        "configured": bool(rows),
+        "count": len(rows),
+        "configured_columns": configured_columns,
+    }

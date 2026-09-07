@@ -11,7 +11,10 @@ import {
 } from "lucide-react";
 import {
   fetchBoardWorkflow,
+  fetchOrgMembers,
   saveBoardWorkflow,
+  type ColumnPermissions,
+  type OrgMember,
   type WorkflowTransition,
 } from "../api";
 import type { BoardDetail } from "../types";
@@ -46,6 +49,15 @@ export default function WorkflowModal({
   onBoardChange?: () => Promise<void> | void;
 }) {
   const [rules, setRules] = useState<WorkflowTransition[]>([]);
+  // Per-column "who may act here", for the WHOLE board. Staged beside `rules`
+  // and saved in the same PUT: they are edited on the same panel and a board
+  // half-saved across two requests is a board whose rules nobody can read off
+  // one screen.
+  const [perms, setPerms] = useState<ColumnPermissions>({});
+  // The org directory, for the "specific people" picker. Fetched once with
+  // the workflow rather than per open panel — it is the same list for every
+  // column and it does not change while this screen is open.
+  const [members, setMembers] = useState<OrgMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,9 +83,17 @@ export default function WorkflowModal({
 
   useEffect(() => {
     fetchBoardWorkflow(board.id)
-      .then((w) => setRules(w.transitions))
+      .then((w) => {
+        setRules(w.transitions);
+        setPerms(w.column_permissions || {});
+      })
       .catch(() => setError("Couldn't load this board's workflow."))
       .finally(() => setLoading(false));
+    // Failing to load the directory must not block editing transitions, so
+    // it degrades to an empty picker rather than an error on the screen.
+    fetchOrgMembers()
+      .then(setMembers)
+      .catch(() => setMembers([]));
   }, [board.id]);
 
   const addRule = () => {
@@ -90,7 +110,6 @@ export default function WorkflowModal({
             from_column_id: from,
             to_column_id: to.id,
             kind: "allow",
-            admins_only: false,
             require_assignee: false,
             require_due_date: false,
           },
@@ -108,7 +127,7 @@ export default function WorkflowModal({
     setSaving(true);
     setError(null);
     try {
-      await saveBoardWorkflow(board.id, rules);
+      await saveBoardWorkflow(board.id, rules, perms);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save the workflow.");
@@ -234,8 +253,11 @@ export default function WorkflowModal({
                       board={board}
                       rules={rules}
                       columnId={openColumnId}
+                      perms={perms}
+                      members={members}
                       onClose={() => setOpenColumnId(null)}
                       onChange={setRules}
+                      onPermsChange={setPerms}
                       onDelete={() => setDeletingId(openColumnId)}
                     />
                   )}
@@ -378,8 +400,7 @@ export default function WorkflowModal({
                     <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]">
                       {(
                         [
-                          ["admins_only", "Admins only"],
-                          ["require_assignee", "Needs an assignee"],
+                                                ["require_assignee", "Needs an assignee"],
                           ["require_due_date", "Needs a due date"],
                         ] as [keyof WorkflowTransition, string][]
                       ).map(([key, label]) => (

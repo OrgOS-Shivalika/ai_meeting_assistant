@@ -398,6 +398,14 @@ class KanbanColumn(Base):
     wip_limit = Column(Integer, nullable=True)
     bound_status = Column(String(24), nullable=True)
 
+    # Who may act on the cards in THIS column, per action. `{}` means every
+    # action is open to everyone the board already lets in — see
+    # `alembic/versions/ar18col_perms.py` for the shape and why it is JSONB.
+    # This can only NARROW: board-level RBAC still runs first.
+    permissions = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),
@@ -669,6 +677,11 @@ class WorkflowTransition(Base):
     # declaration, and one that could be overridden by adding an arrow
     # elsewhere would not be worth writing.
     kind = Column(String(16), nullable=False, server_default="allow")
+    # DEAD as of 2026-09-07. Replaced by the per-column `move` permission in
+    # `kanban_columns.permissions`, which says the same thing where people
+    # look for it. Nothing reads or writes it; every row is `false`. Kept
+    # rather than dropped because an unread column costs nothing and prod is
+    # already several migrations behind.
     admins_only = Column(Boolean, nullable=False, server_default=text("false"))
     require_assignee = Column(Boolean, nullable=False, server_default=text("false"))
     require_due_date = Column(Boolean, nullable=False, server_default=text("false"))

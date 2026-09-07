@@ -601,9 +601,13 @@ def create_board_task(
     board's first column if column_id is omitted). Emits a
     `created` activity event.
     """
-    # Creating work on a board is a management action — the
-    # visibility matrix gives task creation to admins and org admins.
-    board = require_managed_board(db, board_id, user)
+    # VIEW scope is the floor: you cannot add a card to a board you cannot
+    # open. Whether you may add one is decided below, once the target column
+    # is known — its `create` rule can open this to everyone who can see the
+    # board, and with no rule set it stays the management action it has always
+    # been (the visibility matrix gives task creation to admins and org
+    # admins).
+    board = require_board(db, board_id, user)
 
     # Resolve target column — either explicit, or the board's first.
     if payload.column_id is not None:
@@ -625,6 +629,14 @@ def create_board_task(
                 status_code=400,
                 detail="Board has no columns — cannot create task",
             )
+
+    # An explicit column rule decides. With none, fall back to the board's
+    # own gate, unchanged — a board nobody has configured behaves exactly as
+    # it did before column permissions existed.
+    if workflow.explicit_rule(column, workflow.ACTION_CREATE):
+        workflow.assert_column_action_allowed(user, column, workflow.ACTION_CREATE)
+    else:
+        require_managed_board(db, board_id, user)
 
     # If a meeting_id is provided, the caller must be able to manage
     # that meeting. Attaching a card to a meeting makes the card visible
@@ -679,7 +691,14 @@ def create_board_task(
 def delete_task(db: Session, task_id: int, user) -> None:
     """Delete a task. Cascades to task_comments + task_activity via
     ON DELETE CASCADE."""
-    task = require_managed_task(db, task_id, user)
+    # Same two-step as creation: an explicit `delete` rule on the card's
+    # column decides, and with none the old "admins, or the card's assignee"
+    # rule still applies.
+    task = require_task(db, task_id, user)
+    if workflow.task_rule_explicit(db, task, workflow.ACTION_DELETE):
+        workflow.assert_task_action_allowed(db, user, task, workflow.ACTION_DELETE)
+    else:
+        task = require_managed_task(db, task_id, user)
     db.delete(task)
     db.commit()
 
@@ -712,7 +731,8 @@ def move_task(
     # touch the card at all) and BEFORE any mutation, so a refused move
     # changes nothing. No-ops on a board with no rules configured.
     workflow.assert_move_allowed(
-        db, user, task, payload.column_id, board_id=target_col.board_id
+        db, user, task, payload.column_id,
+        board_id=target_col.board_id, to_column=target_col,
     )
 
     # Sanity: target column must be on a board we can see (already
