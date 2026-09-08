@@ -28,6 +28,16 @@ export const EMPTY_FILTER_STATE: FilterState = {
 };
 
 export const UNASSIGNED = "__unassigned__";
+/**
+ * "Assigned to me" — matched against `assignee_user_id`, NOT the `owner`
+ * string the rest of this filter uses.
+ *
+ * Deliberately an option inside the existing Person dropdown rather than a
+ * separate control: both answer "whose work is this", and two widgets that
+ * each narrow by person invite the combination where one contradicts the
+ * other.
+ */
+export const ASSIGNED_TO_ME = "__me__";
 export const NO_TEAM = "__no_team__";
 export const NO_CATEGORY = "__no_category__";
 export const NO_MEETING = "__no_meeting__";
@@ -155,10 +165,14 @@ export default function BoardFilters({
       <FilterSelect
         label="Person"
         value={filters.assignee || ""}
-        options={assigneeOptions.map((o) => [
-          o,
-          o === UNASSIGNED ? "Unassigned" : o,
-        ])}
+        options={[
+          // First, because it is the option people reach for most and the only
+          // one that does not depend on how the analyzer spelled their name.
+          [ASSIGNED_TO_ME, "Assigned to me"] as [string, string],
+          ...assigneeOptions.map(
+            (o) => [o, o === UNASSIGNED ? "Unassigned" : o] as [string, string],
+          ),
+        ]}
         onChange={(v) => onChange({ ...filters, assignee: v || null })}
       />
 

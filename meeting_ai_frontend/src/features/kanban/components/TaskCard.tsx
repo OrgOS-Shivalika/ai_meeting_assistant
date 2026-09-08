@@ -49,6 +49,15 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
     transition,
   };
 
+  // The resolved account wins over the analyzer's label. Both are kept on
+  // the task and they answer different questions — "what the meeting said"
+  // vs "who owns this now" — but a card has room for one name, and the one
+  // that means something is the account.
+  //
+  // This ordering is what lets the server STOP overwriting `owner_name` when
+  // someone is assigned: without it, assigning a card would leave the old
+  // meeting label on display and look broken.
+  const displayName = task.assignee_name || task.owner;
   const due = formatDateShort(task.due_date);
   const priorityKey = (task.priority || "medium").toLowerCase();
   const priorityClass = PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
@@ -113,8 +122,8 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
       {/* Footer: owner + due + comments + status icon */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {task.owner ? (
-            <Avatar size="xs" name={task.owner} className="size-[18px] text-[8px]" />
+          {displayName ? (
+            <Avatar size="xs" name={displayName} className="size-[18px] text-[8px]" />
           ) : (
             <span className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-[6px] bg-warning/15 text-warning">
               <User className="size-2.5" />
@@ -125,9 +134,13 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
               "truncate text-[11px] font-medium",
               unassigned ? "text-warning" : "text-muted-ink",
             )}
-            title={task.owner || "Unassigned"}
+            title={
+              task.assignee_name && task.owner && task.assignee_name !== task.owner
+                ? `Assigned to ${task.assignee_name} · meeting said "${task.owner}"`
+                : displayName || "Unassigned"
+            }
           >
-            {task.owner || "Unassigned"}
+            {displayName || "Unassigned"}
           </span>
         </div>
 

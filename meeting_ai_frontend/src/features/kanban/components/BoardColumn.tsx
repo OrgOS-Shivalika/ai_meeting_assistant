@@ -6,7 +6,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDroppable } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Trash2 } from "lucide-react";
 import TaskCard from "./TaskCard";
 import QuickAddCard from "./QuickAddCard";
 import type { BoardTaskSummary, ColumnWithTasks } from "../types";
@@ -30,6 +30,9 @@ interface Props {
   visibleTasks: BoardTaskSummary[];
   onOpenTask?: (task: BoardTaskSummary) => void;
   onAddCard: (columnId: number, title: string) => Promise<void> | void;
+  /** Admin-only. Undefined hides the control entirely rather than showing one
+   *  that 403s — the server refuses non-admins either way. */
+  onDelete?: (column: ColumnWithTasks) => void;
 }
 
 export default function BoardColumn({
@@ -37,6 +40,7 @@ export default function BoardColumn({
   visibleTasks,
   onOpenTask,
   onAddCard,
+  onDelete,
 }: Props) {
   // useDroppable lets the column itself accept drops even when empty —
   // sortable items handle inter-card positioning, this catches the
@@ -100,9 +104,32 @@ export default function BoardColumn({
         <h3 className="truncate text-[13px] font-semibold text-ink">
           {column.name}
         </h3>
+        {/* Delete. Sits BEFORE the count so the count stays pinned right
+            where the eye already looks for it, and only appears on hover —
+            a permanently visible destructive control beside a drag handle
+            invites the wrong click. */}
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              // The header is the column's drag handle; without this the
+              // click starts a reorder instead of opening the dialog.
+              e.stopPropagation();
+              onDelete(column);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`Delete ${column.name}`}
+            title="Delete column"
+            className="ml-auto text-muted-soft opacity-0 transition-opacity group-hover:opacity-100 hover:text-error"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        )}
         <span
           className={cn(
-            "ml-auto rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold",
+            "rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold",
+            // Only when there is no delete button to carry it — otherwise the
+            // count stops being pushed right for non-admins.
+            !onDelete && "ml-auto",
             overLimit ? "bg-error/12 text-error" : "bg-canvas text-muted-ink",
           )}
           title={

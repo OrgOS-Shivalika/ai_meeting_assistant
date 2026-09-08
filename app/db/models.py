@@ -233,6 +233,15 @@ class Task(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     meeting = relationship("Meeting", back_populates="tasks")
+    # The resolved assignee. `lazy="raise"` on purpose: a board renders ~900
+    # cards, and a lazy load here would be 900 extra queries that nothing in
+    # the code makes visible. Callers must eager-load it (see
+    # `kanban/service.get_board_detail`), and forgetting to raises loudly
+    # instead of quietly costing seconds — the same failure that made the
+    # board take 7s before `load_only` was added to the meeting joins.
+    assignee = relationship(
+        "User", foreign_keys=[assignee_user_id], lazy="raise"
+    )
     board = relationship("KanbanBoard", foreign_keys=[board_id])
     column = relationship("KanbanColumn", foreign_keys=[column_id], back_populates="tasks")
     comments = relationship(
@@ -389,6 +398,14 @@ class KanbanColumn(Base):
     wip_limit = Column(Integer, nullable=True)
     bound_status = Column(String(24), nullable=True)
 
+    # Who may act on the cards in THIS column, per action. `{}` means every
+    # action is open to everyone the board already lets in — see
+    # `alembic/versions/ar18col_perms.py` for the shape and why it is JSONB.
+    # This can only NARROW: board-level RBAC still runs first.
+    permissions = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+    )
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),
@@ -490,7 +507,11 @@ class TaskActivity(Base):
             "event_type IN ("
             "'created', 'status_changed', 'column_moved', 'owner_changed', "
             "'due_changed', 'priority_changed', 'description_changed', "
-            "'title_changed', 'commented', 'archived', 'restored'"
+            "'title_changed', 'commented', 'archived', 'restored', "
+            # Migration an14assigneeevent. Absent until 2026-09-02, which made
+            # every assignee change a 500 — the code recorded the event, the
+            # constraint rejected it, and nothing had ever assigned anyone.
+            "'assignee_changed'"
             ")",
             name="ck_task_activity_event_type",
         ),
@@ -620,6 +641,110 @@ class Organization(Base):
     meetings = relationship("Meeting", back_populates="organization")
 
 
+class WorkflowTransition(Base):
+    """One allowed column move on one board, plus what must hold first.
+    Migration `ap16workflow`.
+
+    **A board with no rows allows everything.** That default is what lets this
+    ship onto 60 live boards without freezing them — configuring a board is
+    opt-in, and an empty ruleset is "no workflow", not "no moves".
+
+    `from_column_id IS NULL` means "from any column", so "Blocked is reachable
+    from anywhere" is one row rather than N.
+    """
+
+    __tablename__ = "workflow_transitions"
+    __table_args__ = (
+        CheckConstraint(
+            "from_column_id IS NULL OR from_column_id <> to_column_id",
+            name="ck_workflow_no_self_transition",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    board_id = Column(
+        Integer, ForeignKey("kanban_boards.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    from_column_id = Column(
+        Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=True
+    )
+    to_column_id = Column(
+        Integer, ForeignKey("kanban_columns.id", ondelete="CASCADE"), nullable=False
+    )
+    # 'allow' | 'block_entry' | 'block_exit'. Migration aq17wfblock. A block
+    # names its column in `to_column_id` and WINS over any allow rule — it is a
+    # declaration, and one that could be overridden by adding an arrow
+    # elsewhere would not be worth writing.
+    kind = Column(String(16), nullable=False, server_default="allow")
+    # DEAD as of 2026-09-07. Replaced by the per-column `move` permission in
+    # `kanban_columns.permissions`, which says the same thing where people
+    # look for it. Nothing reads or writes it; every row is `false`. Kept
+    # rather than dropped because an unread column costs nothing and prod is
+    # already several migrations behind.
+    admins_only = Column(Boolean, nullable=False, server_default=text("false"))
+    require_assignee = Column(Boolean, nullable=False, server_default=text("false"))
+    require_due_date = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class Notification(Base):
+    """One thing that happened, addressed to one person. Migration
+    `ao15notifications`.
+
+    `read_at IS NULL` means unread — deliberately the same shape as
+    `comment_mentions`, because two different unread mechanisms in one product
+    is how one of them ends up wrong.
+
+    `payload` snapshots what the notification is ABOUT rather than joining at
+    render time. "X assigned you Y" is a statement about the past; silently
+    rewriting Y when the card is renamed makes the history lie.
+
+    `dedupe_key` is NULL for events that should fire every time they happen
+    (an assignment) and set for anything a timer produces (a due-soon
+    reminder), where a fresh row per pass would be a daily nag. The unique
+    index is partial, and Postgres treats NULLs as distinct, so the two kinds
+    coexist without special-casing.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('task_assigned', 'task_mentioned', 'task_due_soon', "
+            "'board_deleted')",
+            name="ck_notifications_kind",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    kind = Column(String(32), nullable=False)
+    # SET NULL, not CASCADE: losing who did it must not delete the
+    # recipient's notification.
+    actor_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
+    comment_id = Column(
+        Integer, ForeignKey("task_comments.id", ondelete="CASCADE"), nullable=True
+    )
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    emailed_at = Column(DateTime(timezone=True), nullable=True)
+    dedupe_key = Column(String(200), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class PasswordResetToken(Base):
     """One self-service password-reset link. Migration `al12pwreset`.
 
@@ -712,6 +837,13 @@ class User(Base):
     google_token_expires_at = Column(DateTime(timezone=True))
     google_profile_name = Column(String)
     google_profile_picture = Column(String)
+
+    # Per-kind email opt-outs, migration ao15notifications. A JSONB column
+    # rather than a table: it is a handful of booleans read on every send, and
+    # a join for three flags is not worth a second table. MISSING KEYS MEAN
+    # ON — a notification kind added later should reach people rather than be
+    # silently off for everyone who predates it.
+    notification_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

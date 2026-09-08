@@ -27,7 +27,8 @@ from app.schemas.meeting_schema import (
     MeetingScheduleRequest,
     TaskUpdateRequest,
 )
-from app.services import category_service, permissions
+from app.services import category_service, notifications, permissions
+from app.services.kanban import workflow
 from app.services.google_calendar_service import create_calendar_event
 
 
@@ -874,11 +875,24 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
     # through by attaching a status change to it.
     touched = set(payload.model_dump(exclude_unset=True))
     status_only = bool(touched) and touched <= permissions.STATUS_FIELDS
-    task = (
-        permissions.get_status_changeable_task(db, user, task_id)
-        if status_only
-        else permissions.get_manageable_task(db, user, task_id)
-    )
+    # VIEW scope first, for both shapes. It is the floor the column rules
+    # cannot cross and it is what decides 404-vs-403.
+    task = permissions.get_status_changeable_task(db, user, task_id)
+
+    # Then the edit gate, which a status-only PATCH skips entirely: that is a
+    # move, governed by the DESTINATION column's `move` rule further down.
+    # Charging the same request twice, against two different columns, would
+    # make a legal drag fail for a reason invisible on the card being dragged.
+    #
+    # An explicit `edit` rule on the card's current column decides — it can
+    # open editing to everyone who can see the board, or close it to a named
+    # few. With no rule, the old gate applies unchanged: admins, or the person
+    # the card is assigned to.
+    if not status_only:
+        if workflow.task_rule_explicit(db, task, workflow.ACTION_EDIT):
+            workflow.assert_task_action_allowed(db, user, task, workflow.ACTION_EDIT)
+        else:
+            task = permissions.get_manageable_task(db, user, task_id)
 
     # Phase 14 K2 — capture a snapshot BEFORE mutation so we can emit
     # one activity row per field that actually changed. Keep this
@@ -922,11 +936,32 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             )
             if not assignee:
                 raise HTTPException(status_code=404, detail="Assignee not found")
+            previous_assignee = task.assignee_user_id
             task.assignee_user_id = assignee.id
-            # Keep the display label in step unless the caller set it
-            # explicitly in the same request.
-            if "owner_name" not in data:
-                task.owner_name = assignee.name
+            # `owner_name` is deliberately LEFT ALONE.
+            #
+            # It used to be overwritten with the assignee's name, which made
+            # sense while it was the only name a card displayed. Now that
+            # Assignee and Owner are separate fields answering different
+            # questions, overwriting destroys the only record of what the
+            # meeting actually said — and shows up as both fields changing
+            # when you touch one.
+            #
+            # The card renders `assignee_name || owner`, so the right name is
+            # still displayed without falsifying the other field. This also
+            # makes the interactive path agree with
+            # `scripts/backfill_task_assignees.py`, which has always preserved
+            # the label.
+            # Tell them. Assignment shipped silent — you could hand someone a
+            # card and they would never find out, which made "assigned to me"
+            # something you had to go looking for rather than something that
+            # reached you.
+            #
+            # Only on an actual CHANGE, or re-saving a card would re-notify on
+            # every edit. `notifications.create` also drops self-assignment, so
+            # assigning yourself stays quiet.
+            if previous_assignee != assignee.id:
+                notifications.notify_assigned(db, task, assignee.id, user)
     if "priority" in data and data["priority"]:
         priority = data["priority"].lower()
         if priority not in {"low", "medium", "high"}:
@@ -968,6 +1003,16 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             # Same reasoning as the board move above — reached via the
             # column, the board check still has to happen.
             permissions.get_viewable_board(db, user, column.board_id)
+            # The SAME workflow gate as the drag path. Enforcing it only in
+            # `move_task` would leave this PATCH as an open back door — a rule
+            # you can step around with one HTTP call is not a rule.
+            #
+            # Before the mutation, so a refused transition leaves the card
+            # untouched. No-ops on a board with no workflow configured.
+            workflow.assert_move_allowed(
+                db, user, task, column.id,
+                board_id=column.board_id, to_column=column,
+            )
             task.column_id = column.id
             # Auto-sync board_id if the client didn't explicitly set it.
             if "board_id" not in data:

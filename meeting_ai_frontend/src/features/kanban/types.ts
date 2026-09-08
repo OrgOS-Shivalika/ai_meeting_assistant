@@ -32,6 +32,14 @@ export interface BoardTaskSummary {
   has_unread_mention?: boolean;
   task: string;
   owner: string | null;
+  /**
+   * The RESOLVED assignee — a real account, unlike `owner`, which is whatever
+   * the meeting analyzer wrote down. Null on almost everything today: only 24
+   * of 839 named tasks matched an account, because most owner labels are
+   * sentinels ("Conversation Group") or people with no login here.
+   */
+  assignee_user_id: string | null;
+  assignee_name: string | null;
   priority: "low" | "medium" | "high";
   due_date: string | null;
   status: TaskStatus;
@@ -147,6 +155,9 @@ export interface TaskDetail {
   task: string;
   description: string | null;
   owner: string | null;
+  /** Resolved account, as opposed to the `owner` label. See BoardTaskSummary. */
+  assignee_user_id: string | null;
+  assignee_name: string | null;
   priority: "low" | "medium" | "high";
   due_date: string | null;
   status: TaskStatus;
@@ -197,6 +208,9 @@ export interface ActivityList {
 export interface TaskUpdateRequest {
   task?: string;              // task text — for correcting AI-extracted text
   owner_name?: string | null;
+  // The resolved account. Server-side this is admin-only and same-org, because
+  // setting it grants that person access to the task. Null to unassign.
+  assignee_user_id?: string | null;
   priority?: "low" | "medium" | "high";
   is_completed?: boolean;
   due_date?: string | null;

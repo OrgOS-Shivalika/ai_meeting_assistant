@@ -33,6 +33,7 @@ import BoardLayout from "../features/kanban/pages/BoardLayout";
 import BoardPage from "../features/kanban/pages/BoardPage";
 import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
 import SettingsPage from "../features/settings/pages/SettingsPage";
+import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import ContinuumBoardPage from "../features/continuum/pages/ContinuumBoardPage";
 
 export const router = createBrowserRouter([
@@ -163,6 +164,12 @@ export const router = createBrowserRouter([
       {
         path: "/settings",
         element: <SettingsPage />,
+      },
+      {
+        // Reached from the bell in the Sidebar footer. A route rather than a
+        // popover so the back button works after following a card.
+        path: "/notifications",
+        element: <NotificationsPage />,
       },
       {
         path: "/boards",

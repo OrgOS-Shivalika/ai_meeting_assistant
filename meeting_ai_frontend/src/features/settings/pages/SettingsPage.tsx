@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   User,
   Building2,
@@ -31,6 +31,11 @@ import {
   setBackground,
   setBackgroundImage,
 } from "../../../shared/background";
+import {
+  fetchNotificationPrefs,
+  updateNotificationPrefs,
+  type NotificationPrefs,
+} from "@/features/kanban/api";
 import { getTheme, setTheme, type Theme } from "../../../shared/theme";
 import { Input } from "@/components/ui/input";
 import { Field as UiField } from "@/components/ui/label";
@@ -216,6 +221,77 @@ export default function SettingsPage() {
 // ---------------------------------------------------------------------------
 /** Personal page background. Local to this browser and to this person — see
  *  `shared/background.ts` for why it is not stored server-side. */
+/** Which events send you EMAIL.
+ *
+ *  In-app notifications are not listed because they are not optional: the bell
+ *  costs the reader nothing and can be ignored, while email interrupts. Only
+ *  the interrupting half is opt-out, so turning email off still leaves a
+ *  complete feed for anyone who later turns it back on.
+ */
+function NotificationPrefs() {
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchNotificationPrefs()
+      .then((p) => alive && setPrefs(p))
+      .catch(() => alive && setError("Couldn't load your notification settings."));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const toggle = async (kind: keyof NotificationPrefs) => {
+    if (!prefs) return;
+    const next = { ...prefs, [kind]: !prefs[kind] };
+    setPrefs(next); // optimistic — a toggle that lags feels broken
+    try {
+      setPrefs(await updateNotificationPrefs({ [kind]: next[kind] }));
+    } catch {
+      setPrefs(prefs); // put it back; the server is the source of truth
+      setError("Couldn't save that. Try again.");
+    }
+  };
+
+  const ROWS: [keyof NotificationPrefs, string, string][] = [
+    ["task_assigned", "Assigned to me", "When someone gives you a task."],
+    ["task_mentioned", "Mentions", "When someone @mentions you in a comment."],
+    ["task_due_soon", "Due soon", "The day before a task assigned to you is due."],
+  ];
+
+  return (
+    <div className="border-t border-hairline py-5">
+      <p className="vb-title-sm">Email notifications</p>
+      <p className="mt-0.5 mb-3 text-[12px] text-muted-ink">
+        The bell in the sidebar always shows these. This only controls whether
+        they also reach your inbox.
+      </p>
+      {error && <p className="mb-2 text-[11px] font-medium text-error">{error}</p>}
+      <div className="flex flex-col gap-2">
+        {ROWS.map(([kind, label, hint]) => (
+          <label
+            key={kind}
+            className="flex cursor-pointer items-start gap-2.5 text-[12px]"
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={prefs ? prefs[kind] : true}
+              disabled={!prefs}
+              onChange={() => void toggle(kind)}
+            />
+            <span>
+              <span className="font-medium text-ink">{label}</span>
+              <span className="block text-[11px] text-muted-ink">{hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Light / dark. Applies on click and persists itself. */
 function ThemePicker() {
   const [theme, setThemeState] = useState<Theme>(getTheme);
@@ -454,6 +530,7 @@ function ProfileSection() {
       {/* Applies on click and persists itself, so it sits ABOVE the
           Cancel/Save bar — those buttons belong to the profile fields and do
           not govern it. */}
+      <NotificationPrefs />
       <ThemePicker />
       <BackgroundPicker />
 

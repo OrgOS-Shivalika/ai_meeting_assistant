@@ -32,11 +32,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import (
+    KanbanColumn,
     Task,
     TaskActivity,
     TaskComment,
@@ -63,7 +64,9 @@ from app.schemas.kanban_schema import (
     TaskDetailResponse,
     TaskMoveRequest,
 )
+from app.services import notifications
 from app.services.kanban import service as kanban_service
+from app.services.kanban import workflow
 
 kanban_router = APIRouter(tags=["kanban"])
 
@@ -75,8 +78,25 @@ kanban_router = APIRouter(tags=["kanban"])
 # ---------------------------------------------------------------------------
 
 
+def _assignee_of(db: Session, task: Task) -> Optional[User]:
+    """The assignee for ONE task, in one query.
+
+    For the single-card endpoints. The board endpoint must NOT use this — it
+    would be a query per card; it eager-loads instead.
+    """
+    if not task.assignee_user_id:
+        return None
+    return db.query(User).filter(User.id == task.assignee_user_id).first()
+
+
+#: Sentinel for "the caller did not resolve the assignee". Distinct from
+#: None, which legitimately means "this card has no assignee".
+_UNRESOLVED = object()
+
+
 def _serialize_task(task: Task, comment_count: int = 0,
-                    has_unread_mention: bool = False) -> BoardTaskSummary:
+                    has_unread_mention: bool = False,
+                    assignee=_UNRESOLVED) -> BoardTaskSummary:
     """Convert a Task ORM row to a board-card response.
 
     `comment_count` is passed in (not lazy-loaded) so the caller can
@@ -88,6 +108,18 @@ def _serialize_task(task: Task, comment_count: int = 0,
     """
     meeting = task.meeting if task.meeting else None
     meeting_title = meeting.title if meeting else None
+    # `Task.assignee` is lazy="raise" on purpose — a silent lazy load here is
+    # one query PER CARD on a 900-card board. So it is never read implicitly:
+    # either the caller eager-loaded it (the board path) or the caller resolved
+    # it and passed it in (the single-task paths).
+    #
+    # This used to read `task.assignee` directly, which 500'd on
+    # `PATCH /tasks/{id}/move` for any ASSIGNED card — the raise firing exactly
+    # as designed on a path that had not been given the loader. `POST
+    # /boards/{id}/tasks` had the same hole and only escaped it because a
+    # freshly created card is always unassigned, so the `if` short-circuited.
+    if assignee is _UNRESOLVED:
+        assignee = task.assignee if task.assignee_user_id else None
     team = meeting.team if meeting else None
     team_id = team.id if team else None
     team_name = team.name if team else None
@@ -121,6 +153,8 @@ def _serialize_task(task: Task, comment_count: int = 0,
         created_at=task.created_at,
         comment_count=comment_count,
         has_unread_mention=has_unread_mention,
+        assignee_user_id=task.assignee_user_id,
+        assignee_name=assignee.name if assignee else None,
     )
 
 
@@ -350,7 +384,11 @@ def create_board_task(
     `created` activity event.
     """
     task = kanban_service.create_board_task(db, board_id, user, payload)
-    return _serialize_task(task, comment_count=0)
+    # Single card: resolve the assignee with one query rather than adding a
+    # loader option, and pass it in explicitly. A new card is unassigned today,
+    # so this is defensive — but the next person to set an assignee at creation
+    # would otherwise get a 500 with no obvious cause.
+    return _serialize_task(task, comment_count=0, assignee=_assignee_of(db, task))
 
 
 @kanban_router.delete("/tasks/{task_id}", status_code=204)
@@ -383,7 +421,9 @@ def move_task(
     row if the move crossed a column with a different `bound_status`).
     """
     task, comment_count = kanban_service.move_task(db, task_id, user, payload)
-    return _serialize_task(task, comment_count=comment_count)
+    return _serialize_task(
+        task, comment_count=comment_count, assignee=_assignee_of(db, task)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -410,11 +450,21 @@ def get_task_detail(
         "unknown", "n/a", "na", "-", "—",
     }
 
+    # Single task, so a lazy load would be one extra query, not 900 — but
+    # `Task.assignee` is lazy="raise", so it has to be asked for explicitly.
+    assignee = (
+        db.query(User).filter(User.id == task.assignee_user_id).first()
+        if task.assignee_user_id
+        else None
+    )
+
     return TaskDetailResponse(
         id=task.id,
         task=task.task,
         description=task.description,
         owner=task.owner_name,
+        assignee_user_id=task.assignee_user_id,
+        assignee_name=assignee.name if assignee else None,
         priority=task.priority,
         due_date=task.due_date,
         status=task.status,
@@ -589,3 +639,188 @@ def unread_mentions(
     from app.services.kanban import mentions as _mentions
 
     return _mentions.unread_summary(db, user)
+
+
+# ---------------------------------------------------------------------------
+# Notifications — the bell
+# ---------------------------------------------------------------------------
+#
+# Lives on the kanban router because everything that produces one today is a
+# card event. If a notification kind ever comes from outside the board, move
+# these to their own router rather than widening this one by accident.
+
+
+@kanban_router.get("/notifications")
+def list_notifications(
+    limit: int = Query(30, ge=1, le=100),
+    unread_only: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """This viewer's notifications, newest first, plus the unread count.
+
+    Scoped to `user.id` inside the service — there is no parameter that could
+    address someone else's feed, which is the only way to be sure a bell
+    cannot leak.
+    """
+    rows = notifications.list_for(db, user, limit=limit, unread_only=unread_only)
+    return {
+        "unread_count": notifications.unread_count(db, user),
+        "items": [
+            {
+                "id": n.id,
+                "kind": n.kind,
+                "task_id": n.task_id,
+                "comment_id": n.comment_id,
+                "payload": n.payload or {},
+                "read": n.read_at is not None,
+                "created_at": n.created_at,
+            }
+            for n in rows
+        ],
+    }
+
+
+@kanban_router.post("/notifications/read")
+def mark_notifications_read(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark some (`{"ids": [...]}`) or all (empty body) as read."""
+    ids = (payload or {}).get("ids") or None
+    return {"marked": notifications.mark_read(db, user, ids)}
+
+
+@kanban_router.get("/notifications/prefs")
+def get_notification_prefs(user: User = Depends(get_current_user)):
+    """This viewer's email opt-outs, with every kind reported explicitly.
+
+    Returns a value for every kind rather than echoing the stored JSONB,
+    because a missing key means ON — and a UI rendering raw storage would show
+    an unset toggle as OFF, which is the opposite of what the server does.
+    """
+    return {
+        kind: notifications.wants_email(user, kind)
+        for kind in (
+            notifications.KIND_ASSIGNED,
+            notifications.KIND_MENTIONED,
+            notifications.KIND_DUE_SOON,
+        )
+    }
+
+
+@kanban_router.patch("/notifications/prefs")
+def update_notification_prefs(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Turn email on/off per kind. In-app is not configurable — see the
+    service docstring: the bell costs the reader nothing, email interrupts."""
+    known = {
+        notifications.KIND_ASSIGNED: "email_task_assigned",
+        notifications.KIND_MENTIONED: "email_task_mentioned",
+        notifications.KIND_DUE_SOON: "email_task_due_soon",
+    }
+    unknown = set(payload) - set(known)
+    if unknown:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown notification kinds: {sorted(unknown)}"
+        )
+    # Rebuild rather than mutate in place: SQLAlchemy does not track mutation
+    # of a JSONB dict, so `prefs[key] = x` would be silently discarded.
+    prefs = dict(user.notification_prefs or {})
+    for kind, value in payload.items():
+        prefs[known[kind]] = bool(value)
+    user.notification_prefs = prefs
+    db.commit()
+    return {kind: notifications.wants_email(user, kind) for kind in known}
+
+
+# ---------------------------------------------------------------------------
+# Workflow — which column may move to which, and what must hold first
+# ---------------------------------------------------------------------------
+
+
+@kanban_router.get("/boards/{board_id}/workflow")
+def get_board_workflow(
+    board_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """This board's transitions. An EMPTY list means no workflow — every move
+    is allowed — which is not the same as a workflow that forbids everything,
+    and the `configured` flag says so explicitly rather than leaving the UI to
+    infer it from a length."""
+    board = kanban_service.require_board(db, board_id, user)
+    rows = workflow.list_transitions(db, board.id)
+    return {
+        "configured": bool(rows),
+        # Per-column "who may act here", keyed by column id. Columns with
+        # nothing set are absent, which the UI reads as open — the same thing
+        # an empty `{}` means on the row itself.
+        "column_permissions": workflow.column_permissions_map(db, board.id),
+        "transitions": [
+            {
+                "kind": r.kind,
+                "from_column_id": r.from_column_id,
+                "to_column_id": r.to_column_id,
+                "require_assignee": r.require_assignee,
+                "require_due_date": r.require_due_date,
+            }
+            for r in rows
+        ],
+    }
+
+
+@kanban_router.put("/boards/{board_id}/workflow")
+def set_board_workflow(
+    board_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Replace this board's whole ruleset. Admin-only — a workflow governs
+    what everyone else may do, so editing it is a management action.
+
+    Send `{"transitions": []}` to remove the workflow entirely and return the
+    board to allowing every move.
+
+    `column_permissions` is optional and, when present, replaces the whole
+    board's set the same way. ABSENT means "leave them alone" rather than
+    "clear them" — an older client that only knows about transitions must not
+    silently strip the permissions somebody set from a newer one.
+    """
+    board = kanban_service.require_managed_board(db, board_id, user)
+    rules = payload.get("transitions")
+    if not isinstance(rules, list):
+        raise HTTPException(
+            status_code=400, detail="Body must be {\"transitions\": [...]}"
+        )
+    valid = {
+        c.id for c in db.query(KanbanColumn).filter(KanbanColumn.board_id == board.id)
+    }
+    rows = workflow.replace_transitions(db, board.id, rules, valid)
+
+    configured_columns = None
+    if "column_permissions" in payload:
+        # Validated against the caller's OWN organization: `users` is
+        # partitioned by `organization_id`, so this is the line that stops a
+        # permission naming somebody in another tenant.
+        org_user_ids = {
+            str(uid)
+            for (uid,) in db.query(User.id).filter(
+                User.organization_id == user.organization_id
+            )
+        }
+        normalized = workflow.normalize_column_permissions(
+            payload["column_permissions"], valid, org_user_ids
+        )
+        configured_columns = workflow.apply_column_permissions(db, board.id, normalized)
+
+    return {
+        "configured": bool(rows),
+        "count": len(rows),
+        "configured_columns": configured_columns,
+    }

@@ -28,6 +28,7 @@ from app.db.models import (
     TaskActivity,
     TaskComment,
     Team,
+    User,
 )
 from app.schemas.kanban_schema import (
     BoardCreateRequest,
@@ -40,7 +41,7 @@ from app.schemas.kanban_schema import (
     TaskCreateRequest,
     TaskMoveRequest,
 )
-from app.services import permissions
+from app.services import notifications, permissions
 from app.services.kanban import mentions
 from app.services.kanban.activity import record_activity
 from app.services.kanban.defaults import DEFAULT_COLUMNS
@@ -50,6 +51,7 @@ from app.services.kanban.positions import (
     rebalance_column,
 )
 from app.utils.logger import setup_logger
+from app.services.kanban import workflow
 
 logger = setup_logger(__name__)
 
@@ -311,6 +313,10 @@ def get_board_detail(
             joinedload(Task.meeting).joinedload(Meeting.category).load_only(
                 Category.id, Category.name,
             ),
+            # `Task.assignee` is lazy="raise" precisely so this cannot be
+            # forgotten: without it every card that HAS an assignee raises
+            # instead of quietly firing its own query.
+            joinedload(Task.assignee).load_only(User.id, User.name),
         )
         .filter(Task.column_id.in_(column_ids) if column_ids else False)
         .order_by(Task.position.asc().nullslast(), Task.id.asc())
@@ -394,34 +400,53 @@ def update_board(
 
 
 def delete_board(db: Session, board_id: int, user) -> None:
-    """Cascade-deletes columns; tasks fall back to (board_id=NULL,
-    column_id=NULL) via the FK's ON DELETE SET NULL. The tasks
-    themselves are NOT deleted — they remain accessible via the flat
-    Action Items list and can be re-assigned to another board.
+    """Delete a board, its columns AND every card on it.
 
-    Refuses to delete the org's last remaining default board to avoid
-    leaving the auto-extraction path with no landing target.
+    **The cards go too.** The FK is still `ON DELETE SET NULL`, so the database
+    would happily orphan them into the flat Action Items list — which is what
+    used to happen, and it left people with a pile of cards belonging to a
+    board nobody could name. They are deleted explicitly here instead. Their
+    comments, activity rows and notifications follow via their own
+    `ON DELETE CASCADE`.
+
+    That makes this the one action in the product that destroys other people's
+    work, so two things guard it:
+
+      * **A default board cannot be deleted at all.** Auto-extraction has to
+        have a landing target, and "default" is exactly the board most likely
+        to hold work its owner has not looked at yet. Re-assign the flag to
+        another board first — a deliberate act — and this board becomes
+        ordinary.
+      * **Every org admin is told**, with who did it and how many cards went.
+        Before the delete, while there is still a board to describe.
     """
     board = require_managed_board(db, board_id, user)
     if board.is_default:
-        # Check if any other board could serve as the default.
-        other_count = (
-            db.query(func.count(KanbanBoard.id))
-            .filter(
-                KanbanBoard.organization_id == user.organization_id,
-                KanbanBoard.id != board.id,
-                KanbanBoard.scope_type == "org",
-            )
-            .scalar() or 0
+        raise HTTPException(
+            status_code=400,
+            detail="The default board can't be deleted. Make another board the "
+                   "default first, then delete this one.",
         )
-        if other_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete the only default board for this org. "
-                       "Create another board and mark it default first.",
-            )
+
+    card_count = (
+        db.query(func.count(Task.id))
+        .filter(Task.board_id == board.id)
+        .scalar() or 0
+    )
+
+    # Notify FIRST: `create` flushes, and its IntegrityError path rolls back.
+    # With the deletes already done that rollback would undo them silently and
+    # report success. Nothing destructive has happened yet at this point.
+    notifications.notify_board_deleted(
+        db, board=board, actor=user, card_count=card_count
+    )
+
+    db.query(Task).filter(Task.board_id == board.id).delete(
+        synchronize_session=False
+    )
     db.delete(board)
     db.commit()
+    logger.info("Board %s deleted by %s with %d card(s)", board_id, user.id, card_count)
 
 
 # ---------------------------------------------------------------------------
@@ -595,9 +620,13 @@ def create_board_task(
     board's first column if column_id is omitted). Emits a
     `created` activity event.
     """
-    # Creating work on a board is a management action — the
-    # visibility matrix gives task creation to admins and org admins.
-    board = require_managed_board(db, board_id, user)
+    # VIEW scope is the floor: you cannot add a card to a board you cannot
+    # open. Whether you may add one is decided below, once the target column
+    # is known — its `create` rule can open this to everyone who can see the
+    # board, and with no rule set it stays the management action it has always
+    # been (the visibility matrix gives task creation to admins and org
+    # admins).
+    board = require_board(db, board_id, user)
 
     # Resolve target column — either explicit, or the board's first.
     if payload.column_id is not None:
@@ -619,6 +648,14 @@ def create_board_task(
                 status_code=400,
                 detail="Board has no columns — cannot create task",
             )
+
+    # An explicit column rule decides. With none, fall back to the board's
+    # own gate, unchanged — a board nobody has configured behaves exactly as
+    # it did before column permissions existed.
+    if workflow.explicit_rule(column, workflow.ACTION_CREATE):
+        workflow.assert_column_action_allowed(user, column, workflow.ACTION_CREATE)
+    else:
+        require_managed_board(db, board_id, user)
 
     # If a meeting_id is provided, the caller must be able to manage
     # that meeting. Attaching a card to a meeting makes the card visible
@@ -673,7 +710,14 @@ def create_board_task(
 def delete_task(db: Session, task_id: int, user) -> None:
     """Delete a task. Cascades to task_comments + task_activity via
     ON DELETE CASCADE."""
-    task = require_managed_task(db, task_id, user)
+    # Same two-step as creation: an explicit `delete` rule on the card's
+    # column decides, and with none the old "admins, or the card's assignee"
+    # rule still applies.
+    task = require_task(db, task_id, user)
+    if workflow.task_rule_explicit(db, task, workflow.ACTION_DELETE):
+        workflow.assert_task_action_allowed(db, user, task, workflow.ACTION_DELETE)
+    else:
+        task = require_managed_task(db, task_id, user)
     db.delete(task)
     db.commit()
 
@@ -701,6 +745,14 @@ def move_task(
     # still require manage. See `permissions.get_status_changeable_task`.
     task = permissions.get_status_changeable_task(db, user, task_id)
     target_col = require_column(db, payload.column_id, user)
+
+    # The workflow gate. AFTER permission resolution (you must be able to
+    # touch the card at all) and BEFORE any mutation, so a refused move
+    # changes nothing. No-ops on a board with no rules configured.
+    workflow.assert_move_allowed(
+        db, user, task, payload.column_id,
+        board_id=target_col.board_id, to_column=target_col,
+    )
 
     # Sanity: target column must be on a board we can see (already
     # enforced by require_column's join, but if task.board_id is set

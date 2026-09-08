@@ -35,8 +35,10 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 |---|---|
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
-| Local DB | `localhost:5433/meeting_ai`, alembic head `ae05rbac` |
-| Prod (Railway) | **at head `ae05rbac`** as of 2026-08-11. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Local DB | `localhost:5433/meeting_ai`, alembic head **`aq17wfblock`** (queried 2026-09-07). 55 revisions, ONE linear chain, no branches. |
+| Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Prod app | **`https://aimeetingassistant-production.up.railway.app`** — HTTPS only, plain http 301-redirects. Verified 2026-09-02, so `AUTH_COOKIE_SECURE=true` is safe there. |
+| Outbound email | Google Workspace relay, `SMTP_USER` and `SMTP_FROM` both `@smoothops.info` (aligned). **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
 | mem0 | OSS self-hosted, table `mem0_facts`, 112 rows |
 | Langfuse | self-hosted v2. **Local `.env` now points at RAILWAY** (`https://langfuse-production-d9d4.up.railway.app`), not `localhost:3000`. The docker-compose `langfuse` service still runs but nothing traces to it — stop it or repoint `LANGFUSE_BASE_URL` to use it again. |
 | Celery in dev | host worker via `make celery` (`--pool=solo`), NOT the container |
@@ -1636,9 +1638,936 @@ could be deleted.
   Any `useState` added here needs an entry in that reset block, or it silently
   bleeds from one card into the next.
 
+### 2026-09-02 (cont.) — deployed, then chased invite mail into the spam folder
+
+- **Deploy verified live** by probing prod, not by assuming:
+  `POST /public/auth/forgot-password` -> 202 and `GET /forgot-password` -> 200,
+  neither of which exists in the old build. 11 commits shipped at once
+  (`26eccfc..690d477`): mentions, board routing + draggable columns, dark mode,
+  sliding sessions, forgot-password, invite links.
+- **Env answers, verified against the code rather than guessed:**
+  - `AUTH_COOKIE_SECURE` had never existed in `.env` or `.env.example` — it is
+    read with a `"false"` default, so it is a variable you ADD. Now documented
+    (commented out) in `.env.example` along with SAMESITE / MAX_AGE.
+  - It is **web-service only**. Every reader is an HTTP path (`auth_router`,
+    the sliding refresh); Celery never builds a `Response`. Checked the
+    converse too: nothing in `app/celery_tasks/` touches `mail_service`,
+    `mail_templates`, `password_reset_service` or `APP_PUBLIC_URL`, so the mail
+    env is web-only as well. **If invite/reset mail is ever moved onto the
+    queue, the worker silently starts skipping sends** — `is_configured()`
+    returns False without `SMTP_HOST` and logs "skipped" as a success.
+  - Turning SECURE on invalidates NOTHING: existing cookies were set without
+    the flag and keep working, upgrading on next login or on the next sliding
+    refresh. WebSockets stay authenticated because `.env.production` has
+    `VITE_API_URL=/`, so `buildWsUrl` takes the same-origin branch and derives
+    `wss://` from the page. A `VITE_API_URL=http://...` would break that.
+- **No new Python dependency** (`hashlib`, `secrets` are stdlib) and no stale
+  SPA risk — `index.html` is served `Cache-Control: no-store`. A cached old
+  frontend would work anyway: `MemberCreateRequest` IGNORES a leftover
+  `password` field rather than 422-ing.
+- Wired up the `welcome=1` the invite link already carried but the page ignored
+  — invitees were being shown "Reset your password" for a password they had
+  never had.
+- Fixed two docstrings in `admin_service` still promising a
+  `temporary_password` return. Exactly the landmine-1 pattern.
+
+### 2026-09-02 (cont.) — invite mail lands in spam: it is DNS, not the code
+
+- Symptom: invitations delivered but filed as spam, so nobody could activate.
+- **Not the code, and not SMTP.** `SMTP_USER` and `SMTP_FROM` are both
+  `@smoothops.info`, so From/envelope alignment — the classic cause — is fine.
+- **Root cause found in DNS.** `smoothops.info` publishes only a
+  `google-site-verification` TXT record:
+  - SPF: **missing**
+  - `google._domainkey.smoothops.info`: **NXDOMAIN** (no DKIM)
+  - `_dmarc.smoothops.info`: **NXDOMAIN**
+  Mail sent as that domain through Workspace is therefore completely
+  unauthenticated, which is indistinguishable from a forgery. Spam is the
+  correct verdict on the evidence Gmail has.
+- **This is not new, it is newly FATAL.** The old invites almost certainly went
+  to spam too — nobody noticed, because the admin had the password on screen
+  and passed it on by hand. Removing the password from the email is what turned
+  a tolerated deliverability problem into a blocker.
+- Deliberately changed no code. No subject line or header tweak outweighs a
+  domain with no SPF and no DKIM, and editing the template would only muddy the
+  test once DNS is fixed.
+
+### 2026-09-02 (cont.) — Jira slice 1: real assignment ("my work")
+
+User asked for "the board exactly like Jira". Scoped that down with a
+question; they chose **real assignment** first. The other slices offered, for
+whoever picks this up: epics/subtasks + story points, sprints + backlog,
+configurable workflow transitions.
+
+- **The schema and RBAC were already there and had NEVER RUN.**
+  `tasks.assignee_user_id` is a proper FK, and `permissions.task_view_clause`
+  already ORs in `Task.assignee_user_id == user.id` — so assigning GRANTS
+  access. `meeting_service.update_task` already validated admin-only and
+  same-org. It had simply never been executed: **0 of 1304 rows**.
+- **Two latent bugs that only surfaced because something finally called it:**
+  1. `assignee_changed` was missing from `activity.VALID_EVENT_TYPES` ->
+     ValueError, 500 on the PATCH.
+  2. It was ALSO missing from the DB CHECK `ck_task_activity_event_type` ->
+     CheckViolation even after fixing (1). Migration **`an14assigneeevent`**
+     (LOCAL only). Setting an assignee was impossible through any route.
+- **Measured, not assumed — the backfill ceiling is 24 of 839.** Most owner
+  labels are sentinels (`Conversation Group` alone is 406) or real people with
+  no account. Participants are no help: **181 rows, 0 linked to a user, 2 with
+  an email, every `match_source` NULL**. So a cleverer matcher buys nothing.
+- Conclusion that shaped the design: resolve at WRITE time, not by backfill.
+  `services/kanban/assignees.resolve_assignee` is shared by the pipeline and
+  the backfill script so the two can never disagree about who "Priya" is.
+  **Exact or nothing** — a wrong guess does not mislabel a card, it hands
+  someone access. Ambiguous (2+ same-name accounts) returns None on purpose.
+- Wired into BOTH task-creation sites (`meeting_pipeline.save_tasks`,
+  `live_tasks.persistence.handle_event`). **Both calls are guarded by
+  `if meeting is not None`** — I first wrote them unguarded, which would have
+  AttributeError'd and killed task saving for a whole meeting; the surrounding
+  code already treats that `.first()` as nullable.
+- `Task.assignee` relationship is **`lazy="raise"`** deliberately: a board
+  renders ~900 cards, and a silent lazy load would be 900 queries. Forgetting
+  the eager load now raises instead of quietly costing seconds. Board 52 is
+  928 cards in 262 ms.
+- UI: assignee picker in the drawer (org accounts, admin-only, hidden rather
+  than 403'd), "Assigned to me" as an option inside the existing Person filter
+  (matched on the ACCOUNT, never the name string).
+- `tests/test_task_assignment.py` **15/15** — cross-org assignment refused,
+  members cannot assign even to themselves, assigning grants visibility,
+  unassigning revokes it, the resolver refuses every sentinel.
+- Also made `test_kanban_k2::test_record_activity_accepts_every_valid_event_type`
+  DERIVE its expected set from the model constraint instead of hardcoding 11
+  strings — the old version could not detect the drift it existed to catch.
+  Mutation-checked.
+- `scripts/backfill_task_assignees.py` — dry-run by default, because a bulk
+  run is a bulk ACCESS GRANT. Not yet applied.
+
+### 2026-09-02 (cont.) — Jira slice 2: notifications
+
+Chosen over the remaining Jira slices because the previous two features both
+shipped SILENT: @mentions produced a red dot only visible to someone already
+looking at the board, and assignment produced no signal at all. For a product
+whose premise is capturing work while you are NOT paying attention, that was
+backwards. Nothing in this codebase had ever notified anyone — the only mail
+it sent was password resets and invites.
+
+- **Migration `ao15notifications`** (LOCAL only): `notifications` table +
+  `users.notification_prefs` JSONB.
+- `read_at IS NULL` = unread, deliberately the same shape as
+  `comment_mentions`. Two unread mechanisms in one product is how one ends up
+  wrong.
+- **`payload` snapshots the task title** rather than joining at render time.
+  "X assigned you Y" is a claim about the PAST; rewriting Y when the card is
+  renamed makes the history lie.
+- **`dedupe_key` is nullable and its unique index is PARTIAL.** NULL means
+  "fire every time" (an assignment IS news twice); set means "once" (anything
+  a timer produces). Postgres treats NULLs as distinct, so the two kinds
+  coexist with no special-casing. Due-soon dedupes on task + DUE DATE, so a
+  rescheduled task can remind again but the hourly sweep cannot nag.
+- **Rules enforced in one place, not per call site:** never notify yourself;
+  only notify people who can already open the thing (mentions are pre-filtered
+  through `task_view_clause`, assignment grants access by definition).
+- **Prefs default ON when a key is absent** — a kind added next year should
+  reach people, not arrive silently disabled for everyone who predates it.
+  Only EMAIL is opt-out; the in-app bell is not configurable, because it costs
+  the reader nothing and email interrupts.
+- Delivery: row written synchronously in the caller's transaction, email swept
+  by Celery every 5 min (`send_pending_notification_emails`), due-soon hourly
+  (`notify_tasks_due_soon`). SMTP has no business inside a PATCH.
+- **DEPLOYMENT TRAP:** those tasks run on the WORKER, so the worker needs
+  `SMTP_*` and `APP_PUBLIC_URL`. Without `SMTP_HOST`, `is_configured()` is
+  False and logs "skipped" as a SUCCESS — nothing sends, nothing errors. This
+  is the exact trap flagged earlier in §6 when the mail env was found to be
+  web-only; it is now real.
+- UI: bell in the Sidebar FOOTER (this app has no header — Layout is Sidebar +
+  content). Opening the panel does NOT mark all read; that is an explicit
+  action or a side effect of opening the card. Email toggles in Settings.
+- **`HTTPException` was never imported in `kanban_router`** — my 400 branch
+  would have 500'd. Caught by exercising it over HTTP, not by reading it.
+- `tests/test_notifications.py` **17/17**; `test_rbac_scopes` 37/37 after
+  registering `notifications.user_id` in `_ACCEPTED_CASCADES` (the actor FK is
+  SET NULL instead — losing who did it must not delete the recipient's row).
+
+### 2026-09-02 (cont.) — Assignee and Owner were writing to each other
+
+Reported: setting the Assignee also changed the Owner to the same name.
+
+- **Real, and it was my inconsistency.** `update_task` had always synced
+  `task.owner_name = assignee.name`, which was FINE while `owner_name` was the
+  only name a card displayed. Adding a separate Assignee field made it wrong:
+  two fields that answer different questions, one silently overwriting the
+  other, destroying the only record of what the meeting actually said.
+- Worse, it contradicted my own `backfill_task_assignees.py`, which has a
+  comment explaining why it deliberately preserves `owner_name`. Two paths,
+  opposite behaviour.
+- **The two halves are linked** — the sync existed BECAUSE `TaskCard` rendered
+  only `task.owner`. Deleting it alone would have left cards showing a stale
+  label after assignment. So: card now renders `assignee_name || owner` FIRST,
+  and only then does the server stop clobbering.
+- Board search now covers both names too; searching only `owner` would have
+  failed to find a card by the name it was displaying.
+- `test_task_assignment.py` 15/15 — the assertion is INVERTED from
+  "owner_name synced" to "owner_name is NOT clobbered", with a note saying so.
+  A test that silently flipped meaning would be worse than no test.
+
+### 2026-09-03 — the board is now the unit of sharing (RBAC reversal)
+
+Product decision from the user: "every person should be able to see all the
+tasks for the board that they are a part of, doesn't matter if it is
+unassigned or assigned to someone else." That reverses TWO decisions that were
+documented as deliberate, so both docstrings were rewritten rather than left
+contradicting the code.
+
+- **`_board_scope_clause` gains an `org` arm.** Org-scoped boards used to be
+  excluded ("org-wide means unbounded"). But **all 59 boards here are
+  org-scoped**, so the exclusion meant a member reached a board only by
+  accident — via `holds_a_visible_card` — and then saw a fraction of it.
+- **`task_view_clause`'s board arm loses `Task.meeting_id IS NULL`.** Any card
+  on a scope-reachable board is now visible, meeting-derived or not.
+- **Measured, before -> after:** the MEMBER went 9 -> 107 tasks, the ADMIN
+  6 -> 107. Board 61: 1 of 100 -> 100 of 100. Cross-org still 0 (asserted).
+- **The trade, stated because it IS the trade:** boards that collect several
+  categories now show all of them to anyone who can reach the board. Board 61
+  mixes Continuum Core (32) + HR (25) + 42 uncategorised, so an
+  Engineering-granted member now sees the HR tasks. Boards 52 and 60 mix 3
+  categories each. Reverting is one line — restore `Task.meeting_id.is_(None)`.
+- **The privilege loop this had to avoid, and does:** `board_view_clause` has
+  an arm "you hold a card I can see". Had the task clause keyed off
+  `board_view_clause` instead of `_board_scope_clause`, assigning someone ONE
+  card would have silently handed them the whole board. New test
+  `test_board_visibility_by_card_does_not_grant_the_whole_board` asserts the
+  distinction at source level, because it is one word at the call site and
+  fails as silent over-sharing rather than an error.
+- Three existing tests asserted the OLD rules and were inverted with notes
+  saying so — a test that silently flips meaning is worse than no test:
+  `test_board_only_cards_are_visible_from_the_board_scope` ->
+  `test_every_card_on_a_reachable_board_is_visible`; the scope-arms assertion
+  now expects org+category+team; and `test_task_assignment`'s "access revoked
+  on unassign" / "cannot see beforehand" became "stays visible via the board",
+  because on an org-scoped board assignment no longer gates anything.
+- `rbac_scopes` 38/38, `task_assignment` 16/16, everything else unchanged.
+
+### 2026-09-03 (cont.) — board visibility follows the CATEGORY, not the org
+
+Refinement of the same day's reversal. The rule the user actually wants:
+
+* board **linked to a category** -> visible to anyone who can view that
+  category (members included), and they see ALL of its cards;
+* board **linked to nothing** -> ORG_ADMIN and ADMIN only, never members.
+
+- My first pass gave every org member every org-scoped board. Too broad — it
+  ignored the category as the unit of audience.
+- `_board_scope_clause` now builds its arms as a LIST and appends the
+  `scope_type == "org"` arm only `if is_category_admin(user)`. A Python
+  conditional, not a SQL role comparison: the arm simply does not exist in a
+  member's clause, which is cheaper and impossible to get wrong by
+  mis-writing a comparison. Org admins never reach the helper — both callers
+  return None for them first.
+- **"Linked to a category" means routed, not scoped.** NO board here is
+  `scope_type='category'`; all 60 are org-scoped, and 3 in this org are
+  pointed at by `categories.default_board_id`. The existing default-board
+  arms already covered exactly that, so they carry the rule.
+- Measured: MEMBER sees boards 62/66/72 in FULL (4/4, 2/2, 1/1) and not 98.
+  ADMIN sees all five. Cross-org still 0.
+- **Residual case, deliberate:** the member still sees board 61 (linked to
+  nothing) with **2 of 100** cards, because `board_view_clause`'s
+  `holds_a_visible_card` arm lets them open a board they hold work on. Strip
+  that arm and a card assigned on an unlinked board becomes unreachable. They
+  do NOT get the whole board — the scope arm is what grants that, and it does
+  not fire for them. This is the privilege-loop guard doing its job.
+- `test_board_view_is_not_a_blanket_true` now asserts the arms are
+  ROLE-DEPENDENT: member -> {category, team}, admin -> {org, category, team}.
+
+### 2026-09-03 (cont.) — dark mode: hover backgrounds
+
+Reported on the members page: rows turned near-white under the cursor and
+swallowed their own text — precisely when you are trying to read them.
+
+- **Not a members-page bug: 96 occurrences app-wide, 16 distinct classes.**
+- **Why the earlier chip rescue missed it:** `hover:bg-gray-50` compiles to
+  `.hover\:bg-gray-50:hover`, a DIFFERENT selector from `.bg-gray-50`. The
+  chip block only ever matched the latter. Any future `hover:`/`focus:`
+  variant of a light utility needs its own rule for the same reason.
+- Two behaviours, because a hover means two things:
+  neutral (gray/slate/zinc) -> `--vb-surface-strong`, a subtle lift that
+  leaves existing foregrounds intact; tinted (indigo/red/blue/rose/emerald/
+  amber) -> a translucent wash of the same hue, so "primary" and
+  "destructive" still read as themselves.
+- **Deliberately NOT the chip treatment** (solid fill + white text): a chip is
+  a label that owns its foreground, a hovered ROW holds body copy in several
+  colours and flattening them all would destroy the page's hierarchy.
+- **Selectors written out per class, never `[class*="hover:bg-slate-50"]`** —
+  that substring also matches `hover:bg-slate-500`, a perfectly good dark
+  hover that must not be rewritten.
+- Coverage asserted by diffing the classes the app actually ships against the
+  ones rescued: 16/16, none uncovered. The first version of that check was
+  itself buggy (regex never matched, reported 0/16) — the CSS was correct all
+  along; only rewriting the checker showed blue-50 / rose-50 / rose-100 really
+  were missing.
+
+### 2026-09-03 (cont.) — Jira slice 3: configurable workflows (BACKEND)
+
+Per-board transitions with validators. Migration **`ap16workflow`**
+(`workflow_transitions`), LOCAL only.
+
+- **A board with NO rows allows everything.** 60 boards are already in daily
+  use; "deny unless listed" would have frozen every one of them. Configuring a
+  board is opt-in, and `board_has_workflow()` short-circuits before any
+  specific move is considered — which is also why the index leads with
+  `board_id`.
+- **Keyed on COLUMNS, not statuses** — a column is what a drag targets, and two
+  columns can share a `bound_status` while meaning different things.
+- `from_column_id IS NULL` = "from anywhere", so "Blocked is reachable from
+  every state" is ONE row rather than N. A specific `from -> to` rule wins over
+  the wildcard; that ordering is explicit in `find_transition`, since a
+  specific rule exists precisely to say something different about one origin.
+- Validators: `admins_only`, `require_assignee`, `require_due_date`.
+  `require_assignee` checks `assignee_user_id`, NOT `owner_name` — the label
+  can say "Conversation Group", so requiring it would let a card satisfy the
+  rule with nobody responsible. This validator was impossible to express
+  before slice 1.
+- **ENFORCED IN BOTH PATHS**, and that is the point of the feature:
+  `kanban_service.move_task` (drag) AND `meeting_service.update_task`
+  (`column_id` in a PATCH). A rule in one is not a rule — the other is one
+  HTTP call away. Mutation-checked: deleting the PATCH gate makes
+  `test_workflow`'s back-door assertion fail.
+- Config is WHOLE-SET replacement (`PUT /boards/{id}/workflow`), admin-only.
+  Per-row CRUD lets a board sit half-saved with a column unreachable and no
+  way to tell whether that was intended.
+- `tests/test_workflow.py` **20/20**. Two fixture bugs found and fixed while
+  writing it, both of which made assertions pass VACUOUSLY:
+  1. the "member" was picked with `User.id != admin.id` and turned out to be
+     another ADMIN, so every `admins_only` check passed trivially;
+  2. once that was fixed, the probe board was linked to no category, so the
+     member was refused at 403 by RBAC *before* the workflow ran. The test now
+     routes a category the member can view at the board and ASSERTS the member
+     can see it, so a refusal can only come from the workflow.
+- **NOT built: the config UI.** The endpoints work; there is no screen to
+  drive them, so a workflow can only be set via the API today.
+- Deliberately no `require_comment` validator — it turns a drag into a dialog,
+  and a validator the UI cannot satisfy is just a wall. Worth adding with the
+  UI.
+
+### 2026-09-03 (cont.) — workflow config UI
+
+- `WorkflowModal.tsx`, opened from a **Workflow** pill in the board header
+  (admin-only, beside My cards / Filter). A modal rather than a third board
+  tab: no router change, no new outlet-context consumer, and it is a settings
+  action.
+- Edits the WHOLE ruleset and saves one PUT, mirroring the server. Per-row
+  saving would let a board sit half-configured with a column unreachable and
+  no way to tell whether that was deliberate.
+- **The empty state is the important one.** No rules = every move allowed,
+  which is the OPPOSITE of a workflow that forbids everything. A list showing
+  nothing without saying so reads as "locked down".
+- Warns (does not block) when a column has no inbound transition — correct for
+  a start column, a mistake anywhere else, and only the author knows which.
+- `Add transition` picks the first pair not already listed, so clicking twice
+  cannot produce the duplicate the server rejects.
+- **Also surfaced move refusals.** `handleDragEnd` previously caught the error,
+  logged to console and rolled back — so a workflow rule looked like a broken
+  board: the card animated back and nothing said why. Now shows the SERVER's
+  message ("Assign this card to someone before moving it there"), which is the
+  part that tells you what to do.
+- Endpoints exercised over HTTP: unconfigured -> configured -> cleared, plus
+  400s for a bad body and a self-transition. `test_workflow` 20/20 unchanged.
+
+### 2026-09-03 (cont.) — workflow diagram (the Jira-style view)
+
+`WorkflowDiagram.tsx` — statuses as boxes, transitions as arrows, above the
+existing rules list. Same split Jira makes: a picture to comprehend, a list to
+edit. A list of "A -> B" rows cannot show a dead end; the diagram does.
+
+- **Hand-drawn SVG, no graph library.** A dependency would be hundreds of KB
+  to lay out a dozen nodes whose order is already known — columns arrive
+  sorted by `position`.
+- **Forward arrows arc ABOVE the row, backward BELOW.** On one side they
+  overlap into spaghetti the moment a workflow allows backtracking, which
+  every real one does.
+- **A wildcard is an `ANY` badge on the target, not N arrows.** Drawing it
+  literally is what makes Jira's own diagrams unreadable: one such rule on a
+  five-column board is five crossing lines that say less than the word.
+- **No lucide icons inside the SVG.** An icon component renders a NESTED
+  `<svg>`, where Tailwind's CSS sizing fights the element's own width/height
+  attributes and positioning gets fragile. Validators are text glyphs
+  (`A` / `@` / `D`) in `<text>`, laid out by the same coordinate system as
+  everything else, with `<title>` carrying the full wording. Legend in the
+  modal. If anyone adds an icon here later, that is the trap.
+- Dragging arrows to CREATE transitions is deliberately not built — a graph
+  editor is a far larger job than the rules list it would replace.
+
+### 2026-09-03 (cont.) — workflow editor becomes a full screen with Diagram/Text
+
+- **Full screen, not a dialog.** A workflow is a graph plus a rule list; boxed
+  in a modal both scroll inside a viewport too small to see the graph, which
+  is the one thing the diagram exists for.
+- **Diagram / Text toggle, top-LEFT, before the title.** It switches the mode
+  of the whole screen; placed by the close button on the right it would read
+  as an action on the dialog instead of on the content.
+- **ONE `rules` array behind both views**, never two editors. Two would be a
+  sync problem where the picture and the list disagree about what is about to
+  be saved.
+- **Clicking an arrow opens that rule in Text, focused and scrolled to.** That
+  is what makes the diagram a way IN to editing rather than a picture beside
+  it — without building a graph editor. Two details it needs:
+  - the click index is `rules.indexOf(r)`, NOT the index within the filtered
+    `directed` list — a wildcard filtered out earlier would shift every
+    subsequent index and open the wrong rule;
+  - a transparent 14px stroke is drawn over each 1.5px arrow, because an
+    arrow you cannot hit with a mouse is not a control.
+- `Add transition` switches to Text first, so the row it creates is visible.
+- Text view uses `hidden`/`flex` rather than unmounting, so a half-edited rule
+  survives flipping to the diagram and back.
+
+### 2026-09-03 (cont.) — 500 on dragging an ASSIGNED card
+
+`PATCH /tasks/{id}/move` -> `InvalidRequestError: 'Task.assignee' is not
+available due to lazy='raise'`. Refreshing the board looked fine, which is the
+tell: the BOARD path eager-loads the assignee, the MOVE path did not.
+
+- **The guard worked.** `lazy="raise"` exists so a forgotten eager-load fails
+  loudly instead of silently firing one query per card on a 900-card board. It
+  caught a path I had not given a loader. The cost of that design is exactly
+  this: a 500 rather than a slow page, which is the trade I took deliberately.
+- **`POST /boards/{id}/tasks` had the SAME hole** and had never fired, because
+  a freshly created card is always unassigned and
+  `task.assignee if task.assignee_user_id else None` short-circuits. Fixed too.
+- Fix keeps the guard rather than defeating it: `_serialize_task` gains an
+  `assignee` parameter with an `_UNRESOLVED` sentinel (distinct from None,
+  which legitimately means "no assignee"). The board path keeps eager-loading;
+  the two single-card paths resolve it with `_assignee_of(db, task)` — ONE
+  query for ONE card — and pass it in. Same pattern the file already uses for
+  `comment_count`.
+- Reproduced over real HTTP on task 1200 with an assignee forced on: 500 ->
+  200, `assignee_name` present, card moved, row restored afterwards.
+
+### 2026-09-03 (cont.) — explicit block rules (migration `aq17wfblock`)
+
+"Nothing may enter X" and "cards in X may not leave". LOCAL only.
+
+- **Both effects already existed implicitly** — no inbound rule means you
+  cannot enter, no outbound means you cannot leave. What was missing was
+  saying you MEANT it: "not configured yet" and "deliberately sealed" looked
+  identical, so a terminal column showed up as a dead-end warning.
+- `workflow_transitions.kind`: `allow` | `block_entry` | `block_exit`. A block
+  names ONE column in `to_column_id`; passing a `from` is REFUSED rather than
+  ignored, because accepting it would imply a pairwise block this does not
+  model.
+- **A block wins over an allow, and is checked FIRST.** Checking after would
+  let an allow decide and make the outcome depend on evaluation order. It is a
+  declaration — one that could be overridden by adding an arrow elsewhere
+  would not be worth writing.
+- `find_transition` filters to `kind == 'allow'`: a block row must never match
+  as the transition that PERMITS the move it exists to forbid.
+- Diagram draws blocks as a column BADGE (`NO ENTRY` / `NO EXIT` / `SEALED`),
+  never as an arrow — an arrow would show a route that exists precisely to be
+  impossible. Editor hides the from/to pickers and validators for a block row
+  and states what it does in words instead.
+- `tests/test_workflow.py` **28/28** — block beats allow both ways, a block row
+  is not itself a usable transition, unrelated moves unaffected, and both
+  malformed configs (block with a `from`, unknown kind) are refused.
+
+### 2026-09-03 (cont.) — the workflow canvas becomes an editor
+
+Four changes, all frontend, no migration. The diagram stopped being a picture
+beside the editor and became the editor.
+
+- **Delete a column** — `DeleteColumnModal.tsx`. The target picker is not a
+  nicety: the API REQUIRES `move_cards_to_column_id` and 422s without it, so a
+  column delete cannot silently discard its cards. Reached from the board's
+  column menu and, now, from the workflow sidebar. Says out loud that workflow
+  transitions touching the column go with it (`ON DELETE CASCADE`).
+- **The status sidebar became editable** — `WorkflowStatusPanel.tsx`. It was a
+  read-only summary that sent you to the Text view to act, which meant reading
+  a status' rules then leaving the diagram to change them. It owns NO state:
+  edits go into the caller's `rules` via `onChange`, because two copies of a
+  ruleset is how the picture and the list end up disagreeing about what is
+  about to be saved. Lock toggles are listed FIRST — they override everything
+  below, so reading the lists before knowing the column is sealed is reading a
+  fiction.
+- **The canvas went full-bleed** — `WorkflowModal.tsx` now picks a different
+  body container per view: `relative min-h-0 flex-1` for the diagram (no
+  padding, no max-width, no scroll — a scroll container fights its own pan) and
+  the old measured column for the text list. `absolute inset-0` replaced a
+  `calc(100vh - 260px)`, which had already drifted once when the Diagram/Text
+  toggle grew the header.
+- **Nodes are draggable, and add/delete a status IS add/delete a column** —
+  a status node can be dragged anywhere; positions are saved in
+  `localStorage` under `wf-layout:{boardId}` (`ponytail:` — cosmetic and
+  per-person, so a column plus a migration would be storage bought for a
+  preference nothing downstream reads). Reset clears the layout as well as
+  pan/zoom, which is the way back out of a mess. Adding a status mounts the
+  board's own `AddColumnButton` on the canvas, so it hits the same
+  `POST /boards/{id}/columns` and produces a REAL column with colour and a
+  status binding — not a diagram-only node. Deleting one opens
+  `DeleteColumnModal`, then prunes the unsaved `rules` that named it (the
+  server cascades its rows; the local copy does not know that, and saving a
+  rule naming a dead column is a 400). Both call `onBoardChange` →
+  `BoardPage.refresh`.
+
+Two landmines this created and closed:
+
+- **Click vs drag on a node.** A press that never moved must still open the
+  sidebar, so the node drag tracks a `moved` flag with 3px of slop and only
+  calls `onSelectColumn` when it stayed put. Without the slop every click
+  registers as a drag and the sidebar never opens.
+- **Arrow geometry had to stop assuming a row.** Arcs used to be "above if
+  forward, below if backward", which is meaningless once a node is dragged off
+  the line. Now the control point is pushed along the edge's own NORMAL, which
+  reproduces the old behaviour for an un-dragged board and still separates the
+  two directions at any angle. Endpoints clip to the node's box so an arrowhead
+  is not hidden under the node it points at.
+
+Extracted to `workflowGeometry.ts` because it fails SILENTLY — a wrong normal
+or a bad clip still renders a picture, just a wrong one, and a single `NaN`
+blanks a `<path>` with no error anywhere. Verified:
+
+    cd meeting_ai_frontend && node src/features/kanban/components/workflowGeometry.check.ts
+    # 11/11 — border clips to each edge, a target INSIDE the box still projects
+    # out, zero-length does not divide by zero, forward/backward bulge to
+    # opposite sides both on and off the row, path string has no NaN
+
+`npx tsc --noEmit -p tsconfig.app.json` clean, `npx vite build` clean. Lint on
+the touched files shows only the pre-existing `react-hooks/refs` (reading
+`drag.current` in a className) and two `static-components` in the panel.
+
 ---
 
+### 2026-09-07 — full-codebase read (no changes)
+
+Read-only orientation pass over the whole repo (98k LOC: 495 py, 178 ts/tsx).
+Nothing edited except this file. Three notes corrected against the LIVE system
+rather than the notes:
+
+- **§2 local head was stale.** Said `am13invitetoken`; `select version_num from
+  alembic_version` says **`aq17wfblock`**. Fixed above. 55 revisions, single
+  linear chain, `aq17wfblock` is the only head (verified by diffing every
+  `revision` against every `down_revision`).
+- **`TECHNICAL_REFERENCE.md` §14.1 and §14.11 are both wrong now** — 14.1 still
+  calls the `prof` NameError an OPEN BUG (fixed 2026-08-10, `prof` is hoisted at
+  `meeting_pipeline.py:573`), and 14.11 says Railway is behind at
+  `g3o7j9k1l2m` (it is behind, but at `am13invitetoken` — see §7). Already on
+  the "ready to do" list; recording that the read confirmed it.
+- **World B is empirically dead, not just architecturally.** `agent_profiles`
+  and `prompt_versions` are BOTH 0 rows. So `resolve_agent_runtime_config` is
+  the Phase-8F façade over `resolve_behavior_profile` on every call, and
+  `_legacy_resolve_agent_runtime_config` (the real 7C engine, ~230 lines) is
+  unreachable. Anything reasoning about "which prompt version ran" is reasoning
+  about NULL.
+
+Live row counts, for the next person's sense of scale: meetings 226,
+participants 181, tasks 1306, meeting_chunks 421, entities 1114,
+kanban_boards 60, workflow_transitions 16, notifications 6, users 62,
+organizations 59, template_behavior_profiles 363,
+workspace_behavior_overrides 15, agents_v2 1, cc_clients 1,
+org_memory_facts 99 (still frozen), mem0_facts **167** (was 112 at migration —
+mem0 IS being written to, the native table is the one that is frozen).
+
+---
+
+---
+
+### 2026-09-07 — deployment-readiness audit of `75af005` (no code changed)
+
+- **Verdict: the code is ready, the deploy is not.** Two blockers, both
+  outside the diff.
+- Green, verified by running it, not by reading it: frontend
+  `tsc -b && vite build` exits 0 in 27.6 s; `main:app` imports with 222
+  routes; `python tests/test_workflow.py` is **28/28** (it is a script, NOT
+  pytest — `pytest tests/test_workflow.py` collects nothing and says
+  "no tests ran", which reads exactly like a pass); live
+  `workflow_transitions` matches the ORM column-for-column and already holds
+  15 `allow` + 1 `block_exit` rows.
+- **Regression check: none.** 24 pytest failures in the kanban/rbac suites,
+  but a sparse worktree at the parent commit `1b87da0` fails the same 24.
+  The one apparent delta (`test_kanban_k4::test_get_task_detail_404_for_
+  unknown_id`) is an artifact of the worktree having no `dist/` — the test
+  GETs the unprefixed `/tasks/99999999`, which the SPA catchall answers 200
+  with `text/html`. These suites are stale against `API_PREFIX=/api` and
+  against a `_VALID_STATUSES` symbol that no longer exists in
+  `app/api/routes.py`; they are not a signal about this commit.
+- **Blocker 1 — prod DB.** Queried Railway directly: still
+  `am13invitetoken`, local `aq17wfblock`. Four migrations short. Nothing runs
+  alembic at deploy time — the Dockerfile CMD is bare uvicorn — so
+  `alembic upgrade head` against prod is a MANUAL step that must precede the
+  code. All four are additive/constraint-only and safe to run early against
+  the currently deployed code.
+- **Blocker 2 — the commit is not on `main`.** See §7.
+- Pre-deploy check owed for `an14assigneeevent`: it drops and recreates
+  `task_activity`'s event_type CHECK, so any prod row with an event_type
+  outside the eleven `_BASE` values + `assignee_changed` fails the ADD.
+  Locally all nine distinct values are inside the set; prod not checked (the
+  query was denied).
+- No new env var, no new dependency, no ORM change without a migration —
+  `models.py`'s additions are exactly `WorkflowTransition` + `kind`.
+  `.dockerignore` already excludes `venv/`, `node_modules/`, `.env`, `tests/`.
+- Local side effects of the audit, both reverted or harmless: rebuilt
+  `meeting_ai_frontend/dist` (gitignored), created and removed a sparse
+  worktree under the scratchpad. Nothing in `app/` touched.
+
+### 2026-09-07 — "Anywhere" as a way in, on the status panel
+
+- `WorkflowStatusPanel.tsx` only: `AddRow` gained an `anywhere` flag that
+  prepends an `Anywhere` option (sentinel `"*"` -> `from_column_id: null`),
+  wired into **Ways in** only. `to_column_id` is NOT NULL, so "to anywhere"
+  does not exist and Ways out keeps its old behaviour.
+- Hidden once a wildcard inbound rule exists — a second `(allow, null, X)`
+  is the duplicate the server 400s on. Note the DB unique index does NOT
+  catch it: Postgres treats NULLs as distinct, so the guard is
+  `replace_transitions`' Python `seen` set, and now the UI as well.
+- Backend needed nothing — wildcards were already supported and covered by
+  `tests/test_workflow.py` (28/28, lines 128/173). The Text view already had
+  `Anywhere`; the diagram already renders wildcard targets. Only the panel
+  was missing it.
+- `tsc -b --force` clean. No new check file: the only added logic is a
+  one-line `.some()` predicate.
+
+### 2026-09-07 — per-column permissions (who may act, not just where a card may go)
+
+- **Migration `ar18colperms`** (local head is now that, not `aq17wfblock`):
+  `kanban_columns.permissions` JSONB `'{}'`. One column, not a
+  `column_permissions` table — four actions on sixty boards is not a query
+  workload, nothing joins or filters on it, and every read already holds the
+  column row. `{}` is exactly the old behaviour, so the backfill is nothing.
+- Four actions — `move` `create` `edit` `delete`. **`edit` and `update` are
+  ONE action**: same endpoint, same operation, and two switches for it would
+  only ever be set to the same value.
+- Four modes — `everyone` / `admins` (admin OR org admin) / `org_admins` /
+  `specific` (a named list). An ABSENT key means everyone, so `everyone` is
+  never stored; `normalize_column_permissions` drops it.
+- **Org admins pass everything, by design.** These rules are written by board
+  admins and one that could lock the tenant's own owner out of a column would
+  leave a board nobody in the organization can repair. An unknown mode fails
+  CLOSED for everyone else, which is only safe *because* of that bypass.
+- **The checks are NOT behind `board_has_workflow`.** "Only org admins may put
+  things in Done" is a complete configuration on its own and such a board has
+  no transitions at all — behind the short-circuit every one of these would be
+  dead code. This is the property the new tests exist to hold down.
+- Enforcement, all server-side: `move` on the DESTINATION column inside
+  `assert_move_allowed` (so both the drag path and the PATCH back door get it,
+  and both now pass `to_column=` since they already hold the row — no extra
+  query); `create` in `create_board_task`; `delete` in `delete_task`; `edit`
+  in `meeting_service.update_task`, **skipped for a status-only PATCH** because
+  that is a move and is judged by the destination's `move` rule instead.
+- **Ceiling worth knowing:** these NARROW only. `create_board_task` already
+  requires a managed board, so "Everyone" on Add means every admin, not every
+  member. The panel says so on screen rather than lying by omission.
+- API: `GET /boards/{id}/workflow` gained `column_permissions`;
+  the PUT accepts it optionally — **absent means "leave alone", not "clear"**,
+  so an older client cannot silently strip permissions a newer one set.
+  User ids are validated against `users.organization_id` — the one line that
+  stops a rule naming somebody in another tenant.
+- UI: a "Who can" block at the top of `WorkflowStatusPanel` (above the routes,
+  because a lock changes the meaning of every rule under it), staged in
+  `WorkflowModal`'s state beside `rules` and saved in the SAME PUT. People
+  picker is `GET /org/members`, fetched once per modal.
+- Verified by outcome: `tests/test_workflow.py` **51/51** (23 new, incl. the
+  no-transitions case, the org-admin bypass, unknown-mode-fails-closed, the
+  status-only-PATCH split, and five payload-validator refusals). Pytest
+  kanban/rbac set unchanged at 24 failed / 172 passed — the same 24 stale
+  failures as before the change. `tsc -b` clean, `npm run build` 30.0 s exit 0,
+  `main:app` 222 routes.
+- Test trap that cost a rewrite: a member may only manage cards ASSIGNED to
+  them, so the edit/delete assertions set `assignee_user_id` first and assert
+  a baseline pass — without it every refusal would have been RBAC's, not the
+  column's, and the test would have passed for the wrong reason.
+
+### 2026-09-07 (cont.) — "Everyone" was a lie on three of the four actions
+
+Reported from use: Add cards showed **Everyone** and a member still could not
+add a card. Probed it rather than reasoning about it (scratch board, real
+MEMBER, one column, both states) — the dropdown was wrong for three of four:
+
+| action | what "Everyone" actually did |
+|---|---|
+| move | everyone ✓ |
+| add | **admins only** |
+| edit | **admins, or the card's assignee** |
+| delete | **admins, or the card's assignee** |
+
+Cause: I stored nothing for `everyone`, calling it "the default". It was only
+the default for `move`. `create_board_task` took `require_managed_board` and
+edit/delete took `get_manageable_task`, so the column rule could never widen
+past them and the label described a permission the board went on refusing.
+
+**Fixed by making an explicit rule AUTHORITATIVE, with board VIEW scope as the
+floor.** Absent still means "nobody has decided" and the board's own RBAC
+applies untouched, so no existing board changed behaviour — verified both
+directions.
+
+- `everyone` is now stored, not dropped (`normalize_column_permissions`).
+- New `explicit_rule` / `task_rule_explicit`. Every call site branches on
+  "is there a rule" and NOT on the resolved mode: with no rule the fallback
+  has to be the old gate, which is stricter than `everyone`.
+- `create_board_task` opens with `require_board` (view) and falls back to
+  `require_managed_board` only when the column has no `create` rule.
+  `delete_task` and `update_task` do the same against `require_managed_task`.
+- UI: the dropdown's value when nothing is set is now the BOARD's default per
+  action (`move`→Everyone, the rest→Admins), not a blanket Everyone — that
+  mislabelling was the whole bug. Edit and Delete additionally print
+  "Not set — admins, plus whoever the card is assigned to", because that
+  fallback is a rule no dropdown entry can express. A select's `onChange`
+  only fires on a real change, so opening the panel and saving still writes
+  nothing.
+- **Not offered: a way back to "unset"** once a rule is written. Picking
+  Admins is close but drops the assignee carve-out. Add an "Use board default"
+  entry if anyone asks; nobody has.
+- `tests/test_workflow.py` **60/60** (9 more): all four actions as a member on
+  a card they do NOT own under `everyone`, and the mirror — unset still
+  refuses add/edit/delete, still keeps the assignee carve-out, still lets
+  anyone move. Pytest kanban/rbac set unchanged at 24 failed / 172 passed.
+  `tsc -b` clean.
+
+### 2026-09-07 (cont.) — `admins_only` retired, `move_out` added
+
+Two halves of one change: the old per-transition permission flag is gone from
+the arrows, and the per-column block gained the rule the arrows could never
+express.
+
+- **`admins_only` removed** from the Ways in / Ways out rule cards, the Text
+  view, the diagram glyph, the `WorkflowTransition` TS type and the GET
+  response, and its enforcement is deleted from `assert_move_allowed`. The
+  per-column `move` rule says the same thing where people look for it, and two
+  ways to express "admins only" that can disagree is worse than either.
+  **Zero rows had it set** (checked before deleting: `select admins_only,
+  count(*)` → `f|16`), so nothing changed for anyone.
+  `require_assignee` / `require_due_date` STAY — they are conditions on the
+  card, not permissions on the person, and nothing replaces them.
+- The DB column is left in place, unread, with a comment on the model saying
+  so. Dropping it needs a migration and prod is already five behind; an
+  unread boolean costs nothing.
+- **New action `move_out`**, checked against the SOURCE column, so the panel
+  now reads: Move cards in / Move cards out / Add / Edit / Delete. Five
+  actions. Destination rules could never say "only a lead may pull work back
+  out of QA".
+- Ordering note now in the code: `move_out` is checked BEFORE the `block_exit`
+  lookup, so a column that is both sealed and restricted tells a refused member
+  who may move cards out rather than that the column is locked. Both refuse;
+  only the wording differs, and reordering would mean running the block query
+  on every move — including the unconfigured boards the function exits early
+  for.
+- `tests/test_workflow.py` **64/64**. The three old `admins_only` assertions
+  were rewritten rather than deleted: two now use the per-column `move` rule
+  (same property, new mechanism — including the no-back-door PATCH test) and
+  the "specific beats wildcard" one switched to `require_due_date`, which is
+  what actually distinguished the two rules. Four new `move_out` checks,
+  including that it does NOT restrict moving IN.
+- Pytest kanban/rbac set unchanged at 24 failed / 172 passed. `tsc -b` clean,
+  `main:app` 222 routes.
+
+### 2026-09-07 (cont.) - notification panel split out of the bell **[SUPERSEDED an hour later - see the entry below; `NotificationPanel.tsx` was deleted]**
+
+- `shared/components/NotificationPanel.tsx` (new) holds the list, the empty
+  state, the mark-all row and `describe()`. `NotificationBell.tsx` keeps the
+  trigger, the unread badge, the fetch, click-outside/Escape, and both write
+  paths. 172 lines became 130 + 88.
+- **Split along STATE, not markup.** Everything the badge needs to render
+  stays in the bell; the panel is props-only and fetches nothing. A panel with
+  its own copy of the list is how the badge and the list end up disagreeing
+  about one number.
+- Two things deliberately did NOT move: the click-outside `ref` (it wraps the
+  button AND the panel - a ref on the panel alone would read a click on the
+  bell as "outside" and fight the toggle) and the docking classes, which the
+  panel hard-codes because there is one caller.
+- One behaviour fix fell out of the read: `openTask` decremented the badge but
+  never flipped the item's own `read` flag, so a notification kept its unread
+  dot until the next remount. It now updates both.
+- `tsc -b --force` clean, `npm run build` 25.0 s exit 0. No backend change.
+
+### 2026-09-07 (cont.) - notifications became a PAGE, not a popover
+
+The split above was the wrong shape. What was actually wanted: clicking the
+bell switches pages.
+
+- **New route `/notifications`** ->
+  `features/notifications/pages/NotificationsPage.tsx`. Standard page shell
+  (`Layout` > `PageContainer width="narrow"` > `PageHeader`), rows carrying an
+  icon per kind, a relative timestamp with the exact one on `title`, the
+  comment excerpt for mentions, and a Mark-all action in the header.
+- **`NotificationBell.tsx` is now a `<Link>` plus the unread badge** - 130
+  lines down to 68. Gone with the popover: the items array, the open state,
+  the click-outside/Escape listeners and the ref that had to wrap both the
+  button and the panel. It keeps only the count fetch. Active styling comes
+  from `useLocation()`, matching the Settings row beneath it.
+- **`NotificationPanel.tsx` DELETED** - one caller, and the page absorbed it.
+- The page asks for `limit=100`; the endpoint already accepted up to that and
+  the client had been hardcoding the default 30, which was sized for a 320px
+  popover. `fetchNotifications(limit?)` now takes it.
+- Why a route beats the panel, for whoever revisits this: the back button
+  works after following a card, the list survives a glance away, and there is
+  room for the timestamp and excerpt the popover had no space for.
+- No backend change - the endpoints existed. `tsc -b --force` clean,
+  `npm run build` 26.6 s exit 0.
+
+### 2026-09-08 - rename / delete a board (UI only; the API already existed)
+
+- **Nothing was missing on the server.** `PATCH /boards/{id}` and
+  `DELETE /boards/{id}` plus `kanban_service.update_board` / `delete_board`
+  have been there since K2, and `updateBoard` / `deleteBoard` were already in
+  `features/kanban/api.ts` with **zero callers**. The whole gap was UI. Check
+  before building - that is the second time this session the backend was
+  already done.
+- `features/kanban/components/BoardActions.tsx` (new): hover-revealed pencil +
+  trash on each card in `BoardListPage`, gated on `canManageBoards` (a
+  rendering hint - the server 403s a member either way, asserted in the test).
+- **Two placement traps, both real:** the buttons sit INSIDE the card's
+  `<Link>`, so every handler needs `preventDefault` + `stopPropagation` or
+  Rename navigates instead. And the dialogs are `createPortal`-ed to
+  `document.body` - a modal rendered in the Link's subtree turns every click
+  inside it (the text field, Cancel, the backdrop) into a navigation.
+- **`tests/test_board_admin.py` 9/9** (new, script-style like
+  `test_workflow.py`). It exists because the delete dialog makes a factual
+  promise - "its N cards are NOT deleted" - and that rests entirely on
+  `fk_tasks_board_id ... ON DELETE SET NULL`. Verified live
+  (`confdeltype = n` on both the board and column FKs) and asserted by
+  outcome: after deleting the board the card row still exists with
+  `board_id`/`column_id` NULL. If somebody ever switches that FK to CASCADE
+  the dialog becomes a lie, and this fails.
+- NOT covered: the "cannot delete the org's last default board" guard. It is
+  unreachable in this org (other org boards exist) and simulating it would
+  mean deleting real boards. The UI surfaces the server's message verbatim.
+- NOT built: the same controls on `BoardPage` itself. One placement answers
+  the ask; the board page would additionally need a redirect after delete, so
+  `onChanged` would have to split into `onRenamed`/`onDeleted`.
+- `tsc -b --force` clean, `npm run build` 24.8 s exit 0.
+
+### 2026-09-08 (cont.) - board delete became destructive, and reports itself
+
+Four changes to `delete_board`, all asserted by outcome in
+`tests/test_board_admin.py` (**16/16**, rewritten - its old "THE CARD SURVIVES"
+check is now inverted).
+
+- **The cards go with the board.** The FK is STILL `ON DELETE SET NULL`; the
+  Task rows are deleted explicitly in `delete_board` instead. Comments,
+  activity and notifications follow via their own CASCADE. If that explicit
+  delete is ever removed the database will quietly orphan cards into Action
+  Items again - which is what the `THE CARD IS GONE` assertion exists to catch.
+- **A default board cannot be deleted at all.** This REPLACES the old "only if
+  it is the org's last default" rule, which let you delete the default board
+  whenever a second one existed. Auto-extraction needs a landing target and
+  the default board is the one most likely to hold work nobody has looked at.
+- **`board_deleted`, a fourth notification kind** (migration `as19boarddel`,
+  local head - same drop/widen/re-add shape as `an14assigneeevent`). Fans out
+  to every org admin EXCEPT the actor, with the actor's name, the board name
+  and the card count. Sent BEFORE the delete: the payload is a snapshot and
+  the board is about to stop existing. `task_id` stays NULL - a link to a
+  deleted card is worse than no link.
+- Ordering in `delete_board` is load-bearing: notify (which flushes, and
+  rolls back on IntegrityError) BEFORE the deletes. The other order would let
+  that rollback silently undo the deletion and still report success.
+- **Caught before it shipped:** `notification_tasks._body` routes unknown
+  kinds through its trailing `else`, so org admins would have been emailed
+  "This task is due soon" about a deleted board, linking to a dead card.
+  It now has its own branch, its own subject, and a per-kind CTA label
+  (the button said "Open the task" for every kind). Rendered one to check.
+- UI: the delete dialog leads with the card count in bold, says the deletion
+  cannot be undone, says org admins are told, and **requires typing the board
+  name** when the board has cards (an empty board is still one click). The
+  trash icon is DISABLED with an explanatory tooltip on a default board rather
+  than hidden - a control that vanishes teaches nobody why.
+- Pytest kanban/rbac set unchanged at 24 failed / 172 passed, `test_workflow`
+  64/64, `main:app` 222 routes, `npm run build` 28.5 s exit 0.
+
+### 2026-09-08 (cont.) - every column defaults to "in from anywhere"
+
+- The workflow editor opens an **unconfigured** board with a wildcard
+  (`from_column_id: null`) into every column, instead of an empty list.
+- Why it matters, and it is the real footgun in this feature: an empty
+  ruleset allows everything only while it stays empty. Add ONE rule and the
+  board flips to deny-unless-listed, so every column you did not mention
+  becomes a dead end - the first rule anybody writes silently freezes the rest
+  of their board. Opening from "anywhere -> each column" means the first edit
+  narrows one route rather than closing all of them.
+- **A board that already has rules is left exactly as saved.** Its author may
+  have meant a column to be unreachable, and seeding over that would overrule
+  them. The seed only fires on `transitions.length === 0`.
+- A column added while the editor is open gets the same default. Tracked in a
+  `useRef` set, NOT state: the job is to default a column ONCE, and re-running
+  on change would regrow the wildcard the moment somebody cleared it, making a
+  start column impossible to build.
+- Frontend-only. Nothing is written until Save - the editor just opens dirty.
+- Verified server-side, because the shape is new: `test_workflow.py` **67/67**
+  now includes saving a wildcard into EVERY column (four rows sharing a NULL
+  `from_column_id` under `uq_workflow_transitions_pair` - they do not collide
+  because Postgres treats NULLs as distinct, asserted rather than assumed) and
+  then walking all 12 column pairs to confirm every move is still allowed.
+- No check file for the seeding itself: it is a six-line effect, and pulling
+  it out into a function purely to test it would add the abstraction the code
+  does not otherwise want. `tsc -b --force` clean, `npm run build` 26.2 s.
+
+### 2026-09-08 (cont.) - "Owner" is now "Assigned to", and lists org members too
+
+Asked for as a rename plus a wider list; clarified with the user before
+touching it, because the obvious reading (make Owner the real assignee) would
+have re-broken the 2026-09-02 fix above.
+
+- `TaskDetailDrawer`: the Owner field is labelled **Assigned to**. The FIELD
+  IS UNCHANGED - it still writes `owner_name`, a text label. So the record of
+  what the meeting actually said survives, and `test_task_assignment.py` stays
+  16/16.
+- Its dropdown now offers, in two `<optgroup>`s: **In this meeting** (the
+  participants it always listed) and **Organization** (everyone from
+  `/org/members`), then the current value if it is neither, then "Other..."
+  for free text. "No owner" became "Nobody".
+- **De-duplicated by NAME**, because the name IS the stored value - the same
+  person in both groups would render two options doing the same thing and
+  `<select>` could not tell which was selected.
+- Side benefit worth knowing: a MANUAL card has no meeting, so its participant
+  list was empty and the picker previously offered nothing but "Other...".
+  Those cards now get the org directory.
+- `AssigneePicker` no longer fetches its own copy of `/org/members`; the
+  drawer fetches once and passes it to both. Two identical requests per drawer
+  open otherwise.
+- **Still two fields, deliberately.** Assignee (admin-only) is the one that
+  creates the `assignee_user_id` link, notifies, grants access and drives "my
+  work". "Assigned to" is a label. Picking somebody there does NOT assign them
+  - flagged to the user, who confirmed the rename anyway. If they come back
+  asking why assigning didn't notify anyone, this is why.
+- `tsc -b --force` clean, `npm run build` 27.5 s. No backend change, no
+  migration.
+
 ## 7. Open threads
+
+**Prod is SEVEN migrations behind (2026-09-08):** local is at `as19boarddel`,
+Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
+assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
+bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,
+which is now also the add/delete-status path on the canvas). `ar18colperms` joins them (2026-09-07) — without it every board
+endpoint 500s on the missing `kanban_columns.permissions`, which is
+worse than the other four: it breaks boards that use no workflow at
+all. All five must precede the next deploy of the board code.
+
+**And the WORKER needs mail env before notifications are deployed:** `SMTP_*`
+plus `APP_PUBLIC_URL` on the celery service, not just web. Without them the
+email sweep logs "skipped" as a success and nobody is ever told anything.
+
+**Jira work, slices 1-3 of N done.** Assignment, notifications and
+configurable workflows are built (workflows now edited on a full-screen
+pannable canvas whose nodes are draggable and whose add/delete IS the board's
+own column create/delete). Offered and NOT built: epics/subtasks + story
+points, sprints + backlog. Scope was set by asking, not assumed — "all of
+Jira" is not a deliverable and saying so early is cheaper than saying it later.
+
+Two deliberate gaps inside workflows: `require_comment` is omitted (it turns a
+drag into a dialog), and node positions are `localStorage` only — no shared
+layout until a team asks to agree on one.
+
+**BLOCKING, and it is DNS not code (2026-09-02):** invitations and password
+resets land in Gmail's spam folder because `smoothops.info` has **no SPF, no
+DKIM and no DMARC**. Since provisioning no longer emails a password, that link
+is the ONLY way a new member can get in — so this blocks onboarding outright.
+Three records at the registrar, in this order:
+
+1. `smoothops.info` TXT -> `v=spf1 include:_spf.google.com ~all`
+   (keep the existing google-site-verification record; only ONE spf record)
+2. DKIM: Google Admin -> Apps -> Google Workspace -> Gmail -> *Authenticate
+   email*, add the `google._domainkey` TXT it generates, then **Start
+   authentication**. Most-skipped step, because it needs the console not just
+   DNS.
+3. `_dmarc.smoothops.info` TXT -> `v=DMARC1; p=none; rua=mailto:...`
+   only once 1 and 2 pass.
+
+Confirm with Gmail's *Show original*: SPF/DKIM/DMARC all PASS.
+
 
 ~~prod behind on migrations~~ **CLEARED 2026-09-02 (second migration of the
 day)** — Railway taken `ak11coldefer -> al12pwreset -> am13invitetoken` and
@@ -1671,8 +2600,12 @@ while nothing is deployed, but it MUST precede the next deploy.
 ~~prod DB ahead of prod code~~ CLEARED — the uppercase-role code shipped in
 PR #15, so the "every user reads as least-privileged" window is closed.
 
-**Only unshipped commit:** `ea10699 favicon changes` on `continum`, not yet
-on `neworigin/main`.
+**Unshipped (2026-09-07):** `continum` == `neworigin/continum` == `75af005`,
+but `neworigin/main` is `e2f6fdd` and is missing the last FIVE commits
+(`58ee0bd b07b857 b72cf81 1b87da0 75af005`) — board-as-unit-of-sharing,
+category board visibility, dark-mode hover, assignee-on-move fix, and the
+whole configurable-workflow slice. Prod deploys from `main`, so none of it
+is live.
 
 **Decisions owed by the user, do not pick unilaterally:**
 - ~~whether the product must support in-room meetings~~ ANSWERED 2026-08-17:

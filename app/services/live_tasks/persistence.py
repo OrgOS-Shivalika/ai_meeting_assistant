@@ -5,6 +5,7 @@ from app.db.database import SessionLocal
 from app.db.models import Meeting, Task
 from app.services.kanban.defaults import resolve_landing_for_meeting
 from app.services.kanban.positions import position_for_end
+from app.services.kanban import assignees
 from app.services.live_events.event_models import LiveCognitiveEvent
 from datetime import datetime
 
@@ -92,10 +93,31 @@ class LiveTaskPersistence:
                         if column_id is not None:
                             position = position_for_end(db, column_id)
 
+                    # Resolve the analyzer's owner LABEL to a real account where it
+                    # unambiguously names one. Doing it here is what stops this
+                    # being a backfill problem forever: a task that arrives
+                    # assigned needs no cleanup later.
+                    #
+                    # Deliberately NOT wrapped in try/except. The resolver is one
+                    # indexed query — if it can fail, the Task insert two lines
+                    # below has already failed. Swallowing here would be the
+                    # silent-failure pattern that hides dead features in this
+                    # codebase.
+                    # Guarded, like the board lookup above: `meeting` is a
+                    # .first() and None is already treated as reachable there.
+                    assignee = (
+                        assignees.resolve_assignee(
+                            db, meeting.organization_id, payload.get("owner")
+                        )
+                        if meeting is not None
+                        else None
+                    )
+
                     new_task = Task(
                         meeting_id=meeting_id,
                         task=task_text,
                         owner_name=payload.get("owner"),
+                        assignee_user_id=assignee.id if assignee else None,
                         due_date=resolved_due_date,
                         is_completed=0,
                         status="todo",

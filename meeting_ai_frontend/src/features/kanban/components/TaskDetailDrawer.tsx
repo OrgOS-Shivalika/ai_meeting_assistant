@@ -22,7 +22,9 @@ import {
   User,
   X,
 } from "lucide-react";
-import { deleteTask, fetchTaskDetail, patchTask } from "../api";
+import { deleteTask, fetchOrgMembers, fetchTaskDetail, patchTask } from "../api";
+import type { OrgMember } from "../api";
+import { usePermissions } from "../../auth/hooks/usePermissions";
 import type {
   MeetingParticipantSummary,
   TaskDetail,
@@ -84,6 +86,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 
   const [savingField, setSavingField] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Assigning grants access, so it is an admin action server-side. Hiding
+  // the control keeps a viewer from meeting a 403 they cannot act on.
+  const { canManage } = usePermissions();
 
   const handleDelete = async () => {
     if (!task) return;
@@ -238,6 +243,34 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
     if (!task || task.priority === priority) return;
     await applyPatch("priority", { priority });
   };
+
+  // Assigning is a GRANT: `permissions.task_view_clause` ORs in
+  // `assignee_user_id == user.id`, so this hands the person read+write on the
+  // card whether or not they attended the meeting. The server enforces
+  // admin-only and same-org; the picker is simply not shown to anyone who
+  // would be refused.
+  const handleChangeAssignee = async (userId: string | null) => {
+    if (!task) return;
+    if ((userId || "") === (task.assignee_user_id || "")) return;
+    await applyPatch("assignee_user_id", { assignee_user_id: userId });
+  };
+
+  // Both pickers below need the org directory, and a drawer that opened two
+  // identical requests for it would be silly. Fetched once here.
+  const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
+  useEffect(() => {
+    let alive = true;
+    // Org-scoped server-side — this endpoint never returns another
+    // organization's people.
+    fetchOrgMembers()
+      .then((m) => alive && setOrgMembers(m))
+      .catch(() => {
+        /* the selects just stay short; not worth an error banner */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleChangeOwner = async (ownerName: string | null) => {
     if (!task) return;
@@ -402,14 +435,41 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                   </div>
                 </div>
 
-                {/* Owner */}
+                {/* Assignee — the ACCOUNT. Distinct from Owner below,
+                    which is the label the meeting analyzer produced. Both are
+                    shown because they answer different questions: Owner is
+                    what was said in the meeting, Assignee is who the system
+                    can act on — filter by, notify, grant access to.
+
+                    Admin-only, mirroring the server: assigning grants access,
+                    so it is not a field a viewer may set. */}
+                {canManage && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                      <User className="w-2.5 h-2.5" /> Assignee
+                    </label>
+                    <AssigneePicker
+                      task={task}
+                      members={orgMembers}
+                      onChange={handleChangeAssignee}
+                      saving={savingField === "assignee_user_id"}
+                    />
+                  </div>
+                )}
+
+                {/* Assigned to — still `owner_name`, still a text label.
+                    Renamed from "Owner" because that is what people call it;
+                    the field it writes is unchanged, so the record of what the
+                    meeting actually said is not touched. Assignee above is
+                    still the one that grants access and notifies. */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                    <User className="w-2.5 h-2.5" /> Owner
+                    <User className="w-2.5 h-2.5" /> Assigned to
                   </label>
                   <OwnerPicker
                     task={task}
                     participants={task.meeting_participants}
+                    members={orgMembers}
                     onChange={handleChangeOwner}
                     saving={savingField === "owner_name"}
                   />
@@ -556,25 +616,92 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Owner picker — small dropdown of meeting participants + "Other…"
-// fallback for arbitrary names. Lighter than TaskAssignmentEditor
-// because the drawer already owns the saving lifecycle.
+// Assignee picker — org accounts, not meeting participants.
+//
+// Deliberately a different source from OwnerPicker below. Participants are
+// whoever was in the room; assignees must be people with a login, because the
+// value is a foreign key into `users`. On this data those sets barely overlap:
+// 181 participants, 0 of them linked to an account.
+function AssigneePicker({
+  task,
+  members,
+  onChange,
+  saving,
+}: {
+  task: TaskDetail;
+  members: OrgMember[];
+  onChange: (userId: string | null) => void | Promise<void>;
+  saving: boolean;
+}) {
+  return (
+    <select
+      value={task.assignee_user_id || ""}
+      disabled={saving}
+      onChange={(e) => void onChange(e.target.value || null)}
+      className="w-full px-2 py-1.5 rounded-md border border-gray-200 text-[13px] bg-white disabled:opacity-50"
+    >
+      <option value="">Unassigned</option>
+      {members.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.name}
+        </option>
+      ))}
+      {/* The assignee may have been removed from the org since. Without this
+          the select would silently show "Unassigned" for a card that is in
+          fact still assigned. */}
+      {task.assignee_user_id &&
+        !members.some((m) => m.id === task.assignee_user_id) && (
+          <option value={task.assignee_user_id}>
+            {task.assignee_name || "Unknown user"}
+          </option>
+        )}
+    </select>
+  );
+}
+
+
+// "Assigned to" picker — the people in THIS meeting, then everyone in the
+// organization, then "Other…" for a name that is neither.
+//
+// Both groups write the same thing: a NAME into `owner_name`. That is the
+// whole field — it does not create the `assignee_user_id` link, so picking
+// somebody here does not notify them or grant them access. Assignee does
+// that, and the two stay separate on purpose (see the 2026-09-02 entry in the
+// handout: assignment used to overwrite this and destroyed the only record of
+// what the meeting said).
+//
+// Grouped rather than merged into one flat list: "was in the room" and "works
+// here" are different reasons for a name to be offered, and on this data they
+// barely overlap.
 // ---------------------------------------------------------------------------
 
 interface OwnerPickerProps {
   task: TaskDetail;
   participants: MeetingParticipantSummary[];
+  members: OrgMember[];
   onChange: (next: string | null) => void;
   saving: boolean;
 }
 
-function OwnerPicker({ task, participants, onChange, saving }: OwnerPickerProps) {
+function OwnerPicker({
+  task, participants, members, onChange, saving,
+}: OwnerPickerProps) {
   const [mode, setMode] = useState<"display" | "other">("display");
   const [otherValue, setOtherValue] = useState(task.owner || "");
 
+  // De-duplicated by NAME, because the name IS the stored value: the same
+  // person in both groups would render two options that do the same thing,
+  // and `<select>` would not be able to tell which one is selected.
+  const orgOnly = useMemo(() => {
+    const seen = new Set(participants.map((p) => p.name));
+    return members.filter((m) => !seen.has(m.name));
+  }, [participants, members]);
+
   const inList = useMemo(
-    () => participants.some((p) => p.name === task.owner),
-    [participants, task.owner],
+    () =>
+      participants.some((p) => p.name === task.owner) ||
+      orgOnly.some((m) => m.name === task.owner),
+    [participants, orgOnly, task.owner],
   );
 
   if (mode === "other") {
@@ -618,12 +745,25 @@ function OwnerPicker({ task, participants, onChange, saving }: OwnerPickerProps)
       className="w-full text-xs px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
     >
       <option value="">— Select —</option>
-      <option value="__none__">No owner</option>
-      {participants.map((p) => (
-        <option key={`${p.name}-${p.email ?? ""}`} value={p.name}>
-          {p.name}
-        </option>
-      ))}
+      <option value="__none__">Nobody</option>
+      {participants.length > 0 && (
+        <optgroup label="In this meeting">
+          {participants.map((p) => (
+            <option key={`p-${p.name}-${p.email ?? ""}`} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {orgOnly.length > 0 && (
+        <optgroup label="Organization">
+          {orgOnly.map((m) => (
+            <option key={`m-${m.id}`} value={m.name}>
+              {m.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
       {task.owner && !inList && (
         <option value="__other_current__">{task.owner}</option>
       )}
