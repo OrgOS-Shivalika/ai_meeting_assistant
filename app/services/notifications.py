@@ -45,12 +45,18 @@ logger = setup_logger(__name__)
 KIND_ASSIGNED = "task_assigned"
 KIND_MENTIONED = "task_mentioned"
 KIND_DUE_SOON = "task_due_soon"
+#: The odd one out: not about a card, and not addressed to the person whose
+#: work it concerns. It goes to the org admins, because deleting a board
+#: destroys other people's cards and somebody has to be able to see that it
+#: happened.
+KIND_BOARD_DELETED = "board_deleted"
 
 #: Preference key per kind. Absent from a user's JSONB = enabled.
 _PREF_KEY = {
     KIND_ASSIGNED: "email_task_assigned",
     KIND_MENTIONED: "email_task_mentioned",
     KIND_DUE_SOON: "email_task_due_soon",
+    KIND_BOARD_DELETED: "email_board_deleted",
 }
 
 
@@ -147,6 +153,56 @@ def notify_mentioned(
         payload={"task": task.task, "actor_name": actor.name, "excerpt": excerpt[:280]},
         dedupe_key=f"mention:{comment.id}",
     )
+
+
+def notify_board_deleted(
+    db: Session, *, board, actor: User, card_count: int
+) -> list[Notification]:
+    """Tell every org admin that a board was deleted, and by whom.
+
+    Fans out rather than addressing one person: there is no single owner of a
+    board, and the question this answers - "who destroyed those cards" - is one
+    the organization asks, not an individual.
+
+    Called BEFORE the delete, because the payload is a snapshot and the board
+    is about to stop existing. Everything it needs (name, id, count) is read
+    while it is still there; `task_id` stays NULL because the cards are going
+    too and a link to a deleted card is worse than no link.
+
+    The actor is skipped by `create` - you know what you just did.
+    """
+    admins = (
+        db.query(User)
+        .filter(
+            User.organization_id == board.organization_id,
+            User.access_role == "ORG_ADMIN",
+        )
+        .all()
+    )
+    out = []
+    for admin in admins:
+        note = create(
+            db,
+            user_id=admin.id,
+            kind=KIND_BOARD_DELETED,
+            actor_user_id=actor.id,
+            payload={
+                "board": board.name,
+                "board_id": board.id,
+                "actor_name": actor.name,
+                "card_count": card_count,
+            },
+            # A board is deleted once. The key exists so a retried request
+            # cannot double-report it, not because duplicates are expected.
+            dedupe_key=f"board_deleted:{board.id}",
+        )
+        if note is not None:
+            out.append(note)
+    logger.info(
+        "Board %s deleted by %s - notified %d org admin(s)",
+        board.id, actor.id, len(out),
+    )
+    return out
 
 
 def notify_due_soon(db: Session, task: Task, user_id) -> Optional[Notification]:

@@ -42,6 +42,7 @@ _SUBJECT = {
     notifications.KIND_ASSIGNED: "You've been assigned a task",
     notifications.KIND_MENTIONED: "You were mentioned in a comment",
     notifications.KIND_DUE_SOON: "A task is due soon",
+    notifications.KIND_BOARD_DELETED: "A board was deleted",
 }
 
 
@@ -54,6 +55,7 @@ def _body(note: Notification) -> tuple[str, str]:
     title = payload.get("task") or "a task"
     actor = payload.get("actor_name") or "Someone"
     url = _board_url(note.task_id) if note.task_id else settings.APP_PUBLIC_URL
+    cta = "Open the task"
 
     if note.kind == notifications.KIND_ASSIGNED:
         lead = f"{actor} assigned you a task."
@@ -62,6 +64,21 @@ def _body(note: Notification) -> tuple[str, str]:
         lead = f"{actor} mentioned you in a comment."
         if excerpt:
             lead += f'\n\n  "{excerpt}"'
+    elif note.kind == notifications.KIND_BOARD_DELETED:
+        # Its own branch, not the trailing else. Falling through would have
+        # emailed org admins "This task is due soon" about a board that no
+        # longer exists — wrong, and silently so, which is the failure mode
+        # this codebase specialises in.
+        cards = payload.get("card_count") or 0
+        lead = (
+            f"{actor} deleted the board \u201c{payload.get('board') or 'a board'}\u201d."
+        )
+        title = (
+            f"{cards} card{'' if cards == 1 else 's'} were deleted with it"
+            if cards else "It had no cards on it."
+        )
+        url = f"{settings.APP_PUBLIC_URL.rstrip('/')}/boards"
+        cta = "View boards"
     else:
         lead = f"This task is due {payload.get('due_date') or 'soon'}."
 
@@ -69,7 +86,7 @@ def _body(note: Notification) -> tuple[str, str]:
 
   {title}
 
-Open it: {url}
+{cta}: {url}
 
 You can turn these emails off in Settings. The in-app bell keeps working
 either way.
@@ -77,7 +94,7 @@ either way.
     html = f"""<p style="margin:0 0 12px;font-size:14px;color:#374151;">{lead}</p>
 <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#0f1523;">{title}</p>
 <a href="{url}" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;
-   font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px;">Open the task</a>
+   font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px;">{cta}</a>
 <p style="margin:16px 0 0;font-size:12px;color:#6b7280;">
   You can turn these emails off in Settings. The in-app bell keeps working either way.
 </p>"""

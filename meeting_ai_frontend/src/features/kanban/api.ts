@@ -217,20 +217,35 @@ export const fetchUnreadMentions = (): Promise<UnreadMentions> =>
 
 export interface NotificationItem {
   id: number;
-  kind: "task_assigned" | "task_mentioned" | "task_due_soon";
+  /** `board_deleted` is the odd one: it has no `task_id`, because the cards
+   *  went with the board, and it is addressed to org admins rather than to
+   *  the person whose work it concerns. */
+  kind: "task_assigned" | "task_mentioned" | "task_due_soon" | "board_deleted";
   task_id: number | null;
   comment_id: number | null;
   /** Snapshot taken when it happened — see the server model on why it is
    *  stored rather than joined: "X assigned you Y" is a claim about the past. */
-  payload: { task?: string; actor_name?: string; excerpt?: string; due_date?: string };
+  payload: {
+    task?: string;
+    actor_name?: string;
+    excerpt?: string;
+    due_date?: string;
+    /** board_deleted only. */
+    board?: string;
+    card_count?: number;
+  };
   read: boolean;
   created_at: string;
 }
 
-export const fetchNotifications = (): Promise<{
+/** `limit` maxes out at 100 server-side. The default of 30 was sized for the
+ *  old popover; the full page asks for more because it has room to show it. */
+export const fetchNotifications = (
+  limit?: number,
+): Promise<{
   unread_count: number;
   items: NotificationItem[];
-}> => apiClient("/notifications");
+}> => apiClient(`/notifications${limit != null ? `?limit=${limit}` : ""}`);
 
 /** Omit `ids` to mark everything read. Scoped to the caller server-side. */
 export const markNotificationsRead = (ids?: number[]): Promise<{ marked: number }> =>

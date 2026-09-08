@@ -713,7 +713,8 @@ class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('task_assigned', 'task_mentioned', 'task_due_soon')",
+            "kind IN ('task_assigned', 'task_mentioned', 'task_due_soon', "
+            "'board_deleted')",
             name="ck_notifications_kind",
         ),
     )

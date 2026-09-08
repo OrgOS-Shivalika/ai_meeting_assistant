@@ -41,7 +41,7 @@ from app.schemas.kanban_schema import (
     TaskCreateRequest,
     TaskMoveRequest,
 )
-from app.services import permissions
+from app.services import notifications, permissions
 from app.services.kanban import mentions
 from app.services.kanban.activity import record_activity
 from app.services.kanban.defaults import DEFAULT_COLUMNS
@@ -400,34 +400,53 @@ def update_board(
 
 
 def delete_board(db: Session, board_id: int, user) -> None:
-    """Cascade-deletes columns; tasks fall back to (board_id=NULL,
-    column_id=NULL) via the FK's ON DELETE SET NULL. The tasks
-    themselves are NOT deleted — they remain accessible via the flat
-    Action Items list and can be re-assigned to another board.
+    """Delete a board, its columns AND every card on it.
 
-    Refuses to delete the org's last remaining default board to avoid
-    leaving the auto-extraction path with no landing target.
+    **The cards go too.** The FK is still `ON DELETE SET NULL`, so the database
+    would happily orphan them into the flat Action Items list — which is what
+    used to happen, and it left people with a pile of cards belonging to a
+    board nobody could name. They are deleted explicitly here instead. Their
+    comments, activity rows and notifications follow via their own
+    `ON DELETE CASCADE`.
+
+    That makes this the one action in the product that destroys other people's
+    work, so two things guard it:
+
+      * **A default board cannot be deleted at all.** Auto-extraction has to
+        have a landing target, and "default" is exactly the board most likely
+        to hold work its owner has not looked at yet. Re-assign the flag to
+        another board first — a deliberate act — and this board becomes
+        ordinary.
+      * **Every org admin is told**, with who did it and how many cards went.
+        Before the delete, while there is still a board to describe.
     """
     board = require_managed_board(db, board_id, user)
     if board.is_default:
-        # Check if any other board could serve as the default.
-        other_count = (
-            db.query(func.count(KanbanBoard.id))
-            .filter(
-                KanbanBoard.organization_id == user.organization_id,
-                KanbanBoard.id != board.id,
-                KanbanBoard.scope_type == "org",
-            )
-            .scalar() or 0
+        raise HTTPException(
+            status_code=400,
+            detail="The default board can't be deleted. Make another board the "
+                   "default first, then delete this one.",
         )
-        if other_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete the only default board for this org. "
-                       "Create another board and mark it default first.",
-            )
+
+    card_count = (
+        db.query(func.count(Task.id))
+        .filter(Task.board_id == board.id)
+        .scalar() or 0
+    )
+
+    # Notify FIRST: `create` flushes, and its IntegrityError path rolls back.
+    # With the deletes already done that rollback would undo them silently and
+    # report success. Nothing destructive has happened yet at this point.
+    notifications.notify_board_deleted(
+        db, board=board, actor=user, card_count=card_count
+    )
+
+    db.query(Task).filter(Task.board_id == board.id).delete(
+        synchronize_session=False
+    )
     db.delete(board)
     db.commit()
+    logger.info("Board %s deleted by %s with %d card(s)", board_id, user.id, card_count)
 
 
 # ---------------------------------------------------------------------------

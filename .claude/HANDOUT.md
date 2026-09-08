@@ -2354,9 +2354,122 @@ express.
 - Pytest kanban/rbac set unchanged at 24 failed / 172 passed. `tsc -b` clean,
   `main:app` 222 routes.
 
+### 2026-09-07 (cont.) - notification panel split out of the bell **[SUPERSEDED an hour later - see the entry below; `NotificationPanel.tsx` was deleted]**
+
+- `shared/components/NotificationPanel.tsx` (new) holds the list, the empty
+  state, the mark-all row and `describe()`. `NotificationBell.tsx` keeps the
+  trigger, the unread badge, the fetch, click-outside/Escape, and both write
+  paths. 172 lines became 130 + 88.
+- **Split along STATE, not markup.** Everything the badge needs to render
+  stays in the bell; the panel is props-only and fetches nothing. A panel with
+  its own copy of the list is how the badge and the list end up disagreeing
+  about one number.
+- Two things deliberately did NOT move: the click-outside `ref` (it wraps the
+  button AND the panel - a ref on the panel alone would read a click on the
+  bell as "outside" and fight the toggle) and the docking classes, which the
+  panel hard-codes because there is one caller.
+- One behaviour fix fell out of the read: `openTask` decremented the badge but
+  never flipped the item's own `read` flag, so a notification kept its unread
+  dot until the next remount. It now updates both.
+- `tsc -b --force` clean, `npm run build` 25.0 s exit 0. No backend change.
+
+### 2026-09-07 (cont.) - notifications became a PAGE, not a popover
+
+The split above was the wrong shape. What was actually wanted: clicking the
+bell switches pages.
+
+- **New route `/notifications`** ->
+  `features/notifications/pages/NotificationsPage.tsx`. Standard page shell
+  (`Layout` > `PageContainer width="narrow"` > `PageHeader`), rows carrying an
+  icon per kind, a relative timestamp with the exact one on `title`, the
+  comment excerpt for mentions, and a Mark-all action in the header.
+- **`NotificationBell.tsx` is now a `<Link>` plus the unread badge** - 130
+  lines down to 68. Gone with the popover: the items array, the open state,
+  the click-outside/Escape listeners and the ref that had to wrap both the
+  button and the panel. It keeps only the count fetch. Active styling comes
+  from `useLocation()`, matching the Settings row beneath it.
+- **`NotificationPanel.tsx` DELETED** - one caller, and the page absorbed it.
+- The page asks for `limit=100`; the endpoint already accepted up to that and
+  the client had been hardcoding the default 30, which was sized for a 320px
+  popover. `fetchNotifications(limit?)` now takes it.
+- Why a route beats the panel, for whoever revisits this: the back button
+  works after following a card, the list survives a glance away, and there is
+  room for the timestamp and excerpt the popover had no space for.
+- No backend change - the endpoints existed. `tsc -b --force` clean,
+  `npm run build` 26.6 s exit 0.
+
+### 2026-09-08 - rename / delete a board (UI only; the API already existed)
+
+- **Nothing was missing on the server.** `PATCH /boards/{id}` and
+  `DELETE /boards/{id}` plus `kanban_service.update_board` / `delete_board`
+  have been there since K2, and `updateBoard` / `deleteBoard` were already in
+  `features/kanban/api.ts` with **zero callers**. The whole gap was UI. Check
+  before building - that is the second time this session the backend was
+  already done.
+- `features/kanban/components/BoardActions.tsx` (new): hover-revealed pencil +
+  trash on each card in `BoardListPage`, gated on `canManageBoards` (a
+  rendering hint - the server 403s a member either way, asserted in the test).
+- **Two placement traps, both real:** the buttons sit INSIDE the card's
+  `<Link>`, so every handler needs `preventDefault` + `stopPropagation` or
+  Rename navigates instead. And the dialogs are `createPortal`-ed to
+  `document.body` - a modal rendered in the Link's subtree turns every click
+  inside it (the text field, Cancel, the backdrop) into a navigation.
+- **`tests/test_board_admin.py` 9/9** (new, script-style like
+  `test_workflow.py`). It exists because the delete dialog makes a factual
+  promise - "its N cards are NOT deleted" - and that rests entirely on
+  `fk_tasks_board_id ... ON DELETE SET NULL`. Verified live
+  (`confdeltype = n` on both the board and column FKs) and asserted by
+  outcome: after deleting the board the card row still exists with
+  `board_id`/`column_id` NULL. If somebody ever switches that FK to CASCADE
+  the dialog becomes a lie, and this fails.
+- NOT covered: the "cannot delete the org's last default board" guard. It is
+  unreachable in this org (other org boards exist) and simulating it would
+  mean deleting real boards. The UI surfaces the server's message verbatim.
+- NOT built: the same controls on `BoardPage` itself. One placement answers
+  the ask; the board page would additionally need a redirect after delete, so
+  `onChanged` would have to split into `onRenamed`/`onDeleted`.
+- `tsc -b --force` clean, `npm run build` 24.8 s exit 0.
+
+### 2026-09-08 (cont.) - board delete became destructive, and reports itself
+
+Four changes to `delete_board`, all asserted by outcome in
+`tests/test_board_admin.py` (**16/16**, rewritten - its old "THE CARD SURVIVES"
+check is now inverted).
+
+- **The cards go with the board.** The FK is STILL `ON DELETE SET NULL`; the
+  Task rows are deleted explicitly in `delete_board` instead. Comments,
+  activity and notifications follow via their own CASCADE. If that explicit
+  delete is ever removed the database will quietly orphan cards into Action
+  Items again - which is what the `THE CARD IS GONE` assertion exists to catch.
+- **A default board cannot be deleted at all.** This REPLACES the old "only if
+  it is the org's last default" rule, which let you delete the default board
+  whenever a second one existed. Auto-extraction needs a landing target and
+  the default board is the one most likely to hold work nobody has looked at.
+- **`board_deleted`, a fourth notification kind** (migration `as19boarddel`,
+  local head - same drop/widen/re-add shape as `an14assigneeevent`). Fans out
+  to every org admin EXCEPT the actor, with the actor's name, the board name
+  and the card count. Sent BEFORE the delete: the payload is a snapshot and
+  the board is about to stop existing. `task_id` stays NULL - a link to a
+  deleted card is worse than no link.
+- Ordering in `delete_board` is load-bearing: notify (which flushes, and
+  rolls back on IntegrityError) BEFORE the deletes. The other order would let
+  that rollback silently undo the deletion and still report success.
+- **Caught before it shipped:** `notification_tasks._body` routes unknown
+  kinds through its trailing `else`, so org admins would have been emailed
+  "This task is due soon" about a deleted board, linking to a dead card.
+  It now has its own branch, its own subject, and a per-kind CTA label
+  (the button said "Open the task" for every kind). Rendered one to check.
+- UI: the delete dialog leads with the card count in bold, says the deletion
+  cannot be undone, says org admins are told, and **requires typing the board
+  name** when the board has cards (an empty board is still one click). The
+  trash icon is DISABLED with an explanatory tooltip on a default board rather
+  than hidden - a control that vanishes teaches nobody why.
+- Pytest kanban/rbac set unchanged at 24 failed / 172 passed, `test_workflow`
+  64/64, `main:app` 222 routes, `npm run build` 28.5 s exit 0.
+
 ## 7. Open threads
 
-**Prod is FIVE migrations behind (re-verified live 2026-09-07):** local is at `ar18colperms`,
+**Prod is SEVEN migrations behind (2026-09-08):** local is at `as19boarddel`,
 Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
 assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
 bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,

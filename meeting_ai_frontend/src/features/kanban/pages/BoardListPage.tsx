@@ -7,6 +7,8 @@ import { SkeletonCard } from "../../../shared/components/Skeleton";
 import { createBoard, fetchBoards } from "../api";
 import type { BoardSummary } from "../types";
 import { fetchUnreadMentions } from "../api";
+import BoardActions from "../components/BoardActions";
+import { usePermissions } from "@/features/auth/hooks/usePermissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,6 +19,9 @@ import { accent } from "@/lib/vibrant";
 
 export default function BoardListPage() {
   const navigate = useNavigate();
+  // Rendering hint only — the server re-derives it and 403s a member who
+  // calls PATCH or DELETE anyway. This just avoids offering the control.
+  const { canManageBoards } = usePermissions();
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   // Boards holding an unread @mention for this viewer. Fetched separately from
   // the board list so `/boards` keeps its shape — the two are rendered
@@ -204,15 +209,20 @@ export default function BoardListPage() {
                         </p>
                       </div>
                     </div>
-                    {b.is_default && (
-                      <Badge
-                        variant="warning"
-                        title="Auto-extracted tasks land on this board by default"
-                      >
-                        <Sparkles className="size-2.5" />
-                        Default
-                      </Badge>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {b.is_default && (
+                        <Badge
+                          variant="warning"
+                          title="Auto-extracted tasks land on this board by default"
+                        >
+                          <Sparkles className="size-2.5" />
+                          Default
+                        </Badge>
+                      )}
+                      {canManageBoards && (
+                        <BoardActions board={b} onChanged={refresh} />
+                      )}
+                    </div>
                   </div>
                   {b.description && (
                     <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-muted-ink">
