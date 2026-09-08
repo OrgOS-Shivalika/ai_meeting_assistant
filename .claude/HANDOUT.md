@@ -2467,6 +2467,64 @@ check is now inverted).
 - Pytest kanban/rbac set unchanged at 24 failed / 172 passed, `test_workflow`
   64/64, `main:app` 222 routes, `npm run build` 28.5 s exit 0.
 
+### 2026-09-08 (cont.) - every column defaults to "in from anywhere"
+
+- The workflow editor opens an **unconfigured** board with a wildcard
+  (`from_column_id: null`) into every column, instead of an empty list.
+- Why it matters, and it is the real footgun in this feature: an empty
+  ruleset allows everything only while it stays empty. Add ONE rule and the
+  board flips to deny-unless-listed, so every column you did not mention
+  becomes a dead end - the first rule anybody writes silently freezes the rest
+  of their board. Opening from "anywhere -> each column" means the first edit
+  narrows one route rather than closing all of them.
+- **A board that already has rules is left exactly as saved.** Its author may
+  have meant a column to be unreachable, and seeding over that would overrule
+  them. The seed only fires on `transitions.length === 0`.
+- A column added while the editor is open gets the same default. Tracked in a
+  `useRef` set, NOT state: the job is to default a column ONCE, and re-running
+  on change would regrow the wildcard the moment somebody cleared it, making a
+  start column impossible to build.
+- Frontend-only. Nothing is written until Save - the editor just opens dirty.
+- Verified server-side, because the shape is new: `test_workflow.py` **67/67**
+  now includes saving a wildcard into EVERY column (four rows sharing a NULL
+  `from_column_id` under `uq_workflow_transitions_pair` - they do not collide
+  because Postgres treats NULLs as distinct, asserted rather than assumed) and
+  then walking all 12 column pairs to confirm every move is still allowed.
+- No check file for the seeding itself: it is a six-line effect, and pulling
+  it out into a function purely to test it would add the abstraction the code
+  does not otherwise want. `tsc -b --force` clean, `npm run build` 26.2 s.
+
+### 2026-09-08 (cont.) - "Owner" is now "Assigned to", and lists org members too
+
+Asked for as a rename plus a wider list; clarified with the user before
+touching it, because the obvious reading (make Owner the real assignee) would
+have re-broken the 2026-09-02 fix above.
+
+- `TaskDetailDrawer`: the Owner field is labelled **Assigned to**. The FIELD
+  IS UNCHANGED - it still writes `owner_name`, a text label. So the record of
+  what the meeting actually said survives, and `test_task_assignment.py` stays
+  16/16.
+- Its dropdown now offers, in two `<optgroup>`s: **In this meeting** (the
+  participants it always listed) and **Organization** (everyone from
+  `/org/members`), then the current value if it is neither, then "Other..."
+  for free text. "No owner" became "Nobody".
+- **De-duplicated by NAME**, because the name IS the stored value - the same
+  person in both groups would render two options doing the same thing and
+  `<select>` could not tell which was selected.
+- Side benefit worth knowing: a MANUAL card has no meeting, so its participant
+  list was empty and the picker previously offered nothing but "Other...".
+  Those cards now get the org directory.
+- `AssigneePicker` no longer fetches its own copy of `/org/members`; the
+  drawer fetches once and passes it to both. Two identical requests per drawer
+  open otherwise.
+- **Still two fields, deliberately.** Assignee (admin-only) is the one that
+  creates the `assignee_user_id` link, notifies, grants access and drives "my
+  work". "Assigned to" is a label. Picking somebody there does NOT assign them
+  - flagged to the user, who confirmed the rename anyway. If they come back
+  asking why assigning didn't notify anyone, this is why.
+- `tsc -b --force` clean, `npm run build` 27.5 s. No backend change, no
+  migration.
+
 ## 7. Open threads
 
 **Prod is SEVEN migrations behind (2026-09-08):** local is at `as19boarddel`,

@@ -255,6 +255,23 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
     await applyPatch("assignee_user_id", { assignee_user_id: userId });
   };
 
+  // Both pickers below need the org directory, and a drawer that opened two
+  // identical requests for it would be silly. Fetched once here.
+  const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
+  useEffect(() => {
+    let alive = true;
+    // Org-scoped server-side — this endpoint never returns another
+    // organization's people.
+    fetchOrgMembers()
+      .then((m) => alive && setOrgMembers(m))
+      .catch(() => {
+        /* the selects just stay short; not worth an error banner */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const handleChangeOwner = async (ownerName: string | null) => {
     if (!task) return;
     if ((ownerName || "") === (task.owner || "")) return;
@@ -433,20 +450,26 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                     </label>
                     <AssigneePicker
                       task={task}
+                      members={orgMembers}
                       onChange={handleChangeAssignee}
                       saving={savingField === "assignee_user_id"}
                     />
                   </div>
                 )}
 
-                {/* Owner */}
+                {/* Assigned to — still `owner_name`, still a text label.
+                    Renamed from "Owner" because that is what people call it;
+                    the field it writes is unchanged, so the record of what the
+                    meeting actually said is not touched. Assignee above is
+                    still the one that grants access and notifies. */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                    <User className="w-2.5 h-2.5" /> Owner
+                    <User className="w-2.5 h-2.5" /> Assigned to
                   </label>
                   <OwnerPicker
                     task={task}
                     participants={task.meeting_participants}
+                    members={orgMembers}
                     onChange={handleChangeOwner}
                     saving={savingField === "owner_name"}
                   />
@@ -601,29 +624,15 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 // 181 participants, 0 of them linked to an account.
 function AssigneePicker({
   task,
+  members,
   onChange,
   saving,
 }: {
   task: TaskDetail;
+  members: OrgMember[];
   onChange: (userId: string | null) => void | Promise<void>;
   saving: boolean;
 }) {
-  const [members, setMembers] = useState<OrgMember[]>([]);
-
-  useEffect(() => {
-    let alive = true;
-    // Org-scoped server-side — this endpoint never returns another
-    // organization's people.
-    fetchOrgMembers()
-      .then((m) => alive && setMembers(m))
-      .catch(() => {
-        /* the select just stays empty; not worth an error banner */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   return (
     <select
       value={task.assignee_user_id || ""}
@@ -651,25 +660,48 @@ function AssigneePicker({
 }
 
 
-// Owner picker — small dropdown of meeting participants + "Other…"
-// fallback for arbitrary names. Lighter than TaskAssignmentEditor
-// because the drawer already owns the saving lifecycle.
+// "Assigned to" picker — the people in THIS meeting, then everyone in the
+// organization, then "Other…" for a name that is neither.
+//
+// Both groups write the same thing: a NAME into `owner_name`. That is the
+// whole field — it does not create the `assignee_user_id` link, so picking
+// somebody here does not notify them or grant them access. Assignee does
+// that, and the two stay separate on purpose (see the 2026-09-02 entry in the
+// handout: assignment used to overwrite this and destroyed the only record of
+// what the meeting said).
+//
+// Grouped rather than merged into one flat list: "was in the room" and "works
+// here" are different reasons for a name to be offered, and on this data they
+// barely overlap.
 // ---------------------------------------------------------------------------
 
 interface OwnerPickerProps {
   task: TaskDetail;
   participants: MeetingParticipantSummary[];
+  members: OrgMember[];
   onChange: (next: string | null) => void;
   saving: boolean;
 }
 
-function OwnerPicker({ task, participants, onChange, saving }: OwnerPickerProps) {
+function OwnerPicker({
+  task, participants, members, onChange, saving,
+}: OwnerPickerProps) {
   const [mode, setMode] = useState<"display" | "other">("display");
   const [otherValue, setOtherValue] = useState(task.owner || "");
 
+  // De-duplicated by NAME, because the name IS the stored value: the same
+  // person in both groups would render two options that do the same thing,
+  // and `<select>` would not be able to tell which one is selected.
+  const orgOnly = useMemo(() => {
+    const seen = new Set(participants.map((p) => p.name));
+    return members.filter((m) => !seen.has(m.name));
+  }, [participants, members]);
+
   const inList = useMemo(
-    () => participants.some((p) => p.name === task.owner),
-    [participants, task.owner],
+    () =>
+      participants.some((p) => p.name === task.owner) ||
+      orgOnly.some((m) => m.name === task.owner),
+    [participants, orgOnly, task.owner],
   );
 
   if (mode === "other") {
@@ -713,12 +745,25 @@ function OwnerPicker({ task, participants, onChange, saving }: OwnerPickerProps)
       className="w-full text-xs px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
     >
       <option value="">— Select —</option>
-      <option value="__none__">No owner</option>
-      {participants.map((p) => (
-        <option key={`${p.name}-${p.email ?? ""}`} value={p.name}>
-          {p.name}
-        </option>
-      ))}
+      <option value="__none__">Nobody</option>
+      {participants.length > 0 && (
+        <optgroup label="In this meeting">
+          {participants.map((p) => (
+            <option key={`p-${p.name}-${p.email ?? ""}`} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {orgOnly.length > 0 && (
+        <optgroup label="Organization">
+          {orgOnly.map((m) => (
+            <option key={`m-${m.id}`} value={m.name}>
+              {m.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
       {task.owner && !inList && (
         <option value="__other_current__">{task.owner}</option>
       )}

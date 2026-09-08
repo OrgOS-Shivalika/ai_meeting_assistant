@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -81,11 +81,43 @@ export default function WorkflowModal({
   const nameOf = (id: number | null) =>
     id === null ? "Anywhere" : columns.find((c) => c.id === id)?.name || "—";
 
+  /** The default way in: reachable from anywhere. */
+  const wildcardInto = (columnId: number): WorkflowTransition => ({
+    kind: "allow",
+    from_column_id: null,
+    to_column_id: columnId,
+    require_assignee: false,
+    require_due_date: false,
+  });
+
+  // Columns this editor has already given a default to. Held in a ref, not
+  // state, because it must not re-run the seeding when it changes — its whole
+  // job is to make sure a column is defaulted ONCE. Without it, clearing a
+  // column's ways in would grow the wildcard straight back and there would be
+  // no way to build a start column.
+  const defaulted = useRef<Set<number>>(new Set());
+
   useEffect(() => {
     fetchBoardWorkflow(board.id)
       .then((w) => {
-        setRules(w.transitions);
+        // An UNCONFIGURED board opens with every column reachable from
+        // anywhere, rather than with an empty list. Empty is the trap: the
+        // moment you add one rule the board stops allowing everything and
+        // every column you did not mention becomes a dead end, so the first
+        // rule anybody writes silently freezes the rest of their board.
+        // Starting from "anywhere -> each column" means the first edit
+        // narrows one route instead of closing all of them.
+        //
+        // A board that already HAS rules is left exactly as saved — its
+        // author may have meant a column to be unreachable, and seeding over
+        // that would overrule them.
+        setRules(
+          w.transitions.length > 0
+            ? w.transitions
+            : board.columns.map((c) => wildcardInto(c.id)),
+        );
         setPerms(w.column_permissions || {});
+        defaulted.current = new Set(board.columns.map((c) => c.id));
       })
       .catch(() => setError("Couldn't load this board's workflow."))
       .finally(() => setLoading(false));
@@ -95,6 +127,17 @@ export default function WorkflowModal({
       .then(setMembers)
       .catch(() => setMembers([]));
   }, [board.id]);
+
+  // A status added while this screen is open gets the same default, for the
+  // same reason: a brand new column with no ways in is a dead end nobody asked
+  // for. Only ever fires for ids this editor has not defaulted before.
+  useEffect(() => {
+    if (loading) return;
+    const fresh = columns.filter((c) => !defaulted.current.has(c.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((c) => defaulted.current.add(c.id));
+    setRules((prev) => [...prev, ...fresh.map((c) => wildcardInto(c.id))]);
+  }, [columns, loading]);
 
   const addRule = () => {
     // Default to the first pair that isn't already listed, so clicking Add

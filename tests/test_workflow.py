@@ -276,6 +276,40 @@ def main() -> int:
         check("an unknown kind is refused", not ok, msg)
 
 
+        # -- the editor's opening ruleset ----------------------------------
+        #
+        # An unconfigured board now OPENS in the workflow editor with a
+        # wildcard into every column, so the first rule somebody writes
+        # narrows one route instead of freezing every column they did not
+        # mention. That payload has to survive `replace_transitions`: four
+        # rows sharing a NULL `from_column_id` under a unique index on
+        # (board, from, to). Postgres treats NULLs as distinct so they do not
+        # collide - asserted here rather than reasoned about.
+        print("\nThe editor's default ruleset: anywhere -> every column")
+        rows = workflow.replace_transitions(
+            db, board.id,
+            [{"from_column_id": None, "to_column_id": c.id} for c in cols],
+            {c.id for c in cols},
+        )
+        check("a wildcard into every column saves", len(rows) == len(cols),
+              f"{len(rows)} of {len(cols)}")
+        check("  and the board reads as configured",
+              workflow.board_has_workflow(db, board.id))
+        moves_ok, detail = True, ""
+        for src in cols:
+            for dst in cols:
+                if src.id == dst.id:
+                    continue
+                probe = fresh_card(src)
+                ok, msg = moved(lambda t=probe, d=dst: ks.move_task(
+                    db, t.id, member, TaskMoveRequest(column_id=d.id)))
+                if not ok:
+                    moves_ok, detail = False, f"{src.name}->{dst.name}: {msg}"
+                    break
+            if not moves_ok:
+                break
+        check("  and every move is still allowed", moves_ok, detail)
+
         print("\nClearing the workflow restores free movement")
         workflow.replace_transitions(db, board.id, [], {c.id for c in cols})
         c5 = fresh_card(todo)
