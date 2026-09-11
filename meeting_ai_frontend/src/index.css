@@ -230,6 +230,17 @@
 }
 
 @layer base {
+  :root {
+    /* How much of its column's colour a task card mixes into its own
+       surface. Two values because the same percentage is NOT the same to the
+       eye in both themes: against a warm near-white card the cool hues wash
+       out (measured: cyan and violet moved ~15 of 765 at 10%), while against
+       the near-black dark card those two are the STRONGEST. Light therefore
+       needs the bigger mix — the opposite of the intuition that a pale
+       surface shows a tint more readily. */
+    --vb-card-tint: 18%;
+  }
+
   html {
     background: var(--vb-canvas);
   }
@@ -410,6 +421,9 @@ html.has-bg-image #root > div {
    actually consume.
 --------------------------------------------------------------------------- */
 html.theme-dark {
+  /* Less tint needed here — see the note on `--vb-card-tint` in @layer base. */
+  --vb-card-tint: 12%;
+
   /* Surfaces, lightest-to-darkest mirrored */
   --color-canvas: #14161a;
   --color-surface-soft: #1b1e24;

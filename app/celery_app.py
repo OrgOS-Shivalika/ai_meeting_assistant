@@ -12,6 +12,8 @@ The beat scheduler (Phase 6E) runs as a separate process:
 default `prefork` pool is used.
 """
 
+from datetime import timedelta
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -70,12 +72,30 @@ celery.conf.update(
 # past every hour, consolidation Sundays at 03:30 UTC.
 # ---------------------------------------------------------------------------
 celery.conf.beat_schedule = {
-    # Every 5 minutes: notification email is a courtesy, not a race, and a
-    # tighter loop would just poll an empty table. The in-app bell is
-    # immediate regardless — it reads the same rows the sweep is emailing.
+    # Every 30 seconds. `timedelta`, not `crontab` — crontab's finest grain is
+    # a minute, so it cannot express this at all.
+    #
+    # It used to be 5 minutes, on the reasoning that notification email is a
+    # courtesy rather than a race. In use it read as broken: you assign someone
+    # a card while talking to them and they have nothing for several minutes.
+    # The cost of the tighter loop is one indexed-ish query against a small
+    # table, 2880 times a day.
+    #
+    # ponytail: polling, not push. Enqueueing a send from `notifications.create`
+    # would be near-instant, but that function deliberately only FLUSHES — the
+    # row belongs to the caller's transaction — so a task queued there could
+    # email about a notification the caller then rolls back. Polling cannot
+    # send for a row that was never committed. Move to push only with an
+    # after-commit hook.
+    #
+    # Known ceiling: Celery does not prevent a periodic task from overlapping
+    # itself. At 30s with slow SMTP and a large backlog two sweeps could run
+    # together and race for the same rows. Harmless today (the sweep marks
+    # `emailed_at` as it goes and the table is tiny); add a Redis lock if the
+    # backlog ever gets big enough to outlast the interval.
     "notification-emails": {
         "task": "meeting_ai.send_pending_notification_emails",
-        "schedule": crontab(minute="*/5"),
+        "schedule": timedelta(seconds=30),
     },
     # Hourly. Cheap and idempotent (`notify_due_soon` dedupes on task + due
     # date), so the only cost of running it often is one indexed query.

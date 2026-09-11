@@ -21,7 +21,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import HTTPException  # noqa: E402
 
 from app.db.database import SessionLocal  # noqa: E402
-from app.db.models import KanbanBoard, KanbanColumn, Task, User  # noqa: E402
+from app.db.models import (  # noqa: E402
+    KanbanBoard, KanbanColumn, Notification, Task,
+    User,
+)
 from app.schemas.kanban_schema import BoardCreateRequest  # noqa: E402
 from app.schemas.meeting_schema import TaskUpdateRequest  # noqa: E402
 from app.services import meeting_service, permissions  # noqa: E402
@@ -39,6 +42,7 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 def main() -> int:
     db = SessionLocal()
     board = None
+    note_ids: list[int] = []
     try:
         admin = db.query(User).filter(User.email == "divyansh.bhardwaj@smoothops.info").first()
         assert admin is not None and admin.role == "ORG_ADMIN"
@@ -150,6 +154,64 @@ def main() -> int:
               still is not None,
               "unassigning hid it — the board arm is not covering this card")
 
+        # -- the two fields are INDEPENDENT --------------------------------
+        #
+        # `owner_name` ("Assigned to") and `assignee_user_id` (Assignee) are
+        # not linked in either direction. Both directions have been tried and
+        # both were wrong for the same reason - touching one field silently
+        # moved the other:
+        #   * assignment used to overwrite `owner_name` (fixed 2026-09-02,
+        #     asserted below);
+        #   * setting the label briefly resolved it and assigned the account
+        #     (2026-09-08), which made the Assignee control appear to move by
+        #     itself.
+        # These assertions are INVERTED from that second version on purpose.
+        print("\nThe label and the account do not move each other")
+
+        def fresh(owner=None):
+            t = Task(task="link probe", board_id=board.id, column_id=col.id,
+                     status="todo", position=1000.0, owner_name=owner)
+            db.add(t)
+            db.commit()
+            return t
+
+        c = fresh()
+        meeting_service.update_task(
+            db, admin, c.id, TaskUpdateRequest(owner_name=member.name))
+        db.expire_all()
+        db.refresh(c)
+        check("setting the label does NOT set the assignee",
+              c.assignee_user_id is None, repr(c.assignee_user_id))
+        check("  and the label is written", c.owner_name == member.name,
+              repr(c.owner_name))
+        notes = (db.query(Notification)
+                 .filter(Notification.task_id == c.id).all())
+        note_ids.extend(n.id for n in notes)
+        check("  and nobody is notified by the label alone", len(notes) == 0,
+              f"{len(notes)} notifications")
+
+        c2 = fresh(owner="Conversation Group")
+        meeting_service.update_task(
+            db, admin, c2.id, TaskUpdateRequest(assignee_user_id=member.id))
+        db.expire_all()
+        db.refresh(c2)
+        check("setting the assignee does NOT overwrite the label",
+              c2.owner_name == "Conversation Group", repr(c2.owner_name))
+        notes = (db.query(Notification)
+                 .filter(Notification.task_id == c2.id).all())
+        note_ids.extend(n.id for n in notes)
+        check("  and the ASSIGNEE is the one notified",
+              len(notes) == 1 and str(notes[0].user_id) == str(member.id),
+              f"{[str(n.user_id) for n in notes]}")
+
+        c3 = fresh(owner=member.name)
+        meeting_service.update_task(
+            db, admin, c3.id, TaskUpdateRequest(owner_name=None))
+        db.expire_all()
+        db.refresh(c3)
+        check("clearing the label leaves the assignee alone",
+              c3.assignee_user_id is None and c3.owner_name is None)
+
         print("\nThe resolver refuses to guess")
         org = admin.organization_id
         check("sentinel labels resolve to nobody",
@@ -165,6 +227,11 @@ def main() -> int:
         check("an unknown name resolves to nobody",
               assignees.resolve_assignee(db, org, "Nobody McNobodyface") is None)
     finally:
+        if note_ids:
+            db.query(Notification).filter(
+                Notification.id.in_(set(note_ids))).delete(
+                synchronize_session=False)
+            db.commit()
         if board is not None:
             db.query(Task).filter(Task.board_id == board.id).delete()
             db.query(KanbanColumn).filter(KanbanColumn.board_id == board.id).delete()

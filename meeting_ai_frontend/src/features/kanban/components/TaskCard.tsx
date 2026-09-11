@@ -26,12 +26,15 @@ const formatDateShort = (iso: string | null): string | null => {
 
 interface Props {
   task: BoardTaskSummary;
+  /** The owning column's colour, already resolved to a CSS value. Optional:
+   *  a card can render outside any column (the drag overlay). */
+  color?: string;
   /** When true, the card is the active drag overlay — slight shadow lift. */
   isOverlay?: boolean;
   onOpen?: (task: BoardTaskSummary) => void;
 }
 
-function TaskCard({ task, isOverlay = false, onOpen }: Props) {
+function TaskCard({ task, color, isOverlay = false, onOpen }: Props) {
   // useSortable wires this card up as both a draggable AND a drop target
   // (sortable items can act as anchors for "drop before" / "drop after"
   // gestures within a column).
@@ -49,15 +52,13 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
     transition,
   };
 
-  // The resolved account wins over the analyzer's label. Both are kept on
-  // the task and they answer different questions — "what the meeting said"
-  // vs "who owns this now" — but a card has room for one name, and the one
-  // that means something is the account.
+  // "Assigned to" wins. A card has room for ONE name and this is the field
+  // people set to say who is doing the work — showing the account instead
+  // meant the card contradicted the field they had just edited.
   //
-  // This ordering is what lets the server STOP overwriting `owner_name` when
-  // someone is assigned: without it, assigning a card would leave the old
-  // meeting label on display and look broken.
-  const displayName = task.assignee_name || task.owner;
+  // Falls back to the account so a card assigned through the Assignee control
+  // alone still shows somebody rather than "Unassigned".
+  const displayName = task.owner || task.assignee_name;
   const due = formatDateShort(task.due_date);
   const priorityKey = (task.priority || "medium").toLowerCase();
   const priorityClass = PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
@@ -66,7 +67,19 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{
+        ...style,
+        // The card carries its column's colour, mixed INTO the card surface
+        // rather than laid over it, so text contrast is untouched. Skipped
+        // when the card is unassigned — that warning tint is a signal and
+        // outranks decoration — and when no colour was given, which leaves
+        // `bg-canvas` from the className to apply.
+        ...(color && !unassigned
+          ? {
+              background: `color-mix(in srgb, ${color} var(--vb-card-tint, 14%), var(--vb-canvas))`,
+            }
+          : null),
+      }}
       {...attributes}
       {...listeners}
       onClick={() => {
@@ -79,7 +92,8 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
         // `relative` so the unread dot can sit on the card's corner.
         "relative",
         // Floating card — the one place the system allows a soft shadow.
-        "cursor-grab rounded-md border border-hairline bg-canvas p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all active:cursor-grabbing",
+        // The outline STAYS: it was removed once and put straight back.
+        "cursor-grab rounded-xs border border-hairline bg-canvas p-2.5 shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all active:cursor-grabbing",
         isDragging && "opacity-30",
         isOverlay && "cursor-grabbing shadow-raised",
         unassigned
@@ -100,7 +114,7 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
       )}
 
       {/* Title + priority */}
-      <div className="mb-2.5 flex items-start justify-between gap-2">
+      <div className="mb-2 flex items-start justify-between gap-2">
         <h4
           className={cn(
             "text-[13px] leading-snug font-medium",
@@ -120,8 +134,8 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
       </div>
 
       {/* Footer: owner + due + comments + status icon */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           {displayName ? (
             <Avatar size="xs" name={displayName} className="size-[18px] text-[8px]" />
           ) : (
@@ -134,9 +148,12 @@ function TaskCard({ task, isOverlay = false, onOpen }: Props) {
               "truncate text-[11px] font-medium",
               unassigned ? "text-warning" : "text-muted-ink",
             )}
+            // The two fields are independent, so they can legitimately name
+            // different people. The card shows one; the tooltip says who the
+            // other is rather than leaving the difference invisible.
             title={
               task.assignee_name && task.owner && task.assignee_name !== task.owner
-                ? `Assigned to ${task.assignee_name} · meeting said "${task.owner}"`
+                ? `Assigned to ${task.owner} · account: ${task.assignee_name}`
                 : displayName || "Unassigned"
             }
           >

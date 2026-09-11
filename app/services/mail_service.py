@@ -18,6 +18,7 @@ password. Callers surface the outcome; they don't handle exceptions.
 """
 from __future__ import annotations
 
+import contextlib
 import smtplib
 import ssl
 from dataclasses import dataclass
@@ -75,12 +76,52 @@ def _connect():
     return client
 
 
+@contextlib.contextmanager
+def connection():
+    """One authenticated SMTP connection, for a caller sending several in a row.
+
+    `send_email` opens its own per message - connect, STARTTLS, LOGIN, send,
+    quit - which is right for a single transactional send and wrong for a
+    sweep. Ten notifications meant ten TLS handshakes and ten logins in 34
+    seconds, and Gmail started refusing the connection outright
+    (`ConnectionRefusedError: [Errno 111]`). Measured on 2026-09-08: of 10
+    pending notifications, 1 was delivered.
+
+    Yields None when SMTP is not configured, so callers can use the same
+    shape either way - `send_email` already handles the unconfigured case.
+    """
+    if not is_configured():
+        yield None
+        return
+    client = None
+    try:
+        client = _connect()
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            client.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        yield client
+    except Exception as exc:
+        # Could not establish the shared connection at all. Yield None and let
+        # every send fall back to its own - slow, but it still delivers.
+        logger.warning(
+            "Shared SMTP connection failed (%s: %s) - falling back to one "
+            "connection per message", type(exc).__name__, exc,
+        )
+        yield None
+    finally:
+        if client is not None:
+            try:
+                client.quit()
+            except Exception:
+                pass
+
+
 def send_email(
     *,
     to: str,
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
+    client=None,
 ) -> SendResult:
     """Send one email. Returns the outcome; never raises.
 
@@ -102,11 +143,29 @@ def send_email(
     if html_body:
         message.add_alternative(html_body, subtype="html")
 
-    try:
-        with _connect() as client:
+    def _own_connection() -> None:
+        with _connect() as c:
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
-                client.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            client.send_message(message)
+                c.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            c.send_message(message)
+
+    try:
+        if client is None:
+            _own_connection()
+        else:
+            try:
+                client.send_message(message)
+            except Exception as shared_exc:
+                # A shared connection that dies mid-batch would otherwise take
+                # every remaining message with it, and the sweep stamps
+                # `emailed_at` even on failure - so those would be lost, not
+                # retried. One retry on a fresh connection bounds the damage to
+                # nothing worse than the old per-message behaviour.
+                logger.info(
+                    "Shared SMTP connection failed for %s (%s) - retrying on "
+                    "its own", to, type(shared_exc).__name__,
+                )
+                _own_connection()
     except Exception as exc:
         # Log the type and message but not the body — it may hold a
         # credential, and logs are a different trust boundary from a mailbox.

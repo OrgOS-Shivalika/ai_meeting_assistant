@@ -118,30 +118,35 @@ def send_pending_notification_emails(self):
             .limit(200)
             .all()
         )
-        for note in pending:
-            user = db.query(User).filter(User.id == note.user_id).first()
-            if user is None:
-                note.emailed_at = datetime.now(timezone.utc)  # nothing to send to
-                continue
-            if not notifications.wants_email(user, note.kind):
-                # Stamped as handled so it is not reconsidered every pass. The
-                # row stays in their in-app feed — opting out of email is not
-                # opting out of knowing.
+        # ONE connection for the whole sweep. See `mail_service.connection`:
+        # a login per message got the connection refused outright once there
+        # were more than a couple to send.
+        with mail_service.connection() as smtp:
+            for note in pending:
+                user = db.query(User).filter(User.id == note.user_id).first()
+                if user is None:
+                    note.emailed_at = datetime.now(timezone.utc)  # nothing to send to
+                    continue
+                if not notifications.wants_email(user, note.kind):
+                    # Stamped as handled so it is not reconsidered every pass. The
+                    # row stays in their in-app feed — opting out of email is not
+                    # opting out of knowing.
+                    note.emailed_at = datetime.now(timezone.utc)
+                    skipped += 1
+                    continue
+                text, html = _body(note)
+                result = mail_service.send_email(
+                    to=user.email,
+                    subject=_SUBJECT.get(note.kind, "Update on your work"),
+                    text_body=text,
+                    html_body=html,
+                    client=smtp,
+                )
+                # Stamp on skipped/failed too. Retrying a failed send forever
+                # would turn one broken address into an infinite loop; the row
+                # remains visible in-app, which is the fallback that matters.
                 note.emailed_at = datetime.now(timezone.utc)
-                skipped += 1
-                continue
-            text, html = _body(note)
-            result = mail_service.send_email(
-                to=user.email,
-                subject=_SUBJECT.get(note.kind, "Update on your work"),
-                text_body=text,
-                html_body=html,
-            )
-            # Stamp on skipped/failed too. Retrying a failed send forever
-            # would turn one broken address into an infinite loop; the row
-            # remains visible in-app, which is the fallback that matters.
-            note.emailed_at = datetime.now(timezone.utc)
-            sent += 1 if result.sent else 0
+                sent += 1 if result.sent else 0
         db.commit()
         logger.info(
             "Notification emails: %d sent, %d opted out, %d considered",

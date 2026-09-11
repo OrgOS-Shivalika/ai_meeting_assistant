@@ -88,7 +88,7 @@ export default function BoardListPage() {
 
         {/* Inline create form */}
         {creating && (
-          <Card variant="default" className="mb-5 rounded-xl p-5">
+          <Card variant="default" className="mb-5 rounded-md p-5">
             <div className="vb-label-caps mb-2.5">Create board</div>
             <div className="flex flex-wrap items-center gap-2.5">
               <Input
@@ -132,25 +132,25 @@ export default function BoardListPage() {
 
         {/* List */}
         {loading ? (
-          <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <SkeletonCard key={i} className="h-44 rounded-xl" />
+              <SkeletonCard key={i} className="h-36 rounded-md" />
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-error/20 bg-error/8 py-12 text-center text-[13px] font-medium text-error">
+          <div className="rounded-md border border-error/20 bg-error/8 py-12 text-center text-[13px] font-medium text-error">
             {error}
           </div>
         ) : (
           // Continuum Core is pinned and always present, so the grid
           // renders even with zero task boards (the old empty-state
           // branch hid the pinned card for fresh accounts).
-          <div className="grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {/* Continuum Core — pinned special board. Clients across the
                 6 engagement stages, not tasks; lives in its own tables. */}
             <Link to="/board/continuum" className="group">
-              <Card variant="default" className="h-full rounded-xl p-6">
-                <div className="mb-[18px] flex items-start justify-between gap-3">
+              <Card variant="default" className="h-full rounded-md p-4">
+                <div className="mb-3 flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <IconChip size="lg" color="var(--vb-success)">
                       <Briefcase />
@@ -186,8 +186,8 @@ export default function BoardListPage() {
 
             {boards.map((b, index) => (
               <Link key={b.id} to={`/board/${b.id}`} className="group">
-                <Card variant="default" className="h-full rounded-xl p-6">
-                  <div className="mb-[18px] flex items-start justify-between gap-3">
+                <Card variant="default" className="h-full rounded-md p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <IconChip size="lg" color={accent(index)}>
                         <LayoutGrid />

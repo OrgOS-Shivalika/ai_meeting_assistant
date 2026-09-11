@@ -917,6 +917,16 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             raise HTTPException(status_code=400, detail="task text cannot be empty")
         task.task = new_text
     if "owner_name" in data:
+        # UNLINKED from `assignee_user_id` on purpose. This briefly resolved
+        # the label to an account and assigned them, so the person named here
+        # got the mail — which also meant the Assignee control appeared to move
+        # on its own whenever you edited this field. The two are independent
+        # again: this is a label, Assignee is the account.
+        #
+        # The consequence, stated so nobody rediscovers it: nothing here
+        # notifies. Notification, access and "my work" all key off
+        # `assignee_user_id`, so a person named ONLY in this field is told
+        # nothing.
         task.owner_name = (data["owner_name"] or "").strip() or None
     if "assignee_user_id" in data:
         # Assigning is a grant — it hands the assignee read+write on this

@@ -13,7 +13,10 @@ import type { BoardTaskSummary, ColumnWithTasks } from "../types";
 import { cn } from "@/lib/utils";
 
 
-const COLUMN_DOT: Record<string, string> = {
+/** The eight column colours as theme tokens, so they follow light/dark.
+ *  Exported because the CARDS wear this colour now, and the drag overlay in
+ *  `BoardPage` has to resolve it for a card that is momentarily in no column. */
+export const COLUMN_DOT: Record<string, string> = {
   slate: "var(--vb-muted-soft)",
   indigo: "var(--vb-info)",
   amber: "var(--vb-ochre)",
@@ -86,7 +89,9 @@ export default function BoardColumn({
       ref={setSortableRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "flex max-h-full w-75 shrink-0 flex-col rounded-lg bg-surface-soft p-3.5",
+        // The panel stays NEUTRAL. The colour lives on the cards now —
+        // tinting both would leave the cards nothing to stand out against.
+        "flex max-h-full w-68 shrink-0 flex-col rounded-md bg-surface-soft p-2.5",
         isDragging && "opacity-60 ring-2 ring-ink",
       )}
     >
@@ -94,7 +99,7 @@ export default function BoardColumn({
       <div
         {...attributes}
         {...listeners}
-        className="group flex cursor-grab items-center gap-2.5 px-1.5 pb-3 active:cursor-grabbing"
+        className="group flex cursor-grab items-center gap-2.5 px-1 pb-2 active:cursor-grabbing"
       >
         <GripVertical className="-ml-1 size-3 shrink-0 text-muted-soft opacity-0 transition-opacity group-hover:opacity-100" />
         <span
@@ -147,18 +152,18 @@ export default function BoardColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "vb-no-scrollbar flex-1 space-y-2.5 overflow-y-auto rounded-md p-0.5 transition-colors",
+          "vb-no-scrollbar flex-1 space-y-2 overflow-y-auto rounded-sm p-0.5 transition-colors",
           isOver && "bg-surface-strong/60",
         )}
       >
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {visibleTasks.length === 0 ? (
-            <div className="py-6 text-center text-[11px] text-muted-soft">
+            <div className="py-4 text-center text-[11px] text-muted-soft">
               {isOver ? "Drop here…" : "No cards"}
             </div>
           ) : (
             visibleTasks.map((task) => (
-              <TaskCard key={task.id} task={task} onOpen={onOpenTask} />
+              <TaskCard key={task.id} task={task} color={dot} onOpen={onOpenTask} />
             ))
           )}
         </SortableContext>
