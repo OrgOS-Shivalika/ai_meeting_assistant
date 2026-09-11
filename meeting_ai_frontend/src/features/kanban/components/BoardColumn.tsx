@@ -5,7 +5,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useDroppable } from "@dnd-kit/core";
+import { useDndContext, useDroppable } from "@dnd-kit/core";
 import { GripVertical, Trash2 } from "lucide-react";
 import TaskCard from "./TaskCard";
 import QuickAddCard from "./QuickAddCard";
@@ -53,6 +53,22 @@ export default function BoardColumn({
     data: { columnId: column.id, type: "column" },
   });
 
+  // `isOver` alone misses the column HEADER. The header is outside the
+  // droppable above (it is a sibling of it, not a child), so a card dragged
+  // over it resolves to this column's `colsort-` sortable instead — the drop
+  // works, because `handleDragEnd` reads that as "into this column", but the
+  // fill never lit up and the column looked inert at the exact moment it was
+  // about to accept the card.
+  //
+  // Gated on the drag being a CARD: while the columns themselves are being
+  // reordered, `over` is a `colsort-` id too, and without this every column
+  // you passed would flash its drop fill.
+  const dnd = useDndContext();
+  const draggingCard = String(dnd.active?.id ?? "").startsWith("task-");
+  const overThisColumn =
+    isOver ||
+    (draggingCard && String(dnd.over?.id ?? "") === `colsort-${column.id}`);
+
   // The column is ALSO a sortable, so the columns can be reordered.
   //
   // A separate id prefix from the droppable above, and deliberately not
@@ -89,9 +105,14 @@ export default function BoardColumn({
       ref={setSortableRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        // The panel stays NEUTRAL. The colour lives on the cards now —
-        // tinting both would leave the cards nothing to stand out against.
-        "flex max-h-full w-68 shrink-0 flex-col rounded-md bg-surface-soft p-2.5",
+        // No panel at all: the columns are separated by a single hairline,
+        // table-style. `first:border-l-0` keeps the row from opening with a
+        // stray rule — the first BoardColumn IS the first child here, since
+        // SortableContext renders no element of its own.
+        //
+        // The colour lives on the CARDS; a tinted panel behind tinted cards
+        // left the cards nothing to stand out against.
+        "flex max-h-full w-68 shrink-0 flex-col border-l border-hairline px-3 pb-2.5 first:border-l-0",
         isDragging && "opacity-60 ring-2 ring-ink",
       )}
     >
@@ -153,13 +174,13 @@ export default function BoardColumn({
         ref={setNodeRef}
         className={cn(
           "vb-no-scrollbar flex-1 space-y-2 overflow-y-auto rounded-sm p-0.5 transition-colors",
-          isOver && "bg-surface-strong/60",
+          overThisColumn && "bg-surface-strong/60",
         )}
       >
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {visibleTasks.length === 0 ? (
             <div className="py-4 text-center text-[11px] text-muted-soft">
-              {isOver ? "Drop here…" : "No cards"}
+              {overThisColumn ? "Drop here…" : "No cards"}
             </div>
           ) : (
             visibleTasks.map((task) => (

@@ -6,9 +6,11 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -103,6 +105,30 @@ export default function BoardPage() {
   // K4 — card detail drawer state. Deep-linkable via ?task=<id>.
   const taskParam = searchParams.get("task");
   const openTaskId = taskParam ? Number(taskParam) : null;
+  // Where a dragged card counts as being "over" a column.
+  //
+  // Was corner-distance detection, which measures the dragged rect's corners
+  // against each droppable's corners. Fine for a list of same-sized cards and
+  // wrong for a tall container: a full-height column's corners are at its very
+  // top and very bottom, so anywhere in the middle reads as FAR from it and
+  // only the lower region reliably won. Moving the columns to full height made
+  // it obvious.
+  //
+  // `pointerWithin` asks the question that matches the gesture instead: which
+  // droppables is the cursor actually inside? Every part of a column then
+  // works. Cards still take precedence over their column while the cursor is
+  // over one, because dnd-kit orders pointer collisions by distance to each
+  // rect's centre and a card's centre is nearer than the whole column's — so
+  // dropping between two cards stays precise.
+  const collisionDetection: CollisionDetection = useCallback((args) => {
+    const overPointer = pointerWithin(args);
+    if (overPointer.length > 0) return overPointer;
+    // Cursor outside every droppable — dragged past the edge of the board, or
+    // released mid-autoscroll. Fall back to rectangle overlap so the card has
+    // somewhere to land instead of snapping back.
+    return rectIntersection(args);
+  }, []);
+
   // useCallback here is not style — it is what lets `memo(TaskCard)` work.
   // A fresh arrow on every render is a changed prop on all ~900 cards, so the
   // memo would never hit and every keystroke in the search box would re-render
@@ -556,12 +582,17 @@ export default function BoardPage() {
       {/* Columns + drag-drop */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
         <div className="vb-no-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
-          <div className="flex h-full items-start gap-3">
+          {/* No gap: columns sit flush and a single hairline between them is the
+              only separation, like table columns. `items-stretch` (the flex
+              default, and the reason `items-start` had to go) makes every
+              column full height so those rules run the whole board — a divider
+              that stops at the shortest column's content reads as a mistake. */}
+          <div className="flex h-full gap-0">
             <SortableContext
               items={filteredColumns.map((c) => `colsort-${c.id}`)}
               strategy={horizontalListSortingStrategy}
@@ -579,7 +610,10 @@ export default function BoardPage() {
             </SortableContext>
             {/* Add Column — inline create flow. Refresh after save so
                 the new column shows up at the end of the row. */}
-            <AddColumnButton boardId={board.id} onAdded={refresh} />
+            {/* Outside the rule grid, so it needs its own breathing room. */}
+            <div className="pl-3">
+              <AddColumnButton boardId={board.id} onAdded={refresh} />
+            </div>
           </div>
         </div>
 

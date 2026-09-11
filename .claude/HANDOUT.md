@@ -2876,6 +2876,59 @@ when they said so again.
   rather than trusting the message.
 - `tsc -b --force` clean, `npm run build` 20.4 s.
 
+### 2026-09-11 (cont.) - columns are a table, not a row of panels
+
+- `BoardColumn` lost its panel entirely: no `bg-surface-soft`, no
+  `rounded-md`. It is now `border-l border-hairline first:border-l-0` with
+  `px-3 pb-2.5`, and the row gap went to 0 - so adjacent columns share a
+  single hairline, table-style.
+- **`items-start` had to go.** It was on the row and made every column only as
+  tall as its own cards, which meant the dividers stopped at different heights
+  and read as a rendering fault rather than a table. The row is plain flex now
+  (stretch is the default), so columns are full height and the rules run the
+  whole board. The card list is already `flex-1 overflow-y-auto`, so it just
+  fills the extra space.
+- `first:border-l-0` is safe because `SortableContext` renders NO element of
+  its own - the first `BoardColumn` really is the flex row's first child.
+  Verified the variant compiles: `.first\:border-l-0:first-child{...}` is in
+  the built stylesheet.
+- `AddColumnButton` sits outside the rule grid and got its own `pl-3`, or it
+  would butt against the last column now that the gap is gone.
+- The drop-zone highlight becomes the only fill a column ever shows, which
+  actually sharpens the drag feedback - `isOver` was `bg-surface-strong/60`
+  over a panel before, and is now the sole background.
+- `tsc -b --force` clean, `npm run build` 31.5 s.
+
+### 2026-09-11 (cont.) - card drop sensing fixed (collision detection)
+
+Reported after the table-style columns: cards only sensed a column near its
+LOWER part. Not a layout bug - the collision algorithm.
+
+- `DndContext` used `closestCorners`, which scores each droppable by the
+  distance between the dragged rect's corners and the droppable's corners.
+  That suits a list of same-sized cards and is wrong for a tall container: a
+  full-height column's corners are at its very top and very bottom, so the
+  middle of the column scores as FAR away and only the bottom region won
+  reliably. Making the columns full height (for the table dividers) is what
+  exposed it.
+- Replaced with `pointerWithin`, falling back to `rectIntersection` when the
+  cursor is outside every droppable (dragged past the edge of the board, or
+  released mid-autoscroll) so a card still lands instead of snapping back.
+- **Precision is not lost.** While the cursor is over a card, dnd-kit orders
+  pointer collisions by distance to each rect's centre, and a card's centre is
+  nearer than the whole column's - so the card still wins and insert-between
+  still works. The column only wins in its empty space.
+- The column HEADER resolves to the `colsort-` droppable, which `handleDragEnd`
+  already treats as "into this column", so dropping on the header works too.
+  **The highlight is wired for it as well** (same day): `BoardColumn` reads
+  `useDndContext()` and lights the fill when `over` is its own `colsort-` id,
+  not just when the card-list droppable is `isOver`. Gated on the drag being a
+  CARD (`active.id` starts with `task-`) - during a COLUMN reorder `over` is a
+  `colsort-` id too, and without the gate every column you dragged past would
+  flash its drop fill.
+- `tsc -b --force` clean, `npm run build` 30.3 s. NOT visually verified - this
+  one needs a real drag.
+
 ## 7. Open threads
 
 ~~prod behind on migrations~~ **CLEARED 2026-09-08** - Railway taken
