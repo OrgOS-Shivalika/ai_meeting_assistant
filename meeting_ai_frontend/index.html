@@ -5,8 +5,13 @@
     <!-- ?v= is a cache-buster. Browsers cache favicons far more stubbornly
          than other assets and ignore a normal hard-reload, so changing the
          graphic without changing the URL leaves the old icon in the tab.
-         Bump this whenever favicon.svg changes. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+         Bump this whenever favicon.png changes.
+
+         Only ONE icon is declared on purpose: with both a PNG and an SVG
+         listed, Chrome prefers the SVG, so leaving the old line in would have
+         made this change look like it did nothing. favicon.svg is still on
+         disk, just not referenced. -->
+    <link rel="icon" type="image/png" href="/favicon.png?v=3" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
