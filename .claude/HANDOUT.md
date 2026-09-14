@@ -3269,3 +3269,11 @@ not live there.
   no path gained a per-card query. Card shows up to 3 overlapping `Avatar`s + "+N", label reads
   "First +N", tooltip lists everyone. Verified: `tests/test_multi_assignee.py` 18/18 (new check
   asserts on `get_board` output), build exit 0.
+- **2026-09-14** — Railway DB migrated `as19boarddel` → `at20multiassign` (one revision, purely
+  additive: `task_assignees` + `ix_task_assignees_user` + backfill). Verified by OUTCOME, not by
+  the absence of an error: 14 assigned tasks → 14 join rows, 0 assigned tasks missing from the
+  join table; `tasks` 2976, `task_activity` 947, users/orgs 25/11 all unchanged. Pre-flight found
+  0 orphan `assignee_user_id`s (the only thing that could have aborted the backfill's FK).
+  **Railway CODE is still `e2f6fdd`** — DB is now ahead, which is the safe direction, but the new
+  code MUST NOT ship before this migration on any other environment: `permissions._assigned_to`
+  reads `task_assignees` on every task query.
