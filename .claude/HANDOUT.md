@@ -3277,3 +3277,18 @@ not live there.
   **Railway CODE is still `e2f6fdd`** — DB is now ahead, which is the safe direction, but the new
   code MUST NOT ship before this migration on any other environment: `permissions._assigned_to`
   reads `task_assignees` on every task query.
+- **2026-09-14** — Pre-deploy audit of `continum` (13 commits ahead of `neworigin/main`).
+  PASS: no new settings/env vars (diff of `settings.py` + `.env.example` is empty), app imports
+  with 223 routes, `tsc` + build clean, Railway DB already at `at20multiassign`.
+  FOUND + FIXED: `test_rbac_scopes`'s FK tripwire caught a real gap — `task_assignees.user_id` is
+  NOT NULL/CASCADE while `tasks.assignee_user_id` is SET NULL, so deleting a member left a shared
+  card NULL-primary while the surviving assignee kept access. `admin_service.delete_member` now
+  runs `_REPOINT_PRIMARY_ASSIGNEE` after the delete (hoisted to module level ON PURPOSE: that
+  test reads the function's source and splits on triple quotes). Also fixed two stale
+  `test_kanban_k2` assertions that asserted un-prefixed route paths.
+  **`pytest tests/` mass-fails by design** — most suites are standalone scripts whose `main()`
+  builds shared state pytest never calls (447 failed on this branch, 449 on committed HEAD:
+  pre-existing, not a regression). Run them as `python tests/<name>.py`.
+  NOT fixed, pre-existing on main, NOT deploy blockers: `GET /continuum/traces` is not org-scoped
+  (identical code on main — a live cross-tenant read), Continuum Core board visible to all orgs,
+  and My-cards/assignee filters still miss secondary assignees.

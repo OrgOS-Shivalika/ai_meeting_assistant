@@ -26,7 +26,7 @@ from app.db.models import (  # noqa: E402
 )
 from app.schemas.kanban_schema import BoardCreateRequest  # noqa: E402
 from app.schemas.meeting_schema import TaskUpdateRequest  # noqa: E402
-from app.services import meeting_service, permissions  # noqa: E402
+from app.services import admin_service, meeting_service, permissions  # noqa: E402
 from app.api import kanban_router  # noqa: E402
 from app.services.kanban import assignees, service as ks  # noqa: E402
 
@@ -178,6 +178,31 @@ def main() -> int:
         check("  an empty list unassigns everyone",
               assignees.current_assignee_ids(db, task) == []
               and task.assignee_user_id is None)
+
+        print("\nDeleting a MEMBER doesn't orphan a shared card")
+        # `tasks.assignee_user_id` is SET NULL, `task_assignees` CASCADEs. On a
+        # card with two assignees that leaves the column NULL while the join
+        # table still holds the survivor — "Unassigned" on a card somebody
+        # still has access to. `delete_member` re-points the column.
+        ghost = User(name="__probe_ghost__", email="__probe_ghost__@example.invalid",
+                     password="x", organization_id=admin.organization_id)
+        db.add(ghost)
+        db.commit()
+        meeting_service.update_task(
+            db, admin, task.id,
+            TaskUpdateRequest(assignee_user_ids=[str(ghost.id), str(a.id)]))
+        db.commit()
+        note_ids += [n.id for n in db.query(Notification).filter(
+            Notification.task_id == task.id).all()]
+        check("  the ghost is primary before the delete",
+              str(task.assignee_user_id) == str(ghost.id))
+        admin_service.delete_member(db, admin, ghost.id)
+        db.expire_all()
+        db.refresh(task)
+        check("  the survivor became primary",
+              str(task.assignee_user_id) == str(a.id), repr(task.assignee_user_id))
+        check("  and is still the only assignee",
+              assignees.current_assignee_ids(db, task) == [str(a.id)])
 
         print("\nDeleting the task takes its assignments")
         meeting_service.update_task(
