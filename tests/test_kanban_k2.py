@@ -348,6 +348,7 @@ def test_main_app_includes_kanban_router():
     from main import app
 
     paths = {r.path for r in app.router.routes}
-    # The kanban router doesn't prefix, so paths are top-level.
-    assert "/boards" in paths
-    assert "/tasks/{task_id}/move" in paths
+    # Mounted under settings.API_PREFIX. The bare paths this used to assert
+    # passed only while that prefix was empty.
+    assert "/api/boards" in paths
+    assert "/api/tasks/{task_id}/move" in paths

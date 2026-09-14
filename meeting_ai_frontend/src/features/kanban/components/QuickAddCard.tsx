@@ -47,7 +47,7 @@ export default function QuickAddCard({ onAdd }: Props) {
   }
 
   return (
-    <div className="bg-canvas border border-indigo-200 rounded-lg p-2 shadow-sm space-y-1.5">
+    <div className="bg-canvas border border-indigo-200 rounded-xs p-2 shadow-sm space-y-1.5">
       <textarea
         autoFocus
         rows={2}

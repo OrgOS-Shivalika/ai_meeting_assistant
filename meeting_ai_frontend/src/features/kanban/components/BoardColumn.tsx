@@ -5,7 +5,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useDroppable } from "@dnd-kit/core";
+import { useDndContext, useDroppable } from "@dnd-kit/core";
 import { GripVertical, Trash2 } from "lucide-react";
 import TaskCard from "./TaskCard";
 import QuickAddCard from "./QuickAddCard";
@@ -13,7 +13,10 @@ import type { BoardTaskSummary, ColumnWithTasks } from "../types";
 import { cn } from "@/lib/utils";
 
 
-const COLUMN_DOT: Record<string, string> = {
+/** The eight column colours as theme tokens, so they follow light/dark.
+ *  Exported because the CARDS wear this colour now, and the drag overlay in
+ *  `BoardPage` has to resolve it for a card that is momentarily in no column. */
+export const COLUMN_DOT: Record<string, string> = {
   slate: "var(--vb-muted-soft)",
   indigo: "var(--vb-info)",
   amber: "var(--vb-ochre)",
@@ -49,6 +52,22 @@ export default function BoardColumn({
     id: `column-${column.id}`,
     data: { columnId: column.id, type: "column" },
   });
+
+  // `isOver` alone misses the column HEADER. The header is outside the
+  // droppable above (it is a sibling of it, not a child), so a card dragged
+  // over it resolves to this column's `colsort-` sortable instead — the drop
+  // works, because `handleDragEnd` reads that as "into this column", but the
+  // fill never lit up and the column looked inert at the exact moment it was
+  // about to accept the card.
+  //
+  // Gated on the drag being a CARD: while the columns themselves are being
+  // reordered, `over` is a `colsort-` id too, and without this every column
+  // you passed would flash its drop fill.
+  const dnd = useDndContext();
+  const draggingCard = String(dnd.active?.id ?? "").startsWith("task-");
+  const overThisColumn =
+    isOver ||
+    (draggingCard && String(dnd.over?.id ?? "") === `colsort-${column.id}`);
 
   // The column is ALSO a sortable, so the columns can be reordered.
   //
@@ -86,7 +105,14 @@ export default function BoardColumn({
       ref={setSortableRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "flex max-h-full w-75 shrink-0 flex-col rounded-lg bg-surface-soft p-3.5",
+        // No panel at all: the columns are separated by a single hairline,
+        // table-style. `first:border-l-0` keeps the row from opening with a
+        // stray rule — the first BoardColumn IS the first child here, since
+        // SortableContext renders no element of its own.
+        //
+        // The colour lives on the CARDS; a tinted panel behind tinted cards
+        // left the cards nothing to stand out against.
+        "flex max-h-full w-68 shrink-0 flex-col border-l border-hairline px-3 pb-2.5 first:border-l-0",
         isDragging && "opacity-60 ring-2 ring-ink",
       )}
     >
@@ -94,7 +120,7 @@ export default function BoardColumn({
       <div
         {...attributes}
         {...listeners}
-        className="group flex cursor-grab items-center gap-2.5 px-1.5 pb-3 active:cursor-grabbing"
+        className="group flex cursor-grab items-center gap-2.5 px-1 pb-2 active:cursor-grabbing"
       >
         <GripVertical className="-ml-1 size-3 shrink-0 text-muted-soft opacity-0 transition-opacity group-hover:opacity-100" />
         <span
@@ -147,18 +173,18 @@ export default function BoardColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "vb-no-scrollbar flex-1 space-y-2.5 overflow-y-auto rounded-md p-0.5 transition-colors",
-          isOver && "bg-surface-strong/60",
+          "vb-no-scrollbar flex-1 space-y-2 overflow-y-auto rounded-sm p-0.5 transition-colors",
+          overThisColumn && "bg-surface-strong/60",
         )}
       >
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {visibleTasks.length === 0 ? (
-            <div className="py-6 text-center text-[11px] text-muted-soft">
-              {isOver ? "Drop here…" : "No cards"}
+            <div className="py-4 text-center text-[11px] text-muted-soft">
+              {overThisColumn ? "Drop here…" : "No cards"}
             </div>
           ) : (
             visibleTasks.map((task) => (
-              <TaskCard key={task.id} task={task} onOpen={onOpenTask} />
+              <TaskCard key={task.id} task={task} color={dot} onOpen={onOpenTask} />
             ))
           )}
         </SortableContext>

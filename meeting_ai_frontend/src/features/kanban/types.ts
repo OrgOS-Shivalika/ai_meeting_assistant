@@ -40,6 +40,8 @@ export interface BoardTaskSummary {
    */
   assignee_user_id: string | null;
   assignee_name: string | null;
+  /** Everyone assigned, oldest-first. `assignee_name` is the first of these. */
+  assignees?: { id: string; name: string }[];
   priority: "low" | "medium" | "high";
   due_date: string | null;
   status: TaskStatus;
@@ -151,6 +153,11 @@ export interface MeetingParticipantSummary {
 }
 
 export interface TaskDetail {
+  /** Every assignee, oldest-first. `assignee_user_id` remains the first of
+   *  these — derived server-side, never edited on its own. */
+  assignees?: { id: string; name: string }[];
+  /** Who assigned it, from the activity feed. Read-only. */
+  assigned_by?: { name: string; at: string | null } | null;
   id: number;
   task: string;
   description: string | null;
@@ -206,6 +213,9 @@ export interface ActivityList {
 }
 
 export interface TaskUpdateRequest {
+  /** Replaces the WHOLE set. Wins over `assignee_user_id` when both are
+   *  sent — a list is explicit about everyone, a scalar only about one. */
+  assignee_user_ids?: string[];
   task?: string;              // task text — for correcting AI-extracted text
   owner_name?: string | null;
   // The resolved account. Server-side this is admin-only and same-org, because

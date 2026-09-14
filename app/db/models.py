@@ -242,6 +242,19 @@ class Task(Base):
     assignee = relationship(
         "User", foreign_keys=[assignee_user_id], lazy="raise"
     )
+    # EVERY assignee, including the primary above. `task_assignees` is the
+    # source of truth; `assignee_user_id` is the derived first entry, written
+    # only by `kanban.assignees.set_assignees`.
+    #
+    # `lazy="raise"` for the same reason as `assignee`: on a 900-card board an
+    # implicit load here is a query per card. The single-card paths load it
+    # explicitly; the board path does not need it.
+    assignees = relationship(
+        "TaskAssignee",
+        cascade="all, delete-orphan",
+        lazy="raise",
+        back_populates="task",
+    )
     board = relationship("KanbanBoard", foreign_keys=[board_id])
     column = relationship("KanbanColumn", foreign_keys=[column_id], back_populates="tasks")
     comments = relationship(
@@ -419,6 +432,34 @@ class KanbanColumn(Base):
         foreign_keys="[Task.column_id]",
         back_populates="column",
     )
+
+
+class TaskAssignee(Base):
+    """One person assigned to one task.
+
+    The pair is the primary key: assigning somebody twice is not a second
+    assignment, and a surrogate id would have allowed the duplicate.
+
+    Both FKs cascade. Deleting a task drops its assignments; deleting a user
+    drops theirs rather than leaving a row pointing at nobody — the
+    `assignee_user_id` column on `tasks` is ON DELETE SET NULL for the same
+    reason, so the two stay consistent when an account is removed.
+    """
+    __tablename__ = "task_assignees"
+
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    task = relationship("Task", back_populates="assignees")
+    user = relationship("User")
 
 
 class TaskComment(Base):

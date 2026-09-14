@@ -20,14 +20,18 @@ export default function BoardTabs({ boardId }: Props) {
   // driven by the router rather than local state.
   const tabClasses = (active: boolean) =>
     cn(
-      "-mb-px flex items-center gap-2 border-b-2 px-0.5 py-2.5 text-sm transition-colors",
+      "-mb-px flex items-center gap-2 border-b-2 px-0.5 py-2 text-sm transition-colors",
       active
         ? "border-ink font-semibold text-ink"
         : "border-transparent font-medium text-muted-ink hover:text-body-strong",
     );
 
   return (
-    <div className="flex items-center gap-6 border-b border-hairline">
+    // No bottom rule of its own: the tabs now sit on the title row and the
+    // HEADER owns the full-width hairline, so a second one here would only
+    // underline the two tabs. `-mb-px` on the links still lifts the active
+    // border over it.
+    <div className="flex shrink-0 items-center gap-5">
       <Link to={`/board/${boardId}`} className={tabClasses(!isSummary)}>
         <LayoutGrid className="size-4" />
         Board

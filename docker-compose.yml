@@ -146,6 +146,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: meeting-ai-worker
+    # NO `--beat` here on purpose: beat is run separately (its own terminal
+    # locally, its own service on Railway). Embedding it would give this setup
+    # TWO schedulers, and every scheduled task would fire twice.
     command: celery -A app.celery_app.celery worker --loglevel=info --pool=prefork --concurrency=2
     env_file:
       - .env

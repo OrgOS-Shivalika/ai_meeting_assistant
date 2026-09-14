@@ -2525,16 +2525,598 @@ have re-broken the 2026-09-02 fix above.
 - `tsc -b --force` clean, `npm run build` 27.5 s. No backend change, no
   migration.
 
+### 2026-09-08 (cont.) - PROD MIGRATED. `am13invitetoken` -> `as19boarddel`.
+
+Six revisions, not the seven an earlier entry claimed - the chain from
+`am13invitetoken` walks: `an14assigneeevent`, `ao15notifications`,
+`ap16workflow`, `aq17wfblock`, `ar18colperms`, `as19boarddel`.
+
+Pre-checks first, all against the live prod DB:
+- **The one that could have failed:** `an14assigneeevent` drops and recreates
+  `task_activity`'s event_type CHECK, which fails if any row holds a value
+  outside the new list. Prod had nine distinct values, all inside it. This is
+  the check that was owed since 2026-09-07 and could not be run then.
+- No target object already existed (`notifications`, `workflow_transitions`,
+  `users.notification_prefs`, `kanban_columns.permissions` all absent), so it
+  was a clean forward run with no partial state to reconcile.
+
+Verified BY OUTCOME afterwards, not from the alembic log:
+- head is `as19boarddel`; `notifications` has 11 columns and 4 indexes;
+  `workflow_transitions` has 9 columns; `ck_workflow_kind` present; both
+  rebuilt CHECKs read back with their new values (`assignee_changed` and
+  `board_deleted` present).
+- **Zero rows lost on the table that took DDL:** `task_activity` counted 925
+  in the pre-check and 925 after.
+- Both new NOT NULL columns backfilled to `{}` on every row - 38
+  `kanban_columns`, 26 `users` - which is precisely "unchanged behaviour" for
+  each (no column permissions set; every notification pref defaults ON).
+- Prod scale for reference: 292 meetings, 2798 tasks, 26 users, 9 boards,
+  38 columns. Bigger task table than local, smaller user table.
+
+**The DB is now AHEAD of prod code, which is the safe direction** - every one
+of the six is additive or a constraint rebuild. Prod code is still `e2f6fdd`;
+`continum` is NINE commits ahead of `neworigin/main`. Nothing of the workflow,
+permissions, notifications or board-delete work is live until that merges.
+
+**Still owed before notifications actually work on prod:** `SMTP_*` and
+`APP_PUBLIC_URL` on the CELERY service, not just web. Without them the email
+sweep logs "skipped" as a success and nobody is ever told anything. The in-app
+bell works regardless.
+
+### 2026-09-08 (cont.) - "Assigned to" now actually assigns, and mails
+
+Measured first: setting the label produced **0 notifications**, setting
+Assignee produced 1. `notify_assigned` had exactly one call site, inside the
+`assignee_user_id` branch, and `notify_due_soon` keys off
+`task.assignee_user_id` too - so a card with a name in the label and no
+assignee reminded nobody, ever.
+
+- `meeting_service._mirror_owner_to_assignee`: setting `owner_name` now
+  resolves it through `kanban.assignees.resolve_assignee` - the SAME resolver
+  the pipeline and the backfill script use, so all three paths agree about who
+  "Priya" is - and sets the real `assignee_user_id`, which is what notifies,
+  grants access and drives "my work".
+- **This is not a re-break of the 2026-09-02 fix.** That was the opposite
+  direction: assignment overwriting `owner_name` and destroying the record of
+  what the meeting said. Nothing here writes `owner_name`; it reads it.
+- Four cases, three of which deliberately do nothing:
+  * an explicit `assignee_user_id` in the same request WINS over the lookup;
+  * the caller must already be allowed to assign - **a member typing a name
+    must not be able to hand out access**, since assigning is a grant;
+  * a label resolving to nobody (sentinel / unknown / shared by two people)
+    leaves the assignee ALONE rather than clearing it;
+  * clearing the label clears the assignee ONLY if they were the person it
+    named - an assignee set separately survives someone tidying a text field.
+- `tests/test_task_assignment.py` **28/28** (12 new). Two fixture traps hit
+  while writing them, both worth remembering:
+  * the file's existing `member` fixture selects on `User.role IS NULL` -
+    that is the PROMPT-surface column, and it picks an account whose
+    `access_role` is ADMIN. A privilege-escalation test using it asserts
+    nothing. The new section looks up `access_role == "MEMBER"` instead.
+  * that member then 403s on board VISIBILITY, which looks identical to the
+    guard working. The board is routed through a category they administer and
+    "the member can actually reach the card" is asserted BEFORE the
+    interesting assertion, so a visibility refusal fails loudly instead of
+    passing quietly.
+- No UI change - the drawer already wrote `owner_name`. Consequence worth
+  watching: for an admin the drawer shows Assignee AND "Assigned to", and
+  they now move together when you touch the label. That is the intended
+  behaviour, not the 2026-09-02 bug (which destroyed data); if it reads badly
+  the fix is to drop one of the two fields from the drawer.
+- `test_workflow` 67/67, `test_board_admin` 16/16, pytest kanban/rbac subset
+  unchanged. `main:app` 222 routes. No migration.
+
+### 2026-09-08 (cont.) - notification email in 30s, and the reason it was failing
+
+Asked for: mail within 30 seconds. Two separate problems, one of which was
+not the schedule.
+
+**1. The schedule.** `celery_app.beat_schedule["notification-emails"]` was
+`crontab(minute="*/5")`. Now `timedelta(seconds=30)` - crontab's finest grain
+is a minute, so it could not express this at all. Other five entries
+untouched. **Beat must be RESTARTED to pick this up.**
+
+**2. Mail was mostly not being delivered, and had never been.** Before today
+the table read 16 notifications / 0 emailed, because nothing ran beat locally
+(no beat service in compose, no `--beat` on the worker - it is run in its own
+terminal, which had not been started). Once it ran, the first sweep reported
+`2 sent, 0 opted out, 10 considered` in **34 seconds** - so 8 of 10 failed:
+
+    ConnectionRefusedError: [Errno 111] Connection refused
+    SMTPServerDisconnected: Connection unexpectedly closed
+
+Cause: `mail_service.send_email` does connect + STARTTLS + **LOGIN** + send +
+quit per message. Ten messages meant ten logins to smtp.gmail.com inside 34s
+and Gmail refused the connection. Nothing errored upward - the sweep stamps
+`emailed_at` even on failure (deliberately, so one bad address cannot loop
+forever), so those eight are lost, not queued.
+
+- Fixed with `mail_service.connection()`, a context manager holding ONE
+  authenticated connection, used by the sweep. Verified against Gmail:
+  opens in 2.0 s, `noop()` -> `250 2.0.0 OK`. That 2 s is now once per sweep
+  rather than once per message.
+- `send_email(..., client=...)` takes the shared connection. If a send on it
+  raises, it retries once on its own fresh connection - a shared connection
+  dying mid-batch would otherwise take every remaining message with it, and
+  they would be stamped as attempted and never retried.
+- `connection()` yields None when SMTP is unconfigured, so every send falls
+  back to today's behaviour rather than the sweep breaking.
+- Known ceiling, in a `ponytail:` note on the schedule: Celery does not stop a
+  periodic task overlapping itself. At 30 s a slow sweep over a big backlog
+  can start again before finishing. Harmless at this size; needs a Redis lock
+  if the backlog ever outlasts the interval.
+- Also considered and rejected: pushing the send from
+  `notifications.create`. That function only FLUSHES - the row belongs to the
+  caller's transaction - so a task queued there could email about a
+  notification that is then rolled back. Polling cannot send for an uncommitted
+  row. Move to push only behind an after-commit hook.
+
+**To pick all of this up:** `docker compose restart worker` (it mounts
+`./:/app`, so no rebuild) and restart the beat terminal.
+
+Evidence mail works end to end: `Email sent: to=itsbhardwajansh@gmail.com
+subject="You've been assigned a task"` at 10:45:26.
+
+### 2026-09-08 (cont.) - the two fields UNLINKED, and the card shows the label
+
+Reverses the mirror added earlier the same day. It worked, and it read wrong:
+editing "Assigned to" made the Assignee control move by itself.
+
+- `meeting_service._mirror_owner_to_assignee` **deleted**, and the
+  `owner_name` branch now only writes `owner_name`. The unused
+  `kanban.assignees` import went with it.
+- So `owner_name` and `assignee_user_id` are independent in BOTH directions
+  now. Both couplings have been tried and both were wrong for the same
+  reason - touching one field silently moved the other:
+  * assignment overwriting `owner_name` (fixed 2026-09-02),
+  * the label resolving and assigning the account (today, now reverted).
+- **The consequence, stated because it is the thing that will surprise
+  somebody:** nothing about "Assigned to" notifies. Mail, access and "my work"
+  all key off `assignee_user_id`, so a person named ONLY in the label is told
+  nothing. That is what the user asked for after seeing the linkage; the
+  middle option, if it ever comes up, is to notify the resolved person WITHOUT
+  setting the assignee - but then the mail can link to a 403, which
+  `notifications` has an explicit rule against, so it would need
+  `task_view_clause` filtering first.
+- `TaskCard.displayName` flipped from `assignee_name || owner` to
+  `owner || assignee_name`. The card contradicting the field somebody had
+  just edited was the complaint. The tooltip now names the other one
+  (`Assigned to X - account: Y`) when they differ, rather than hiding it.
+  The Assignee field itself is untouched - same dropdown, same behaviour.
+- `tests/test_task_assignment.py` **22/22**, with the twelve mirror
+  assertions replaced by six that assert INDEPENDENCE, and a comment saying
+  they are inverted from the earlier version. A test that silently flipped
+  meaning would be worse than no test - same note the 2026-09-02 entry makes.
+  Also dropped the `Category`/`CategoryAdmin` imports the removed
+  privilege-escalation section needed.
+- `test_workflow` 67/67, `test_board_admin` 16/16, the kanban pytest subset
+  unchanged at its stale 9. `tsc -b` clean, `npm run build` 22.9 s,
+  `main:app` 222 routes.
+
+### 2026-09-11 (cont.) - corner radii tightened on the board surface
+
+One notch down each, onto a two-step scale: **cards 2 px, their containers
+6 px** (cards went 6->4, then 4->2 on a second pass). Task card 6->4, column 8->6, column drop zone 6->4, quick-add composer
+8->4 (it sits among the cards, so it matches them, not the column), boards-list
+cards 12->6, and the two error/empty panels on that page 12/8->6. The task
+card and the composer then went again to `rounded-xs` (2 px); the column drop
+zone stayed at 4, since it is a container and only shows on drag-over.
+
+Left alone on purpose, because they are shapes rather than borders:
+`rounded-full` on the colour dot, the card-count pill and the unread dot, and
+`rounded-xs` on the priority chip.
+
+`tsc -b --force` clean, `npm run build` 19.7 s.
+
+### 2026-09-11 (cont.) - search / filters / workflow moved beside the tabs
+
+Third pass on the same header. The controls now share the Board|Summary row,
+so the board screen is title-row + tab-row and nothing else.
+
+- **The mechanism is a PORTAL, and that is the whole reason this was not
+  already the layout.** The controls belong to the board view, which renders
+  inside BoardLayout's `<Outlet>` - BELOW the header - so they cannot be
+  passed down to it. `BoardLayout` exports `BOARD_TOOLBAR_SLOT` and leaves an
+  empty flex div on the right of the tab row; `BoardPage` looks it up after
+  mount and `createPortal`s its controls into it.
+- Why a slot rather than moving the controls into BoardLayout: they are
+  board-view state (search string, filter object, workflow modal) and the
+  Summary tab has none of it. The slot lets Summary contribute nothing
+  without the row collapsing, because the TABS set its height.
+- Why not render `BoardTabs` from each page instead: BoardLayout's existing
+  comment says it stays mounted across tab switches so it does not flicker,
+  and two callers would duplicate the row markup.
+- `toolbarSlot` is null for exactly one render (the effect has not run), which
+  costs one extra render and nothing else. The tabs keep `items-end` +
+  `-mb-px` so the active underline still lands on the header rule; the
+  controls get `pb-1.5` to ride the same baseline without touching it.
+- `tsc -b --force` clean, `npm run build` 19.6 s.
+
+### 2026-09-11 (cont.) - the board header, second pass
+
+The spacing pass below was not enough at the top. This one is structural.
+
+- **The tabs moved onto the title's row.** That row was already
+  `justify-between` with NOTHING on its right, so the tabs cost no height at
+  all there and a whole band disappears. `items-end` puts them flush with the
+  header's bottom rule, and `BoardTabs` gave up its own `border-b` - the
+  header owns the full-width hairline now, or there would be a second rule
+  underlining just two tabs. `-mb-px` on the links still lifts the active
+  border onto it. BoardTabs has exactly one caller, so nothing else moved.
+- `pt-5` -> `pt-3`, `BackLink` margin 14 -> 8, `IconChip` `lg` (44 px) -> `sm`
+  (32 px), title 21 -> 19 px.
+- Header height is now ~126 px against ~250 before both passes - about half,
+  and the tabs row was the single biggest piece of it.
+- `tsc -b --force` clean, `npm run build` 25.0 s.
+
+### 2026-09-11 - board surface compacted (spacing only)
+
+Reported: too much wasted space on the boards and cards. Measured the vertical
+chrome above the first card at ~250 px; it is ~200 px now, and columns went
+300 -> 272 px wide.
+
+| | before | after |
+|---|---|---|
+| page padding (`px`) | 36 | 24 |
+| board title | 26 px display | 21 px |
+| board scroller (`py`) | 24 | 16 |
+| column width | 300 | **272** (Trello's) |
+| column padding | 14 | 10 |
+| gap between cards | 10 | 8 |
+| gap between columns | 16 | 12 |
+| card padding | 14 | 10 |
+| boards-list card padding | 24 | 16 |
+
+- Roughly one more card per column and a fourth column on a 1440 viewport
+  (1144 px of usable width / 284 per column, against 316 before).
+- **Spacing only.** No colour, no structure, no component swaps. The single
+  type change is the board `h1`, which was set at display scale for a screen
+  whose actual job is fitting cards.
+- Files: `BoardLayout`, `BoardTabs`, `BoardPage`, `BoardColumn`, `TaskCard`,
+  `BoardListPage`.
+- Verified the width actually emits rather than silently collapsing the
+  column - `w-68` is on Tailwind v4's dynamic scale, not a named value, so it
+  is only real if the build generates it: `.w-68{width:calc(var(--spacing) *
+  68)}` with `--spacing:.25rem` = 272 px, and `.w-75` is gone from the output.
+  `tsc -b --force` clean, `npm run build` 22.9 s.
+- NOT touched, and worth knowing before someone asks for "the rest of the UI":
+  68 of 134 `.tsx` files use raw Tailwind palette classes (1819 occurrences)
+  instead of the design tokens - 149 dark-text, 152 white-surface, 205
+  hairline. Dark mode works by overriding CSS variables on `html.theme-dark`,
+  which those classes ignore, and there are ZERO `dark:` variants in the
+  codebase. So those files do not follow the theme. That is a separate,
+  much larger job than this one.
+
+### 2026-09-11 (cont.) - the column tint is now per-theme
+
+Follow-up: "in light mode too". It WAS applying in light mode; it was just
+too weak to see for some hues.
+
+- **A wrong diagnosis first, recorded so nobody repeats it:** grepping
+  `index.css` for `--vb-surface-soft` finds it ONLY inside `html.theme-dark`,
+  which reads like the light theme is missing every `--vb-*` token. It is not.
+  Tailwind v4 emits them onto `:root` from the `@theme` block, so they only
+  appear in the BUILT css (`:root{--vb-canvas:#fffaf0;--vb-surface-soft:
+  #faf5e8;...}`). Check `dist/assets/*.css`, not the source, before concluding
+  a token does not exist.
+- The real finding, by computing the mixed colours rather than eyeballing
+  them: **the same percentage is not the same to the eye in the two themes.**
+  At 10% against the warm cream light panel, cyan and violet moved ~15 of 765
+  — invisible — while against the near-black dark panel those two were the
+  STRONGEST at ~49. That is the opposite of the intuition that a pale surface
+  shows a tint more readily.
+- So the strength is a token now: `--vb-column-tint`, **18% light / 12%
+  dark**, and `BoardColumn` uses `var(--vb-column-tint, 14%)` inside its
+  `color-mix`. Verified both values reach the built stylesheet.
+- At 18% the weakest light columns (cyan, violet) move ~27; the rest 42-73.
+
+### 2026-09-11 (cont.) - columns tinted with their own colour
+
+Each column's panel is now a 10% wash of its own `column.color` instead of a
+uniform `bg-surface-soft`. The colour values were already there - `COLUMN_DOT`
+maps the eight keys onto `--vb-*` tokens for the header dot; this reuses them
+for the panel.
+
+- **Did NOT use `lib/vibrant.tint()`**, which is the obvious call and is
+  wrong here: it mixes into WHITE (`color-mix(in srgb, C x%, white)`), which
+  is right for a chip on a light page and would hand back a near-white column
+  on a near-black board. This mixes into `var(--vb-surface-soft)` instead, so
+  it inherits whichever theme is active and stays a tint of the panel in both.
+- 10% on purpose. The column is a container; a saturated one competes with
+  the cards it holds, and `slate` (the default) lands so close to the old
+  surface that uncoloured columns look unchanged.
+- Set via the root's existing inline `style` (it already carries the dnd-kit
+  transform), and `bg-surface-soft` came off the className so the two do not
+  fight.
+- The drop-zone highlight needed nothing: `isOver` is `bg-surface-strong/60`,
+  translucent, so it still reads over a tinted panel.
+- Worth knowing for whoever asks next: **`BoardColumn` has no `border` class
+  at all** and never had one. What reads as a column's edge is this panel
+  against the page canvas.
+- `tsc -b --force` clean, `npm run build` 29.6 s.
+
+### 2026-09-11 (cont.) - the COLOUR moved to the cards
+
+Reversal of the two entries below: the column panel is plain `bg-surface-soft`
+again, and each task card is tinted with its column's colour instead.
+Tinting both leaves the cards nothing to stand out against.
+
+- `COLUMN_DOT` is exported from `BoardColumn` now and the colour is passed
+  to `TaskCard` as `color`. Mixed into `--vb-canvas` (the card's own surface)
+  rather than laid over it, so text contrast is untouched.
+- Two cases skip the tint: an **unassigned** card keeps its `bg-warning/5`,
+  because that is a signal and outranks decoration; and a card with no colour
+  falls back to the `bg-canvas` class.
+- **The drag overlay needed it explicitly.** `BoardPage` renders a second
+  `TaskCard` for the ghost under the cursor, and that card belongs to no
+  column — without resolving the colour from `activeTask.column_id` it would
+  lose its tint mid-drag and flash back on drop.
+- `--vb-column-tint` renamed `--vb-card-tint`, same 18% light / 12% dark split
+  and the same reason (measured, see the entry below). Verified both values
+  are in the built stylesheet and no reference to the old name survives in
+  src or dist.
+- `tsc -b --force` clean, `npm run build` 20.5 s.
+
+### 2026-09-11 (cont.) - task card border RESTORED
+
+I proposed removing the cards' `border border-hairline` (the columns have no
+border of their own, so the cards' were the only ones on the board). The user
+rejected the tool call - **but the edit had already been written to disk**,
+and I told them nothing had been written. It had. Reverted on the next turn
+when they said so again.
+
+- Back to `border border-hairline` + `hover:border-muted-soft`; the
+  shadow-only variant is gone.
+- **Settled, do not re-propose:** the outline stays. Radius, padding and the
+  card's background tint are all still open - they have been changed several
+  times today - but the border is decided. Also recorded in project memory.
+- Worth remembering mechanically: a rejected Bash call that runs a heredoc can
+  still have written its file. The rejection text ("the new_string was NOT
+  written") is phrased for the edit tools. VERIFY the file after a rejection
+  rather than trusting the message.
+- `tsc -b --force` clean, `npm run build` 20.4 s.
+
+### 2026-09-11 (cont.) - columns are a table, not a row of panels
+
+- `BoardColumn` lost its panel entirely: no `bg-surface-soft`, no
+  `rounded-md`. It is now `border-l border-hairline first:border-l-0` with
+  `px-3 pb-2.5`, and the row gap went to 0 - so adjacent columns share a
+  single hairline, table-style.
+- **`items-start` had to go.** It was on the row and made every column only as
+  tall as its own cards, which meant the dividers stopped at different heights
+  and read as a rendering fault rather than a table. The row is plain flex now
+  (stretch is the default), so columns are full height and the rules run the
+  whole board. The card list is already `flex-1 overflow-y-auto`, so it just
+  fills the extra space.
+- `first:border-l-0` is safe because `SortableContext` renders NO element of
+  its own - the first `BoardColumn` really is the flex row's first child.
+  Verified the variant compiles: `.first\:border-l-0:first-child{...}` is in
+  the built stylesheet.
+- `AddColumnButton` sits outside the rule grid and got its own `pl-3`, or it
+  would butt against the last column now that the gap is gone.
+- The drop-zone highlight becomes the only fill a column ever shows, which
+  actually sharpens the drag feedback - `isOver` was `bg-surface-strong/60`
+  over a panel before, and is now the sole background.
+- `tsc -b --force` clean, `npm run build` 31.5 s.
+
+### 2026-09-11 (cont.) - card drop sensing fixed (collision detection)
+
+Reported after the table-style columns: cards only sensed a column near its
+LOWER part. Not a layout bug - the collision algorithm.
+
+- `DndContext` used `closestCorners`, which scores each droppable by the
+  distance between the dragged rect's corners and the droppable's corners.
+  That suits a list of same-sized cards and is wrong for a tall container: a
+  full-height column's corners are at its very top and very bottom, so the
+  middle of the column scores as FAR away and only the bottom region won
+  reliably. Making the columns full height (for the table dividers) is what
+  exposed it.
+- Replaced with `pointerWithin`, falling back to `rectIntersection` when the
+  cursor is outside every droppable (dragged past the edge of the board, or
+  released mid-autoscroll) so a card still lands instead of snapping back.
+- **Precision is not lost.** While the cursor is over a card, dnd-kit orders
+  pointer collisions by distance to each rect's centre, and a card's centre is
+  nearer than the whole column's - so the card still wins and insert-between
+  still works. The column only wins in its empty space.
+- The column HEADER resolves to the `colsort-` droppable, which `handleDragEnd`
+  already treats as "into this column", so dropping on the header works too.
+  **The highlight is wired for it as well** (same day): `BoardColumn` reads
+  `useDndContext()` and lights the fill when `over` is its own `colsort-` id,
+  not just when the card-list droppable is `isOver`. Gated on the drag being a
+  CARD (`active.id` starts with `task-`) - during a COLUMN reorder `over` is a
+  `colsort-` id too, and without the gate every column you dragged past would
+  flash its drop fill.
+- `tsc -b --force` clean, `npm run build` 30.3 s. NOT visually verified - this
+  one needs a real drag.
+
+### 2026-09-14 - the board's horizontal scrollbar is visible again
+
+- `BoardPage`'s column row carried `vb-no-scrollbar`, so a board wider than
+  the viewport scrolled fine but showed NOTHING to say there was more to the
+  right. Class removed; that is the whole change.
+- No new CSS needed. `index.css` already themes every scrollbar globally -
+  10px track, transparent 3px border, `--vb-surface-strong` thumb clipped to
+  the content box, so what shows is a 4px rounded rail. Verified it is in the
+  built stylesheet rather than assumed.
+- Scope kept tight: `BoardColumn`'s card list and `BoardSummaryPage` KEEP
+  `vb-no-scrollbar`. A scrollbar inside every column is noise; the ask was the
+  board rail at the bottom.
+- Costs ~10px of column height, since the row is `overflow-x-auto` and the
+  columns stretch to it. Acceptable for the affordance.
+- `tsc -b --force` clean, `npm run build` 29.4 s.
+
+### 2026-09-14 - Settings > Workspace is real (it was a mockup)
+
+The whole `WorkspaceSection` was static markup: `"Acme, Inc."` hardcoded as a
+fallback, slug hardcoded `"acme"` and readOnly, and **Save changes / Cancel /
+Delete workspace had no handlers at all**. Nothing it showed came from the
+server and nothing it did reached it.
+
+- **No org endpoint existed.** `routes.py` had only `/org/members`. Added
+  `GET /org` (any member - id, name, slug, created_at, member_count) and
+  `PATCH /org`. 222 -> 224 routes.
+- `PATCH` is **org admin only**, not `require_admin_role`: a category admin
+  runs their own categories, and the slug appears in shared links, so changing
+  it is closer to changing an address than editing a label. Name is trimmed
+  and may not be empty; slug is lowercased and must match
+  `^[a-z0-9]+(?:-[a-z0-9]+)*$`; a taken slug is **409**, not 400 - the value is
+  well-formed, someone else simply has it. Clearing it is allowed (the column
+  is nullable).
+- Verified by calling the handlers against the live DB and restoring after:
+  GET works for a member, name trims, slug lowercases, `has spaces` /
+  `Trailing-` / `under_score` / `--double` all 400, a MEMBER gets 403.
+  **Not reachable:** the duplicate-slug 409 - no other org has a slug set, so
+  that branch is untested.
+- **Two fields deleted rather than wired: Region and Default meeting
+  language.** Neither is modelled anywhere - one Postgres per install, and
+  transcription language is the global `TRANSCRIPTION_LANGUAGE` env var. They
+  were pickers that changed nothing. Replaced with read-only Members and
+  Created, which are real.
+- Delete workspace is now **disabled with the reason on screen**: `users`,
+  `categories` and `meetings` all reference the org `ON DELETE RESTRICT`, so
+  there is no delete to call. Previously it looked live and did nothing.
+- `tsc -b --force` clean, `npm run build` 19.4 s.
+
+### 2026-09-14 (cont.) - Appearance is its own settings section
+
+- `ThemePicker` and `BackgroundPicker` were both rendered at the bottom of
+  `ProfileSection`, so "what is my job title" and "what colour is this app"
+  shared a screen. They are now an **Appearance** entry in `SECTIONS`, placed
+  directly under Profile.
+- **Theme and Background are two `Section`s, not one.** They are different
+  kinds of setting - the theme is a light/dark switch the whole UI reads, the
+  background is decoration on one surface - so a rule separates them rather
+  than a shared heading.
+- Under Profile rather than Workspace on purpose: both are per-person AND
+  per-browser (stored locally, never on the account - see
+  `shared/background.ts`), which is exactly what distinguishes them from
+  everything below in the nav.
+- `ThemePicker` lost its own `Appearance` heading; the Section owns it now, so
+  the title was not printed twice.
+- `tsc -b --force` clean, `npm run build` 19.0 s.
+
+### 2026-09-14 (cont.) - Settings > Profile is real too
+
+Same shape as the Workspace fix: the section was static. Save and Cancel had
+no handlers, Role was the literal string "Org Admin" for everyone, and the
+name field seeded from a hook that resolves async, so it could render blank.
+
+- **`PATCH /auth/me` added** (there was only a GET). 224 -> 225 routes.
+  **Name only**, and the docstring says why: email is the login credential, so
+  changing it is a verification flow rather than a text field; and letting the
+  subject PATCH their own role would be a straight privilege escalation. No id
+  parameter, so it can only ever write the row `get_current_user` resolved.
+- Verified against the live DB and restored: trims to `'Probe Name'`, and an
+  all-whitespace name is a 400.
+- **Role now shows the real `access_role`** through a `ROLE_LABEL` map
+  (the column is stored UPPERCASE; this is presentation only).
+- **Timezone deleted, not wired.** No column for it, and it would have been
+  ignored anyway: every date in the app renders through `toLocaleDateString` /
+  `toLocaleString`, which already uses the viewer's own zone. Third fake
+  control removed this session, after Region and default meeting language.
+- The name field now seeds in a `useEffect` on `user?.name` - seeding
+  `useState` from the hook's first render left it permanently blank, because
+  `useCurrentUser` resolves after mount.
+- After a successful save it calls `clearCurrentUser()`. The hook caches
+  `/auth/me` at MODULE level, so without it the sidebar would show the old
+  name for the rest of the session; the Sidebar remounts on every route
+  change, so clearing the cache is enough.
+- Profile picture left alone, as asked - Change photo / Remove are still
+  inert.
+- `tsc -b --force` clean, `npm run build` 19.9 s.
+
+### 2026-09-14 (cont.) - the drawer's dropdowns follow the theme
+
+Reported: the "Assigned to" dropdown is white in dark mode.
+
+- Cause is the one measured on 2026-09-11 and not yet fixed anywhere: dark
+  mode flips CSS VARIABLES on `html.theme-dark`, and raw Tailwind palette
+  classes read none of them. The two selects were `bg-white` /
+  `border-slate-200`, so they stayed light on a dark drawer.
+- Fixed the "Assigned to" select, the Assignee select above it, the free-text
+  "Other..." input beside it, and the drawer's own `border-l`. Fixing only the
+  one reported would have left its neighbour white and looking broken.
+- Shared `CONTROL` constant in the file so the two pickers cannot drift apart
+  again: `bg-canvas text-ink border-hairline` plus a token focus ring. Chrome
+  and Firefox give `<option>` the select's background, so the open list
+  follows too.
+- `TaskDetailDrawer` still has ~60 other raw-palette classes; this fixed the
+  CONTROLS, not the file. The wider job is still the 68-file / 1819-occurrence
+  item noted on 2026-09-11.
+- `tsc -b --force` clean, `npm run build` OK.
+
+### 2026-09-14 (cont.) - SMTP is blocked by the NETWORK, not the code
+
+Log showed `ConnectionRefusedError: [WinError 10061]` on the shared SMTP
+connection, then `0 sent, 0 opted out, 0 considered`. Two unrelated things.
+
+**1. The network blocks Gmail's SMTP host.** Measured, not guessed:
+
+    smtp.gmail.com resolves to 192.178.158.109      (DNS is fine)
+    google.com:443        OPEN  in 0.0s            (internet is fine)
+    smtp.gmail.com:25/465/587  REFUSED in ~2.0s each
+    smtp.gmail.com:443         TIMES OUT
+
+Refused from the HOST **and** from inside `meeting-ai-worker`, so it is not a
+Docker networking issue. Traffic to that one host is being blocked - every
+SMTP port RST immediately, even 443 to the same IP dies - while the rest of
+the internet is reachable. It WORKED on 2026-09-08 (`Email sent:
+to=itsbhardwajansh@gmail.com`), so the network changed, not the code. Suspect
+an AV/endpoint "mail protection", the router, a VPN, or the ISP. Nothing to
+fix in this repo; port 587 egress has to be allowed.
+
+**2. A real flaw of mine, now fixed.** The sweep entered
+`mail_service.connection()` BEFORE checking whether anything was pending, so
+with `0 considered` it still dialled SMTP - every 30 seconds, stalling ~2s on
+the handshake and logging a warning each time. That is 2,880 identical
+warnings a day with nothing to send, which would bury the real failures. It
+now returns early on an empty queue.
+
+### 2026-09-14 (cont.) - MULTIPLE assignees per task
+
+Migration **`at20multiassign`** (local head). `task_assignees` (task_id,
+user_id) with the PAIR as the primary key - assigning someone twice is not a
+second assignment - plus `ix_task_assignees_user` leading with user_id, which
+is the direction both permission clauses and the My-cards filter ask in.
+Backfilled from `tasks.assignee_user_id`: 5 rows in, 5 tasks out.
+
+- **`tasks.assignee_user_id` KEPT, as a derived "primary".** Not laziness:
+  `permissions` compares it on every task query, and `get_board_detail`'s
+  eager load of `Task.assignee` is what took the board 7.1s -> 0.12s. The
+  `owner_name` disaster of 2026-09-02 is avoided by a hard rule -
+  **`assignees.set_assignees` is its ONLY writer** and it is never edited
+  alone.
+- **Both permission clauses now use `_assigned_to(user)`**, which ORs the
+  column against an EXISTS on the join table (with `.correlate(Task)` - the
+  same trap as `board_view_clause`, where a missing correlate matches every
+  row). Before this, a SECOND assignee was silently locked out of work they
+  had been given.
+- `set_assignees` validates every id against `organization_id` before storing
+  - a task id is guessable and assigning GRANTS the card, so an unchecked id
+  is a cross-tenant grant, not a typo. Returns only the NEWLY added, so
+  re-saving an unchanged list notifies nobody.
+- API: `TaskUpdateRequest.assignee_user_ids` (a list REPLACES the set, and
+  wins over the scalar when both are sent); `get_task_detail` returns
+  `assignees: [{id, name}]`.
+- UI: the drawer's Assignee control is a checkbox list. Someone assigned then
+  removed from the org is still listed rather than silently dropped on save.
+- **`tests/test_multi_assignee.py` 14/14**, including the one that matters:
+  a secondary assignee can view AND manage; a removed one loses access;
+  another org's user is a 404; duplicates collapse; `[]` unassigns; rows
+  cascade with the task.
+
+**NOT done** (ran out of context): `TaskCard` still shows one name, the
+board's My-cards filter and `assignee` filter still match only the primary
+column, and `tests/test_task_assignment.py` has not been re-run against this.
+
 ## 7. Open threads
 
-**Prod is SEVEN migrations behind (2026-09-08):** local is at `as19boarddel`,
-Railway still at `am13invitetoken` — missing `an14assigneeevent` (setting an
-assignee 500s on a CheckViolation without it), `ao15notifications` (the whole
-bell 500s), `ap16workflow` and `aq17wfblock` (every workflow endpoint 500s,
-which is now also the add/delete-status path on the canvas). `ar18colperms` joins them (2026-09-07) — without it every board
-endpoint 500s on the missing `kanban_columns.permissions`, which is
-worse than the other four: it breaks boards that use no workflow at
-all. All five must precede the next deploy of the board code.
+~~prod behind on migrations~~ **CLEARED 2026-09-08** - Railway taken
+`am13invitetoken -> as19boarddel` in one run (six revisions) and verified
+row-for-row; see the session log. Prod DB is now at the same head as local.
+What remains is the CODE: prod runs `e2f6fdd` and `continum` is nine
+commits ahead, so none of the workflow / column-permission / notification /
+board-delete work is live yet.
 
 **And the WORKER needs mail env before notifications are deployed:** `SMTP_*`
 plus `APP_PUBLIC_URL` on the celery service, not just web. Without them the
@@ -2668,3 +3250,45 @@ not live there.
    30 seconds, and it tells you the tree is sane before you touch anything.
 3. Ask which thread — do NOT pick from §7 unilaterally; three of them are
    product decisions, not engineering ones.
+
+- **2026-09-14** — "Assigned to" multi-select was broken end-to-end: `kanban_service.get_task_detail`
+  built the `assignees` list but `kanban_router.get_task_detail` never passed it into
+  `TaskDetailResponse`, so the drawer fell back to the single `assignee_user_id` and every second
+  tick un-ticked itself on the refetch. Added `assignees` + `assigned_by` to the schema and the
+  route. `assigned_by` is derived from the newest `task_activity` row with
+  `event_type='assignee_changed'` (actor_name + created_at) — no column, no migration.
+  Drawer: "Assignee" is back as a READ-ONLY "Assigned by X · date" line (the user's meaning of the
+  word: who did the assigning), and `AssigneePicker` now also lists meeting participants who have
+  no login, greyed and disabled under a "From this meeting" divider — hiding them read as a broken
+  picker. Verified: `tests/test_multi_assignee.py` 16/16 (2 new checks assert on the ROUTE, which
+  is where the bug lived), `tests/test_task_assignment.py` 23/23, `tsc` clean, build exit 0.
+- **2026-09-14** — Task cards stack avatars for multi-assignee. `BoardTaskSummary.assignees`
+  added; the board path batches it via new `kanban/assignees.names_for_tasks()` (ONE query for
+  ~900 cards, same pattern as `comment_count` / `unread_task_ids`). `_serialize_task` takes an
+  optional `assignees=`; single-task paths pass nothing and fall back to the resolved primary, so
+  no path gained a per-card query. Card shows up to 3 overlapping `Avatar`s + "+N", label reads
+  "First +N", tooltip lists everyone. Verified: `tests/test_multi_assignee.py` 18/18 (new check
+  asserts on `get_board` output), build exit 0.
+- **2026-09-14** — Railway DB migrated `as19boarddel` → `at20multiassign` (one revision, purely
+  additive: `task_assignees` + `ix_task_assignees_user` + backfill). Verified by OUTCOME, not by
+  the absence of an error: 14 assigned tasks → 14 join rows, 0 assigned tasks missing from the
+  join table; `tasks` 2976, `task_activity` 947, users/orgs 25/11 all unchanged. Pre-flight found
+  0 orphan `assignee_user_id`s (the only thing that could have aborted the backfill's FK).
+  **Railway CODE is still `e2f6fdd`** — DB is now ahead, which is the safe direction, but the new
+  code MUST NOT ship before this migration on any other environment: `permissions._assigned_to`
+  reads `task_assignees` on every task query.
+- **2026-09-14** — Pre-deploy audit of `continum` (13 commits ahead of `neworigin/main`).
+  PASS: no new settings/env vars (diff of `settings.py` + `.env.example` is empty), app imports
+  with 223 routes, `tsc` + build clean, Railway DB already at `at20multiassign`.
+  FOUND + FIXED: `test_rbac_scopes`'s FK tripwire caught a real gap — `task_assignees.user_id` is
+  NOT NULL/CASCADE while `tasks.assignee_user_id` is SET NULL, so deleting a member left a shared
+  card NULL-primary while the surviving assignee kept access. `admin_service.delete_member` now
+  runs `_REPOINT_PRIMARY_ASSIGNEE` after the delete (hoisted to module level ON PURPOSE: that
+  test reads the function's source and splits on triple quotes). Also fixed two stale
+  `test_kanban_k2` assertions that asserted un-prefixed route paths.
+  **`pytest tests/` mass-fails by design** — most suites are standalone scripts whose `main()`
+  builds shared state pytest never calls (447 failed on this branch, 449 on committed HEAD:
+  pre-existing, not a regression). Run them as `python tests/<name>.py`.
+  NOT fixed, pre-existing on main, NOT deploy blockers: `GET /continuum/traces` is not org-scoped
+  (identical code on main — a live cross-tenant read), Continuum Core board visible to all orgs,
+  and My-cards/assignee filters still miss secondary assignees.

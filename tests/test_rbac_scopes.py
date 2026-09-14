@@ -372,6 +372,13 @@ _ACCEPTED_CASCADES = {
     # redeemable link pointing at a user that no longer exists. CASCADE is
     # the only safe answer here, not merely the tidy one.
     ("password_reset_tokens", "user_id"),
+    # Correct to follow: an assignment names exactly one account and means
+    # nothing once it is gone. But following it alone is NOT enough --
+    # `tasks.assignee_user_id` is SET NULL, so a card with a second assignee
+    # would end up NULL-primary while the join table still holds somebody.
+    # `delete_member` re-points the column at whoever is left; that is the
+    # handling this entry attests to.
+    ("task_assignees", "user_id"),
 }
 
 #: Nullable with NO `ondelete`, so Postgres would raise instead of

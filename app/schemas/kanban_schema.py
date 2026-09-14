@@ -173,6 +173,9 @@ class BoardTaskSummary(BaseModel):
     # filter by, notify, grant access to.
     assignee_user_id: Optional[UUID] = None
     assignee_name: Optional[str] = None
+    # EVERYONE assigned, oldest-first, so the card can stack avatars.
+    # `assignee_*` above is the first of these and stays for the filters.
+    assignees: list[dict] = Field(default_factory=list)
 
 
 class ColumnWithTasks(BaseModel):
@@ -267,6 +270,15 @@ class TaskDetailResponse(BaseModel):
     # filter by, notify, grant access to.
     assignee_user_id: Optional[UUID] = None
     assignee_name: Optional[str] = None
+    # EVERYONE assigned, oldest-first. `assignee_*` above is just the first of
+    # these, kept because filters and mail still key off the column. The
+    # service has always built this list; until now the router dropped it on
+    # the floor, so the drawer could never show more than one person and every
+    # second tick undid itself on the next refetch.
+    assignees: list[dict] = Field(default_factory=list)
+    # Who did the assigning, from the last `assignee_changed` activity row.
+    # Read-only, derived — there is no "assigner" column and this needs none.
+    assigned_by: Optional[dict] = None
     priority: str
     due_date: Optional[datetime]
     status: TaskStatus

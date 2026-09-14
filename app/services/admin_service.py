@@ -17,6 +17,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+import sqlalchemy as sa
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -654,6 +655,21 @@ def revoke_admin(db: Session, actor: User, user_id: UUID) -> dict:
     logger.info("Revoked admin from %s by %s", user.email, actor.email)
     return get_member(db, actor.organization_id, user.id)
 
+#: Re-point `tasks.assignee_user_id` at whoever is still assigned. Needed after
+#: deleting a member: that column is SET NULL while `task_assignees` CASCADEs,
+#: so a card the account shared with somebody else would read "Unassigned"
+#: while the survivor still holds it — the derived column and the join table
+#: disagreeing, which the single-writer rule in `kanban.assignees` exists to
+#: prevent. Self-healing: it repairs any row in that state, including ones an
+#: earlier delete left behind.
+_REPOINT_PRIMARY_ASSIGNEE = sa.text(
+    "UPDATE tasks t SET assignee_user_id = ("
+    "  SELECT ta.user_id FROM task_assignees ta"
+    "  WHERE ta.task_id = t.id ORDER BY ta.created_at LIMIT 1) "
+    "WHERE t.assignee_user_id IS NULL "
+    "  AND EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id)"
+)
+
 
 def delete_member(db: Session, actor: User, user_id: UUID) -> dict:
     """Remove an account from the organization for good.
@@ -712,6 +728,17 @@ def delete_member(db: Session, actor: User, user_id: UUID) -> dict:
     db.expire_all()
 
     db.delete(target)
+    db.flush()
+
+    # `tasks.assignee_user_id` is SET NULL but `task_assignees` CASCADEs, so a
+    # card the deleted account shared with somebody else would come out
+    # "Unassigned" while that other person still holds it — the derived column
+    # and the join table disagreeing, which the whole single-writer rule in
+    # `kanban.assignees` exists to prevent. Re-point it at whoever is left.
+    # Self-healing rather than pre-computed: it fixes any row in that state,
+    # including ones an earlier delete left behind.
+    db.execute(_REPOINT_PRIMARY_ASSIGNEE)
+
     db.commit()
     logger.info(
         "Deleted user %s from org %s (reassigned %d categories, detached "

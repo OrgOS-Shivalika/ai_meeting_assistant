@@ -64,6 +64,10 @@ class TaskUpdateRequest(BaseModel):
     description: Optional[str] = None    # markdown
     board_id: Optional[int] = None
     column_id: Optional[int] = None
+    #: ALL assignees, replacing the current set. Takes precedence over the
+    #: single `assignee_user_id` when both are sent — a list is explicit about
+    #: the whole set, a scalar only about one of them.
+    assignee_user_ids: Optional[list[str]] = None
 
 
 class MeetingUpdateRequest(BaseModel):

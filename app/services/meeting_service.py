@@ -28,7 +28,7 @@ from app.schemas.meeting_schema import (
     TaskUpdateRequest,
 )
 from app.services import category_service, notifications, permissions
-from app.services.kanban import workflow
+from app.services.kanban import assignees, workflow
 from app.services.google_calendar_service import create_calendar_event
 
 
@@ -917,8 +917,30 @@ def update_task(db: Session, user, task_id: int, payload: TaskUpdateRequest) -> 
             raise HTTPException(status_code=400, detail="task text cannot be empty")
         task.task = new_text
     if "owner_name" in data:
+        # UNLINKED from `assignee_user_id` on purpose. This briefly resolved
+        # the label to an account and assigned them, so the person named here
+        # got the mail — which also meant the Assignee control appeared to move
+        # on its own whenever you edited this field. The two are independent
+        # again: this is a label, Assignee is the account.
+        #
+        # The consequence, stated so nobody rediscovers it: nothing here
+        # notifies. Notification, access and "my work" all key off
+        # `assignee_user_id`, so a person named ONLY in this field is told
+        # nothing.
         task.owner_name = (data["owner_name"] or "").strip() or None
-    if "assignee_user_id" in data:
+    if "assignee_user_ids" in data:
+        # The whole set at once. Same grant, so the same gate as the single
+        # field below: assigning hands someone read+write on the card.
+        permissions.require_admin_role(user)
+        added = assignees.set_assignees(
+            db, task, data["assignee_user_ids"], user.organization_id
+        )
+        # One notification per person NEWLY added. `set_assignees` returns only
+        # those, so re-saving an unchanged list notifies nobody, and
+        # `notifications.create` still drops the actor assigning themselves.
+        for person in added:
+            notifications.notify_assigned(db, task, person.id, user)
+    elif "assignee_user_id" in data:
         # Assigning is a grant — it hands the assignee read+write on this
         # task regardless of whether they attended the meeting. Members
         # can't do it, including to themselves.

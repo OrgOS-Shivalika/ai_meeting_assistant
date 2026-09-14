@@ -7,7 +7,8 @@
 // Edits round-trip through PATCH /tasks/{id} and update the local
 // view on success. The parent BoardPage's refresh tick will eventually
 // reconcile the board's cached version too.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 import { markMentionsRead } from "../api";
 import ReactMarkdown from "react-markdown";
 import {
@@ -24,13 +25,21 @@ import {
 } from "lucide-react";
 import { deleteTask, fetchOrgMembers, fetchTaskDetail, patchTask } from "../api";
 import type { OrgMember } from "../api";
+import type { MeetingParticipantSummary } from "../types";
 import { usePermissions } from "../../auth/hooks/usePermissions";
-import type {
-  MeetingParticipantSummary,
-  TaskDetail,
-} from "../types";
+import type { TaskDetail } from "../types";
 import TaskComments from "./TaskComments";
 import TaskActivityList from "./TaskActivityList";
+
+/** Shared chrome for the drawer's inline controls.
+ *
+ *  Tokens, not raw palette classes: dark mode flips CSS variables on
+ *  `html.theme-dark` and `bg-white` / `border-slate-200` read none of them,
+ *  which is what left these controls white on a dark drawer.
+ */
+const CONTROL =
+  "rounded-md border border-hairline bg-canvas text-ink outline-none " +
+  "focus:border-muted-soft focus:ring-2 focus:ring-ink/15 disabled:opacity-50";
 
 interface Props {
   taskId: number | null;
@@ -249,11 +258,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
   // card whether or not they attended the meeting. The server enforces
   // admin-only and same-org; the picker is simply not shown to anyone who
   // would be refused.
-  const handleChangeAssignee = async (userId: string | null) => {
+  const handleChangeAssignees = async (ids: string[]) => {
     if (!task) return;
-    if ((userId || "") === (task.assignee_user_id || "")) return;
-    await applyPatch("assignee_user_id", { assignee_user_id: userId });
+    await applyPatch("assignee_user_ids", { assignee_user_ids: ids });
   };
+
 
   // Both pickers below need the org directory, and a drawer that opened two
   // identical requests for it would be silly. Fetched once here.
@@ -272,11 +281,6 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
     };
   }, []);
 
-  const handleChangeOwner = async (ownerName: string | null) => {
-    if (!task) return;
-    if ((ownerName || "") === (task.owner || "")) return;
-    await applyPatch("owner_name", { owner_name: ownerName });
-  };
 
   const handleChangeDueDate = async (val: string) => {
     if (!task) return;
@@ -303,7 +307,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
       />
       {/* Drawer */}
       <aside
-        className="fixed top-0 right-0 z-50 h-screen w-full max-w-md bg-canvas shadow-2xl border-l border-slate-200 flex flex-col"
+        className="fixed top-0 right-0 z-50 h-screen w-full max-w-md bg-canvas shadow-2xl border-l border-hairline flex flex-col"
         role="dialog"
         aria-label="Task detail"
       >
@@ -435,45 +439,59 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                   </div>
                 </div>
 
-                {/* Assignee — the ACCOUNT. Distinct from Owner below,
-                    which is the label the meeting analyzer produced. Both are
-                    shown because they answer different questions: Owner is
-                    what was said in the meeting, Assignee is who the system
-                    can act on — filter by, notify, grant access to.
+                {/* Assigned to — ONE field now.
+                    It used to be two: an admin-only "Assignee" (the account,
+                    which notifies and grants access) above a free-text
+                    "Assigned to" label. People edited the label, expected the
+                    person to hear about it, and nothing happened. So the
+                    label is gone from this screen and the control people
+                    reach for IS the real assignment.
 
-                    Admin-only, mirroring the server: assigning grants access,
-                    so it is not a field a viewer may set. */}
-                {canManage && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                      <User className="w-2.5 h-2.5" /> Assignee
-                    </label>
+                    Still admin-gated, because that has not changed: assigning
+                    hands somebody read+write on the card, and the server
+                    enforces the same rule. Everyone else sees who holds it.
+
+                    `owner_name` is untouched in the database — it is still the
+                    record of what the meeting said, still rendered on the card
+                    when nobody is assigned. It is simply no longer edited
+                    here, which is what stops the two disagreeing. */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-ink flex items-center gap-1">
+                    <User className="w-2.5 h-2.5" /> Assigned to
+                  </label>
+                  {canManage ? (
                     <AssigneePicker
                       task={task}
                       members={orgMembers}
-                      onChange={handleChangeAssignee}
-                      saving={savingField === "assignee_user_id"}
+                      participants={task.meeting_participants}
+                      onChange={handleChangeAssignees}
+                      saving={savingField === "assignee_user_ids"}
                     />
+                  ) : (
+                    <p className="text-[12px] text-muted-ink">
+                      {task.assignees?.length
+                        ? task.assignees.map((a) => a.name).join(", ")
+                        : task.assignee_name || task.owner || "Unassigned"}
+                    </p>
+                  )}
+                </div>
+
+                {/* Assignee — who did the ASSIGNING, not who holds the card.
+                    Read-only and derived from the activity feed, so there is
+                    nothing to edit and nothing to keep in sync. Hidden on the
+                    ~1300 analyzer-created tasks nobody ever assigned. */}
+                {task.assigned_by && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-ink flex items-center gap-1">
+                      <User className="w-2.5 h-2.5" /> Assignee
+                    </label>
+                    <p className="text-[12px] text-muted-ink">
+                      Assigned by {task.assigned_by.name}
+                      {task.assigned_by.at &&
+                        ` · ${new Date(task.assigned_by.at).toLocaleDateString()}`}
+                    </p>
                   </div>
                 )}
-
-                {/* Assigned to — still `owner_name`, still a text label.
-                    Renamed from "Owner" because that is what people call it;
-                    the field it writes is unchanged, so the record of what the
-                    meeting actually said is not touched. Assignee above is
-                    still the one that grants access and notifies. */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                    <User className="w-2.5 h-2.5" /> Assigned to
-                  </label>
-                  <OwnerPicker
-                    task={task}
-                    participants={task.meeting_participants}
-                    members={orgMembers}
-                    onChange={handleChangeOwner}
-                    saving={savingField === "owner_name"}
-                  />
-                </div>
 
                 {/* Due date */}
                 <div className="space-y-1">
@@ -486,7 +504,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                       value={toDateInputValue(task.due_date)}
                       onChange={(e) => handleChangeDueDate(e.target.value)}
                       disabled={savingField === "due_date"}
-                      className="text-xs px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+                      className={`px-1.5 py-0.5 text-xs ${CONTROL}`}
                     />
                     {task.due_date && (
                       <button
@@ -625,149 +643,110 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
 function AssigneePicker({
   task,
   members,
+  participants,
   onChange,
   saving,
 }: {
   task: TaskDetail;
   members: OrgMember[];
-  onChange: (userId: string | null) => void | Promise<void>;
+  participants: MeetingParticipantSummary[];
+  onChange: (ids: string[]) => void | Promise<void>;
   saving: boolean;
 }) {
-  return (
-    <select
-      value={task.assignee_user_id || ""}
-      disabled={saving}
-      onChange={(e) => void onChange(e.target.value || null)}
-      className="w-full px-2 py-1.5 rounded-md border border-gray-200 text-[13px] bg-white disabled:opacity-50"
-    >
-      <option value="">Unassigned</option>
-      {members.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.name}
-        </option>
-      ))}
-      {/* The assignee may have been removed from the org since. Without this
-          the select would silently show "Unassigned" for a card that is in
-          fact still assigned. */}
-      {task.assignee_user_id &&
-        !members.some((m) => m.id === task.assignee_user_id) && (
-          <option value={task.assignee_user_id}>
-            {task.assignee_name || "Unknown user"}
-          </option>
-        )}
-    </select>
-  );
-}
+  // `assignees` is the server's ordered list. Falls back to the single
+  // `assignee_user_id` so a card fetched before the multi-assignee change
+  // still renders its one person instead of appearing unassigned.
+  const selected = (
+    task.assignees?.length
+      ? task.assignees.map((a) => a.id)
+      : task.assignee_user_id
+        ? [task.assignee_user_id]
+        : []
+  ).map(String);
 
+  const byName = new Set(members.map((m) => m.name));
+  const unlinked = participants.filter((p) => p.name && !byName.has(p.name));
 
-// "Assigned to" picker — the people in THIS meeting, then everyone in the
-// organization, then "Other…" for a name that is neither.
-//
-// Both groups write the same thing: a NAME into `owner_name`. That is the
-// whole field — it does not create the `assignee_user_id` link, so picking
-// somebody here does not notify them or grant them access. Assignee does
-// that, and the two stay separate on purpose (see the 2026-09-02 entry in the
-// handout: assignment used to overwrite this and destroyed the only record of
-// what the meeting said).
-//
-// Grouped rather than merged into one flat list: "was in the room" and "works
-// here" are different reasons for a name to be offered, and on this data they
-// barely overlap.
-// ---------------------------------------------------------------------------
-
-interface OwnerPickerProps {
-  task: TaskDetail;
-  participants: MeetingParticipantSummary[];
-  members: OrgMember[];
-  onChange: (next: string | null) => void;
-  saving: boolean;
-}
-
-function OwnerPicker({
-  task, participants, members, onChange, saving,
-}: OwnerPickerProps) {
-  const [mode, setMode] = useState<"display" | "other">("display");
-  const [otherValue, setOtherValue] = useState(task.owner || "");
-
-  // De-duplicated by NAME, because the name IS the stored value: the same
-  // person in both groups would render two options that do the same thing,
-  // and `<select>` would not be able to tell which one is selected.
-  const orgOnly = useMemo(() => {
-    const seen = new Set(participants.map((p) => p.name));
-    return members.filter((m) => !seen.has(m.name));
-  }, [participants, members]);
-
-  const inList = useMemo(
-    () =>
-      participants.some((p) => p.name === task.owner) ||
-      orgOnly.some((m) => m.name === task.owner),
-    [participants, orgOnly, task.owner],
-  );
-
-  if (mode === "other") {
-    return (
-      <div className="flex items-center gap-1">
-        <input
-          autoFocus
-          type="text"
-          value={otherValue}
-          onChange={(e) => setOtherValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              onChange(otherValue.trim() || null);
-              setMode("display");
-            }
-            if (e.key === "Escape") setMode("display");
-          }}
-          placeholder="Type a name"
-          className="flex-1 text-xs px-1.5 py-0.5 border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        />
-        <button
-          onClick={() => setMode("display")}
-          className="text-[10px] font-semibold uppercase text-slate-500 hover:bg-slate-100 px-1.5 rounded"
-        >
-          Pick
-        </button>
-      </div>
+  const toggle = (id: string) =>
+    void onChange(
+      selected.includes(id)
+        ? selected.filter((x) => x !== id)
+        : [...selected, id],
     );
-  }
 
   return (
-    <select
-      value={inList ? (task.owner || "") : task.owner ? "__other_current__" : ""}
-      disabled={saving}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v === "__none__") onChange(null);
-        else if (v === "__other__" || v === "__other_current__") setMode("other");
-        else onChange(v);
-      }}
-      className="w-full text-xs px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
+    <div
+      className={cn(
+        "max-h-36 overflow-y-auto rounded-md border border-hairline bg-canvas px-2 py-1.5",
+        saving && "opacity-50",
+      )}
     >
-      <option value="">— Select —</option>
-      <option value="__none__">Nobody</option>
-      {participants.length > 0 && (
-        <optgroup label="In this meeting">
-          {participants.map((p) => (
-            <option key={`p-${p.name}-${p.email ?? ""}`} value={p.name}>
-              {p.name}
-            </option>
+      {members.length === 0 && (
+        <p className="text-[11px] text-muted-soft">Loading people…</p>
+      )}
+      {members.map((m) => (
+        <label
+          key={m.id}
+          className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px]"
+        >
+          <input
+            type="checkbox"
+            checked={selected.includes(m.id)}
+            disabled={saving}
+            onChange={() => toggle(m.id)}
+          />
+          <span className="truncate text-ink">{m.name}</span>
+        </label>
+      ))}
+      {/* Somebody assigned then removed from the org still holds the card, so
+          they are listed rather than silently dropped on the next save. */}
+      {selected
+        .filter((id) => !members.some((m) => m.id === id))
+        .map((id) => (
+          <label
+            key={id}
+            className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px]"
+          >
+            <input type="checkbox" checked disabled={saving}
+                   onChange={() => toggle(id)} />
+            <span className="truncate text-muted-soft">
+              {task.assignees?.find((a) => a.id === id)?.name ||
+                task.assignee_name ||
+                "Unknown user"}
+            </span>
+          </label>
+        ))}
+      {selected.length === 0 && members.length > 0 && (
+        <p className="pt-1 text-[10px] text-muted-soft">Unassigned.</p>
+      )}
+
+      {/* People who were in the meeting but have no login. Listed rather than
+          hidden — leaving them out looked like the picker was broken — but
+          not selectable: assignment is a foreign key into `users`, and there
+          is no row to point at. On this data that is most of them (181
+          participants, 0 linked to an account). */}
+      {unlinked.length > 0 && (
+        <>
+          <p className="mt-1 border-t border-hairline pt-1 text-[10px] uppercase tracking-wider text-muted-soft">
+            From this meeting
+          </p>
+          {unlinked.map((p) => (
+            <div
+              key={p.name}
+              title="No account in this workspace — they can't be notified or given access."
+              className="flex items-center gap-2 py-0.5 text-[12px]"
+            >
+              <input type="checkbox" disabled />
+              <span className="truncate text-muted-soft">{p.name}</span>
+              <span className="shrink-0 text-[10px] text-muted-soft">
+                no account
+              </span>
+            </div>
           ))}
-        </optgroup>
+        </>
       )}
-      {orgOnly.length > 0 && (
-        <optgroup label="Organization">
-          {orgOnly.map((m) => (
-            <option key={`m-${m.id}`} value={m.name}>
-              {m.name}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      {task.owner && !inList && (
-        <option value="__other_current__">{task.owner}</option>
-      )}
-      <option value="__other__">Other…</option>
-    </select>
+    </div>
   );
 }
+
+

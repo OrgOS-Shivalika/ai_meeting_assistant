@@ -27,10 +27,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db.models import User
+from app.db.models import TaskAssignee, User
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -118,3 +119,87 @@ def task_organization_id(task) -> Optional[str]:
     if board is not None and board.organization_id:
         return board.organization_id
     return None
+
+
+def current_assignee_ids(db: Session, task) -> list[str]:
+    """Everyone assigned to this task, as strings, ordered oldest-first."""
+    rows = (
+        db.query(TaskAssignee.user_id)
+        .filter(TaskAssignee.task_id == task.id)
+        .order_by(TaskAssignee.created_at.asc())
+        .all()
+    )
+    return [str(r[0]) for r in rows]
+
+
+def set_assignees(db: Session, task, user_ids, organization_id) -> list[User]:
+    """Replace this task's assignees. Returns the people NEWLY added.
+
+    **The only writer of `tasks.assignee_user_id`.** That column is a derived
+    "primary assignee" kept for the two hot paths that would otherwise need a
+    join — `permissions` clause matching and `get_board_detail`'s eager load —
+    and the single-writer rule is what stops it drifting from the join table
+    the way `owner_name` once drifted from the assignee.
+
+    Every id is checked against `organization_id` before it is stored. A task
+    id is guessable and assigning someone GRANTS them the card, so an
+    unchecked id here would be a cross-tenant grant rather than a typo.
+
+    Does NOT commit — the rows belong to the caller's transaction, so an
+    assignment can never outlive the edit that caused it.
+    """
+    wanted: list[str] = []
+    for raw in user_ids or []:
+        sid = str(raw)
+        if sid not in wanted:
+            wanted.append(sid)  # de-duplicated, order preserved
+
+    valid = {
+        str(u.id): u
+        for u in db.query(User).filter(
+            User.organization_id == organization_id,
+            User.id.in_(wanted),
+        )
+    } if wanted else {}
+
+    unknown = [w for w in wanted if w not in valid]
+    if unknown:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Not people in this organization: {', '.join(unknown[:3])}",
+        )
+
+    existing = set(current_assignee_ids(db, task))
+    db.query(TaskAssignee).filter(TaskAssignee.task_id == task.id).delete(
+        synchronize_session=False
+    )
+    for sid in wanted:
+        db.add(TaskAssignee(task_id=task.id, user_id=valid[sid].id))
+
+    # The derived column follows the FIRST assignee, or clears with the last.
+    task.assignee_user_id = valid[wanted[0]].id if wanted else None
+    db.flush()
+
+    return [valid[sid] for sid in wanted if sid not in existing]
+
+
+def names_for_tasks(db: Session, task_ids: list[int]) -> dict[int, list[dict]]:
+    """`{task_id: [{id, name}, ...]}` for a whole board in ONE query.
+
+    Same reason `comment_count` and the unread-mention set are batched: the
+    board renders ~900 cards and a per-card lookup is 900 round trips. Tasks
+    with nobody assigned are simply absent from the dict.
+    """
+    if not task_ids:
+        return {}
+    out: dict[int, list[dict]] = {}
+    rows = (
+        db.query(TaskAssignee.task_id, TaskAssignee.user_id, User.name)
+        .join(User, User.id == TaskAssignee.user_id)
+        .filter(TaskAssignee.task_id.in_(task_ids))
+        .order_by(TaskAssignee.task_id, TaskAssignee.created_at.asc())
+        .all()
+    )
+    for tid, uid, name in rows:
+        out.setdefault(tid, []).append({"id": str(uid), "name": name})
+    return out

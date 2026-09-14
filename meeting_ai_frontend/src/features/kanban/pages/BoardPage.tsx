@@ -1,13 +1,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -21,7 +24,9 @@ import { createBoardTask, moveTask, updateColumn } from "../api";
 import { useBoardOutletContext } from "./BoardLayout";
 import BoardColumn from "../components/BoardColumn";
 import TaskCard from "../components/TaskCard";
+import { COLUMN_DOT } from "../components/BoardColumn";
 import AddColumnButton from "../components/AddColumnButton";
+import { BOARD_TOOLBAR_SLOT } from "./BoardLayout";
 import BoardFilters, {
   ASSIGNED_TO_ME,
   EMPTY_FILTER_STATE,
@@ -78,6 +83,13 @@ export default function BoardPage() {
   const { user: currentUser } = useCurrentUser();
   const { canManage } = usePermissions();
   const [workflowOpen, setWorkflowOpen] = useState(false);
+  // The node in BoardLayout's tab row that this page's controls render into.
+  // Looked up after mount because the layout renders ABOVE the `<Outlet>`
+  // this component sits in — the element exists by the time the effect runs.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setToolbarSlot(document.getElementById(BOARD_TOOLBAR_SLOT));
+  }, []);
   const [deletingColumn, setDeletingColumn] = useState<ColumnWithTasks | null>(null);
   // A move the server refuses must SAY so. Without this a workflow rule
   // looks like a broken board: the card animates back and nothing
@@ -93,6 +105,30 @@ export default function BoardPage() {
   // K4 — card detail drawer state. Deep-linkable via ?task=<id>.
   const taskParam = searchParams.get("task");
   const openTaskId = taskParam ? Number(taskParam) : null;
+  // Where a dragged card counts as being "over" a column.
+  //
+  // Was corner-distance detection, which measures the dragged rect's corners
+  // against each droppable's corners. Fine for a list of same-sized cards and
+  // wrong for a tall container: a full-height column's corners are at its very
+  // top and very bottom, so anywhere in the middle reads as FAR from it and
+  // only the lower region reliably won. Moving the columns to full height made
+  // it obvious.
+  //
+  // `pointerWithin` asks the question that matches the gesture instead: which
+  // droppables is the cursor actually inside? Every part of a column then
+  // works. Cards still take precedence over their column while the cursor is
+  // over one, because dnd-kit orders pointer collisions by distance to each
+  // rect's centre and a card's centre is nearer than the whole column's — so
+  // dropping between two cards stays precise.
+  const collisionDetection: CollisionDetection = useCallback((args) => {
+    const overPointer = pointerWithin(args);
+    if (overPointer.length > 0) return overPointer;
+    // Cursor outside every droppable — dragged past the edge of the board, or
+    // released mid-autoscroll. Fall back to rectangle overlap so the card has
+    // somewhere to land instead of snapping back.
+    return rectIntersection(args);
+  }, []);
+
   // useCallback here is not style — it is what lets `memo(TaskCard)` work.
   // A fresh arrow on every render is a changed prop on all ~900 cards, so the
   // memo would never hit and every keystroke in the search box would re-render
@@ -471,61 +507,68 @@ export default function BoardPage() {
 
   return (
     <>
-      {/* Search + filter button row. Back-link, board name, and tabs
-          are rendered by BoardLayout — this component only owns the
-          board-specific controls. */}
-      <div className="mt-5 flex items-center justify-end gap-2.5 px-9">
-        <SearchInput
-          icon={Search}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search cards…"
-          className="h-[38px] w-52"
-        />
-        {/* "My cards" sits in the HEADER, not in the collapsed filter
-            strip, because it is the one filter people use constantly and a
-            filter you cannot find is a filter that does not exist. It writes
-            the same `filters.assignee` value as the Person dropdown, so the
-            two can never disagree — toggling this off clears it, and picking
-            someone else in the dropdown un-highlights this. */}
-        <FilterPill
-          active={filters.assignee === ASSIGNED_TO_ME}
-          onClick={() =>
-            setFilters((prev) => ({
-              ...prev,
-              assignee: prev.assignee === ASSIGNED_TO_ME ? null : ASSIGNED_TO_ME,
-            }))
-          }
-          aria-pressed={filters.assignee === ASSIGNED_TO_ME}
-          title="Show only cards assigned to me"
-        >
-          <User className="size-3.5" />
-          My cards
-        </FilterPill>
-        {canManage && (
-          <FilterPill
-            active={workflowOpen}
-            onClick={() => setWorkflowOpen(true)}
-            title="Which column a card may move to"
-          >
-            <GitBranch className="size-3.5" />
-            Workflow
-          </FilterPill>
+      {/* These controls belong beside the Board/Summary tabs, which
+          BoardLayout renders ABOVE the `<Outlet>` this component sits in — so
+          they are portalled into the slot it leaves there rather than living
+          in a row of their own. `toolbarSlot` is null on the very first
+          render (the effect has not run yet), which costs one extra render
+          and nothing else. */}
+      {toolbarSlot &&
+        createPortal(
+          <>
+            <SearchInput
+              icon={Search}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search cards…"
+              className="h-[38px] w-52"
+            />
+            {/* "My cards" sits in the HEADER, not in the collapsed filter
+                strip, because it is the one filter people use constantly and a
+                filter you cannot find is a filter that does not exist. It writes
+                the same `filters.assignee` value as the Person dropdown, so the
+                two can never disagree — toggling this off clears it, and picking
+                someone else in the dropdown un-highlights this. */}
+            <FilterPill
+              active={filters.assignee === ASSIGNED_TO_ME}
+              onClick={() =>
+                setFilters((prev) => ({
+                  ...prev,
+                  assignee: prev.assignee === ASSIGNED_TO_ME ? null : ASSIGNED_TO_ME,
+                }))
+              }
+              aria-pressed={filters.assignee === ASSIGNED_TO_ME}
+              title="Show only cards assigned to me"
+            >
+              <User className="size-3.5" />
+              My cards
+            </FilterPill>
+            {canManage && (
+              <FilterPill
+                active={workflowOpen}
+                onClick={() => setWorkflowOpen(true)}
+                title="Which column a card may move to"
+              >
+                <GitBranch className="size-3.5" />
+                Workflow
+              </FilterPill>
+            )}
+            <FilterPill
+              active={filtersOpen || activeFilterCount > 0}
+              count={activeFilterCount > 0 ? activeFilterCount : undefined}
+              onClick={() => setFiltersOpen((prev) => !prev)}
+              aria-expanded={filtersOpen}
+            >
+                  <Filter className="size-3.5" />
+                  Filter
+            </FilterPill>
+          </>,
+          toolbarSlot,
         )}
-        <FilterPill
-          active={filtersOpen || activeFilterCount > 0}
-          count={activeFilterCount > 0 ? activeFilterCount : undefined}
-          onClick={() => setFiltersOpen((prev) => !prev)}
-          aria-expanded={filtersOpen}
-        >
-          <Filter className="size-3.5" />
-          Filter
-        </FilterPill>
-      </div>
 
       {/* Filter strip — hidden until the user opens it via the button. */}
       {filtersOpen && (
-        <div className="mt-3 px-9">
+        <div className="mt-2.5 px-6">
           <BoardFilters
             open
             board={board}
@@ -539,12 +582,24 @@ export default function BoardPage() {
       {/* Columns + drag-drop */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="vb-no-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-9 py-6">
-          <div className="flex h-full items-start gap-4">
+        {/* Scrollbar deliberately NOT hidden here. `vb-no-scrollbar` was on this
+            row, which left a board wider than the viewport with no sign that
+            there was more to the right. The global rule in index.css already
+            styles it to the theme — a 10px track with a 3px transparent border,
+            so the thumb reads as a 4px rounded rail along the bottom. The
+            column card-lists keep `vb-no-scrollbar`; a scrollbar inside every
+            column is noise. */}
+          <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
+          {/* No gap: columns sit flush and a single hairline between them is the
+              only separation, like table columns. `items-stretch` (the flex
+              default, and the reason `items-start` had to go) makes every
+              column full height so those rules run the whole board — a divider
+              that stops at the shortest column's content reads as a mistake. */}
+          <div className="flex h-full gap-0">
             <SortableContext
               items={filteredColumns.map((c) => `colsort-${c.id}`)}
               strategy={horizontalListSortingStrategy}
@@ -562,12 +617,30 @@ export default function BoardPage() {
             </SortableContext>
             {/* Add Column — inline create flow. Refresh after save so
                 the new column shows up at the end of the row. */}
-            <AddColumnButton boardId={board.id} onAdded={refresh} />
+            {/* Outside the rule grid, so it needs its own breathing room. */}
+            <div className="pl-3">
+              <AddColumnButton boardId={board.id} onAdded={refresh} />
+            </div>
           </div>
         </div>
 
         <DragOverlay>
-          {activeTask ? <TaskCard task={activeTask} isOverlay /> : null}
+          {/* The ghost card under the cursor. It belongs to no column while
+              dragging, so its colour is resolved from the column it came
+              from — without this it would lose its tint mid-drag and flash
+              back on drop. */}
+          {activeTask ? (
+            <TaskCard
+              task={activeTask}
+              isOverlay
+              color={
+                COLUMN_DOT[
+                  board.columns.find((c) => c.id === activeTask.column_id)
+                    ?.color || "slate"
+                ] || COLUMN_DOT.slate
+              }
+            />
+          ) : null}
         </DragOverlay>
       </DndContext>
 
