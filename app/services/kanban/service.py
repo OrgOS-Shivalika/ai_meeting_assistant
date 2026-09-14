@@ -20,6 +20,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.db.models import (
+    TaskAssignee,
     Category,
     KanbanBoard,
     KanbanColumn,
@@ -882,7 +883,37 @@ def get_task_detail(db: Session, task_id: int, user) -> dict:
         .scalar() or 0
     )
 
+    # Everyone assigned, ordered oldest-first. Two queries rather than a
+    # relationship load because `Task.assignees` is `lazy="raise"` — the
+    # board path must never trigger it, so the single-card path asks
+    # explicitly.
+    assignee_rows = (
+        db.query(TaskAssignee.user_id, User.name)
+        .join(User, User.id == TaskAssignee.user_id)
+        .filter(TaskAssignee.task_id == task.id)
+        .order_by(TaskAssignee.created_at.asc())
+        .all()
+    )
+
+    # Who did the assigning. Derived from the audit feed rather than a new
+    # column: `task_activity` already records the actor on every
+    # `assignee_changed` row, so the answer is a lookup, not a migration.
+    # None for the ~1300 tasks the analyzer created and nobody ever assigned.
+    assigned_row = (
+        db.query(TaskActivity.actor_name, TaskActivity.created_at)
+        .filter(TaskActivity.task_id == task.id,
+                TaskActivity.event_type == "assignee_changed")
+        .order_by(TaskActivity.created_at.desc())
+        .first()
+    )
+
     return {
+        "assignees": [{"id": str(uid), "name": nm} for uid, nm in assignee_rows],
+        "assigned_by": (
+            {"name": assigned_row[0] or "Someone",
+             "at": assigned_row[1].isoformat() if assigned_row[1] else None}
+            if assigned_row else None
+        ),
         "task": task,
         "column_name": column_name,
         "board_name": board_name,

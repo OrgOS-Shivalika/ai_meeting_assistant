@@ -1,6 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from requests import Session
 from typing import Optional
+from sqlalchemy import func
+from pydantic import BaseModel
 from app.db.database import get_db
 from app.dependencies.auth import get_current_user
 from app.pipelines.meeting_pipeline import MeetingPipeline
@@ -13,10 +15,11 @@ from app.schemas.meeting_schema import (
     TaskUpdateRequest,
 )
 from app.utils.logger import setup_logger
+import re
 import uuid
 from app.config.settings import settings
 from app.db.database import SessionLocal
-from app.db.models import User
+from app.db.models import Organization, User
 from app.services import meeting_service, permissions
 from app.store.job_store import jobs
 
@@ -316,6 +319,117 @@ def update_task(
     user=Depends(get_current_user),
 ):
     return meeting_service.update_task(db, user, task_id, payload)
+
+
+# ---------------------------------------------------------------------------
+# The workspace itself — Settings > Workspace.
+#
+# Only `name` and `slug` exist on `organizations`, and only those two are
+# editable here. The Settings screen used to also offer a Region picker and a
+# default meeting language; neither is modelled anywhere (data lives in one
+# Postgres, and transcription language is the global `TRANSCRIPTION_LANGUAGE`
+# env var), so both were removed rather than wired to nothing.
+# ---------------------------------------------------------------------------
+
+class OrganizationUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+
+
+#: A slug goes in URLs, so it is restricted rather than merely trimmed.
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+@router.get("/org")
+def get_organization(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """The caller's own workspace. Readable by every member — the name is
+    already on screen in the sidebar; this just makes it fetchable with its
+    slug and size.
+
+    There is no id parameter ON PURPOSE. `user.organization_id` is the only
+    org this endpoint will ever read, so there is nothing to authorize and no
+    way to ask it about somebody else's workspace.
+    """
+    org = db.query(Organization).filter(
+        Organization.id == user.organization_id
+    ).first()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    members = db.query(func.count(User.id)).filter(
+        User.organization_id == org.id
+    ).scalar() or 0
+    return {
+        "id": str(org.id),
+        "name": org.name,
+        "slug": org.slug,
+        "created_at": org.created_at,
+        "member_count": members,
+    }
+
+
+@router.patch("/org")
+def update_organization(
+    payload: OrganizationUpdateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Rename the workspace, or set its slug.
+
+    **Org admins only**, not `require_admin_role`. A category admin runs their
+    own categories; renaming the whole organization is not theirs to do, and
+    the slug is worse — it appears in shared links, so changing it is closer
+    to changing an address than editing a label.
+    """
+    if not permissions.is_org_admin(user):
+        raise HTTPException(
+            status_code=403, detail="Only an org admin can change workspace settings."
+        )
+
+    org = db.query(Organization).filter(
+        Organization.id == user.organization_id
+    ).first()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    data = payload.model_dump(exclude_unset=True)
+
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Workspace name can't be empty.")
+        org.name = name
+
+    if "slug" in data:
+        raw = (data["slug"] or "").strip().lower()
+        if not raw:
+            # The column is nullable, so clearing it is legitimate.
+            org.slug = None
+        else:
+            if not _SLUG_RE.match(raw):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Slug can use lowercase letters, numbers and single "
+                           "hyphens between them.",
+                )
+            taken = db.query(Organization.id).filter(
+                func.lower(Organization.slug) == raw,
+                Organization.id != org.id,
+            ).first()
+            if taken:
+                # 409 rather than 400: the value is well-formed, somebody else
+                # simply has it.
+                raise HTTPException(
+                    status_code=409, detail=f"The slug \u201c{raw}\u201d is already taken."
+                )
+            org.slug = raw
+
+    db.commit()
+    db.refresh(org)
+    logger.info("Workspace %s updated by %s", org.id, user.id)
+    return {"id": str(org.id), "name": org.name, "slug": org.slug}
 
 
 # ---------------------------------------------------------------------------

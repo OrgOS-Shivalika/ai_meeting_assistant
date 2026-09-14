@@ -96,7 +96,8 @@ _UNRESOLVED = object()
 
 def _serialize_task(task: Task, comment_count: int = 0,
                     has_unread_mention: bool = False,
-                    assignee=_UNRESOLVED) -> BoardTaskSummary:
+                    assignee=_UNRESOLVED,
+                    assignees: list[dict] | None = None) -> BoardTaskSummary:
     """Convert a Task ORM row to a board-card response.
 
     `comment_count` is passed in (not lazy-loaded) so the caller can
@@ -155,6 +156,19 @@ def _serialize_task(task: Task, comment_count: int = 0,
         has_unread_mention=has_unread_mention,
         assignee_user_id=task.assignee_user_id,
         assignee_name=assignee.name if assignee else None,
+        # Batched by the board path. The single-task paths don't get the extra
+        # query for a card nobody is looking at a list of, so they fall back to
+        # the resolved primary — which is the whole set for every card that
+        # has one assignee, i.e. almost all of them.
+        assignees=(
+            assignees
+            if assignees is not None
+            else (
+                [{"id": str(task.assignee_user_id), "name": assignee.name}]
+                if assignee
+                else []
+            )
+        ),
     )
 
 
@@ -239,9 +253,11 @@ def get_board(
 
     # One query for the whole board rather than a lookup per card.
     from app.services.kanban import mentions as _mentions
-    _unread = _mentions.unread_task_ids(
-        db, user, [t.id for _c, ts in columns_data for t, _cc in ts],
-    )
+    _ids = [t.id for _c, ts in columns_data for t, _cc in ts]
+    _unread = _mentions.unread_task_ids(db, user, _ids)
+    # One more query for the whole board, same reason as the line above.
+    from app.services.kanban import assignees as _assignees
+    _people = _assignees.names_for_tasks(db, _ids)
 
     columns_out = [
         ColumnWithTasks(
@@ -254,7 +270,8 @@ def get_board(
             bound_status=c.bound_status,
             tasks=[
                 _serialize_task(t, comment_count=cc,
-                                has_unread_mention=t.id in _unread)
+                                has_unread_mention=t.id in _unread,
+                                assignees=_people.get(t.id, []))
                 for t, cc in tasks
             ],
         )
@@ -465,6 +482,8 @@ def get_task_detail(
         owner=task.owner_name,
         assignee_user_id=task.assignee_user_id,
         assignee_name=assignee.name if assignee else None,
+        assignees=detail["assignees"],
+        assigned_by=detail["assigned_by"],
         priority=task.priority,
         due_date=task.due_date,
         status=task.status,

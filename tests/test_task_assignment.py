@@ -110,9 +110,18 @@ def main() -> int:
         # board the viewer cannot reach by scope, the one remaining case
         # where assignment is the sole route in.
         import inspect
+        # UPDATED for `at20multiassign`: the arm is no longer an inline
+        # column comparison, it is `_assigned_to(user)` — which ORs that same
+        # column against an EXISTS on `task_assignees`, so it now covers
+        # EVERY assignee rather than only the primary. Asserting the old
+        # string would fail on a refactor that widened the rule, which is the
+        # opposite of what this check is for.
         check("assignee arm still present in task_view_clause",
-              "assignee_user_id == user.id" in inspect.getsource(
+              "_assigned_to(user)" in inspect.getsource(
                   permissions.task_view_clause))
+        check("  and it covers the join table, not just the column",
+              "TaskAssignee" in inspect.getsource(permissions._assigned_to)
+              and "assignee_user_id" in inspect.getsource(permissions._assigned_to))
 
         meeting_service.update_task(
             db, admin, task.id, TaskUpdateRequest(assignee_user_id=member.id))

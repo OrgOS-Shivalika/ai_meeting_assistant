@@ -118,6 +118,15 @@ def send_pending_notification_emails(self):
             .limit(200)
             .all()
         )
+        if not pending:
+            # Nothing to send — do NOT open a connection. The sweep runs every
+            # 30s, so without this it dialled SMTP on every empty tick, stalled
+            # ~2s on the handshake and logged a warning each time when the host
+            # was unreachable. Real failures were about to be buried under
+            # 2,880 identical lines a day.
+            logger.debug("Notification emails: nothing pending")
+            return {"sent": 0, "opted_out": 0, "considered": 0}
+
         # ONE connection for the whole sweep. See `mail_service.connection`:
         # a login per message got the connection refused outright once there
         # were more than a couple to send.

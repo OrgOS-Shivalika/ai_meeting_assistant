@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   User,
+  Palette,
   Building2,
-  Sparkles,
-  Zap,
-  Bell,
-  Shield,
-  CreditCard,
+  // Icons for the five hidden tabs — uncomment with their SECTIONS entries.
+  // Sparkles,
+  // Zap,
+  // Bell,
+  // Shield,
+  // CreditCard,
   Trash2,
   Check,
   ChevronRight,
@@ -36,6 +38,9 @@ import {
   updateNotificationPrefs,
   type NotificationPrefs,
 } from "@/features/kanban/api";
+import { fetchOrganization, updateOrganization, updateProfile, type Organization } from "../api";
+import { clearCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { usePermissions } from "@/features/auth/hooks/usePermissions";
 import { getTheme, setTheme, type Theme } from "../../../shared/theme";
 import { Input } from "@/components/ui/input";
 import { Field as UiField } from "@/components/ui/label";
@@ -145,15 +150,46 @@ function Select({
 // ---------------------------------------------------------------------------
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: User },
+  // Directly under Profile: both are personal, per-browser preferences, which
+  // is what separates them from everything below.
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "workspace", label: "Workspace", icon: Building2 },
-  { id: "ai", label: "AI & Automation", icon: Sparkles },
-  { id: "integrations", label: "Integrations", icon: Zap },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "security", label: "Security", icon: Shield },
-  { id: "billing", label: "Billing", icon: CreditCard },
+  // Hidden for now — these five are still mockups, and a settings screen that
+  // offers controls which do nothing is worse than a short one. Their section
+  // components are kept below so this is a one-line restore each.
+  //
+  // Email notification preferences are NOT lost with the Notifications tab:
+  // `<NotificationPrefs />` renders inside Profile and is fully wired.
+  // { id: "ai", label: "AI & Automation", icon: Sparkles },
+  // { id: "integrations", label: "Integrations", icon: Zap },
+  // { id: "notifications", label: "Notifications", icon: Bell },
+  // { id: "security", label: "Security", icon: Shield },
+  // { id: "billing", label: "Billing", icon: CreditCard },
 ] as const;
 
+//: `access_role` is stored UPPERCASE; this is only how it reads on screen.
+const ROLE_LABEL: Record<string, string> = {
+  ORG_ADMIN: "Org admin",
+  ADMIN: "Admin",
+  MEMBER: "Member",
+};
+
 type SectionId = (typeof SECTIONS)[number]["id"];
+
+/** The five tabs hidden above, parked rather than deleted.
+ *
+ *  Exported for one reason: `noUnusedLocals` is on, so a section component
+ *  nobody references is a BUILD ERROR. Referencing them here keeps them
+ *  type-checked and compiling, so they cannot quietly rot while hidden — and
+ *  when a tab comes back it is an entry in `SECTIONS` plus one line in the
+ *  switch, with the component already known to build. */
+export const PARKED_SECTIONS = {
+  ai: AISection,
+  integrations: IntegrationsSection,
+  notifications: NotificationsSection,
+  security: SecuritySection,
+  billing: BillingSection,
+};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -203,12 +239,15 @@ export default function SettingsPage() {
           {/* Section content */}
           <div className="min-w-0">
             {active === "profile" && <ProfileSection />}
+            {active === "appearance" && <AppearanceSection />}
             {active === "workspace" && <WorkspaceSection />}
-            {active === "ai" && <AISection />}
-            {active === "integrations" && <IntegrationsSection />}
-            {active === "notifications" && <NotificationsSection />}
-            {active === "security" && <SecuritySection />}
-            {active === "billing" && <BillingSection />}
+            {/* Hidden with their nav entries above. Left here rather than
+                deleted so restoring a tab is one line in each place. */}
+            {/* {active === "ai" && <AISection />} */}
+            {/* {active === "integrations" && <IntegrationsSection />} */}
+            {/* {active === "notifications" && <NotificationsSection />} */}
+            {/* {active === "security" && <SecuritySection />} */}
+            {/* {active === "billing" && <BillingSection />} */}
           </div>
         </div>
       </PageContainer>
@@ -292,6 +331,42 @@ function NotificationPrefs() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Appearance
+// ---------------------------------------------------------------------------
+/** Theme and background, as TWO sections rather than one.
+ *
+ *  Both used to be tacked onto the bottom of Profile, which put "what is my
+ *  job title" and "what colour is this app" on one screen. They are not the
+ *  same setting as each other either — the theme is a light/dark switch the
+ *  whole UI reads, the background is decoration on one surface — so they get
+ *  a rule between them instead of sharing a heading.
+ *
+ *  This sits under Profile rather than Workspace because both are per-person
+ *  AND per-browser: they are stored locally, never on the account. See
+ *  `shared/background.ts`. */
+function AppearanceSection() {
+  return (
+    <>
+      <Section
+        title="Theme"
+        description="Only you see this. Light unless you pick dark."
+      >
+        <ThemePicker />
+      </Section>
+
+      <div className="mt-8">
+        <Section
+          title="Background"
+          description="Decoration for your own view. Stored in this browser, not on your account."
+        >
+          <BackgroundPicker />
+        </Section>
+      </div>
+    </>
+  );
+}
+
 /** Light / dark. Applies on click and persists itself. */
 function ThemePicker() {
   const [theme, setThemeState] = useState<Theme>(getTheme);
@@ -306,11 +381,8 @@ function ThemePicker() {
   };
 
   return (
-    <div className="border-t border-hairline py-5">
-      <p className="vb-title-sm">Appearance</p>
-      <p className="mt-0.5 mb-3 text-[12px] text-muted-ink">
-        Only you see this. Light unless you pick dark.
-      </p>
+    // No heading of its own any more — the Section above provides it.
+    <div className="border-t border-hairline-soft py-5">
       <div className="flex gap-2">
         {(["light", "dark"] as Theme[]).map((t) => (
           <button
@@ -446,8 +518,37 @@ function BackgroundPicker() {
 
 function ProfileSection() {
   const { user } = useCurrentUser();
-  const [name, setName] = useState(user?.name || "");
-  const [tz, setTz] = useState("America/New_York");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // `useCurrentUser` resolves asynchronously, so seeding state from it at
+  // first render would leave the field permanently blank.
+  useEffect(() => {
+    if (user?.name) setName(user.name);
+  }, [user?.name]);
+
+  const dirty = !!user && name !== user.name;
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await updateProfile({ name: name.trim() });
+      // The hook caches `/auth/me` at module level, so without this the
+      // sidebar keeps the old name for the rest of the session. The Sidebar
+      // remounts on every route change in this app, so clearing the cache is
+      // enough — it refetches as soon as you navigate.
+      clearCurrentUser();
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save your profile.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const initials =
     user?.name
@@ -505,23 +606,16 @@ function ProfileSection() {
             className="h-10 bg-surface-soft"
           />
         </Field>
-        <Field label="Timezone">
-          <Select
-            value={tz}
-            onChange={setTz}
-            options={[
-              { value: "America/New_York", label: "America / New York" },
-              { value: "America/Los_Angeles", label: "America / Los Angeles" },
-              { value: "Europe/London", label: "Europe / London" },
-              { value: "Asia/Kolkata", label: "Asia / Kolkata" },
-              { value: "Asia/Tokyo", label: "Asia / Tokyo" },
-            ]}
-          />
-        </Field>
-        <Field label="Role">
+        {/* Timezone used to sit here as a five-entry picker that wrote to
+            nothing — there is no column for it. It would also have been
+            ignored: every date in this app renders through
+            `toLocaleDateString`/`toLocaleString`, which already uses the
+            viewer's own zone. Removed rather than given a column to justify
+            the control. */}
+        <Field label="Role" hint="Granted by an org admin.">
           <div className="flex h-10 items-center">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-lavender/22 px-[9px] py-1 text-[11px] font-semibold text-purple-700">
-              Org Admin
+              {ROLE_LABEL[user?.access_role ?? "MEMBER"]}
             </span>
           </div>
         </Field>
@@ -531,14 +625,31 @@ function ProfileSection() {
           Cancel/Save bar — those buttons belong to the profile fields and do
           not govern it. */}
       <NotificationPrefs />
-      <ThemePicker />
-      <BackgroundPicker />
 
       <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
-        <Button variant="ghost" size="sm">
+        {error && <span className="mr-auto text-[12px] text-error">{error}</span>}
+        {!error && saved && (
+          <span className="mr-auto text-[12px] text-muted-ink">Saved.</span>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setName(user?.name || "");
+            setError(null);
+            setSaved(false);
+          }}
+          disabled={busy || !dirty}
+        >
           Cancel
         </Button>
-        <Button size="sm">Save changes</Button>
+        <Button
+          size="sm"
+          onClick={() => void save()}
+          disabled={busy || !dirty || !name.trim()}
+        >
+          {busy ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </Section>
   );
@@ -548,12 +659,62 @@ function ProfileSection() {
 // Workspace
 // ---------------------------------------------------------------------------
 function WorkspaceSection() {
-  const { user } = useCurrentUser();
-  const [orgName, setOrgName] = useState(
-    user?.organization?.name || "Acme, Inc.",
-  );
-  const [region, setRegion] = useState("us-east-1");
-  const [lang, setLang] = useState("auto");
+  const { canManageOrganization } = usePermissions();
+  const [org, setOrg] = useState<Organization | null>(null);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const load = () => {
+    fetchOrganization()
+      .then((o) => {
+        setOrg(o);
+        setName(o.name);
+        setSlug(o.slug || "");
+      })
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : "Couldn't load the workspace."),
+      );
+  };
+  useEffect(load, []);
+
+  const dirty =
+    org !== null && (name !== org.name || slug !== (org.slug || ""));
+
+  const reset = () => {
+    if (!org) return;
+    setName(org.name);
+    setSlug(org.slug || "");
+    setError(null);
+    setSaved(false);
+  };
+
+  const save = async () => {
+    if (!org) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      // Only what changed. Sending `slug` unchanged would make a no-op edit
+      // race the uniqueness check against the org's own row.
+      const patch: { name?: string; slug?: string } = {};
+      if (name !== org.name) patch.name = name.trim();
+      if (slug !== (org.slug || "")) patch.slug = slug.trim();
+      const updated = await updateOrganization(patch);
+      setOrg({ ...org, name: updated.name, slug: updated.slug });
+      setName(updated.name);
+      setSlug(updated.slug || "");
+      setSaved(true);
+    } catch (e) {
+      // The server's messages are specific — an invalid slug says what a slug
+      // may contain, a taken one names it — so they are shown verbatim.
+      setError(e instanceof Error ? e.message : "Couldn't save the workspace.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <>
@@ -564,68 +725,100 @@ function WorkspaceSection() {
         <div className="grid grid-cols-1 gap-4 border-t border-hairline-soft py-5 sm:grid-cols-2">
           <Field label="Workspace name">
             <Input
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={!canManageOrganization || !org}
               className="h-10"
             />
           </Field>
-          <Field label="Slug" hint="Used in shared meeting links.">
-            <Input value="acme" readOnly className="h-10 bg-surface-soft" />
-          </Field>
-          <Field label="Region" hint="Where meeting data is stored.">
-            <Select
-              value={region}
-              onChange={setRegion}
-              options={[
-                { value: "us-east-1", label: "US East (N. Virginia)" },
-                { value: "eu-west-1", label: "EU West (Ireland)" },
-                { value: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
-              ]}
+          <Field
+            label="Slug"
+            hint="Lowercase letters, numbers and hyphens. Leave blank for none."
+          >
+            <Input
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              disabled={!canManageOrganization || !org}
+              placeholder="not set"
+              className="h-10"
             />
           </Field>
-          <Field label="Default meeting language">
-            <Select
-              value={lang}
-              onChange={setLang}
-              options={[
-                { value: "auto", label: "Auto-detect" },
-                { value: "en", label: "English" },
-                { value: "es", label: "Spanish" },
-                { value: "fr", label: "French" },
-                { value: "de", label: "German" },
-                { value: "hi", label: "Hindi" },
-                { value: "ja", label: "Japanese" },
-              ]}
+          <Field label="Members">
+            <Input
+              value={org ? String(org.member_count) : "—"}
+              readOnly
+              className="h-10 bg-surface-soft"
+            />
+          </Field>
+          <Field label="Created">
+            <Input
+              value={
+                org ? new Date(org.created_at).toLocaleDateString() : "—"
+              }
+              readOnly
+              className="h-10 bg-surface-soft"
             />
           </Field>
         </div>
+
+        {/* Region and default meeting language used to sit here. Neither is
+            modelled anywhere — every install is one Postgres, and the
+            transcription language is the global `TRANSCRIPTION_LANGUAGE` env
+            var — so they were pickers that changed nothing. Removed rather
+            than wired to a column invented to justify them. */}
+
         <div className="-mx-[26px] mt-2 flex items-center justify-end gap-2.5 border-t border-hairline-soft bg-surface-soft px-[26px] py-4">
-          <Button variant="ghost" size="sm">
+          {error && (
+            <span className="mr-auto text-[12px] text-error">{error}</span>
+          )}
+          {!error && saved && (
+            <span className="mr-auto text-[12px] text-muted-ink">Saved.</span>
+          )}
+          {!canManageOrganization && (
+            <span className="mr-auto text-[12px] text-muted-soft">
+              Only an org admin can change these.
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={reset}
+            disabled={busy || !dirty}
+          >
             Cancel
           </Button>
-          <Button size="sm">Save changes</Button>
+          <Button
+            size="sm"
+            onClick={() => void save()}
+            disabled={busy || !dirty || !canManageOrganization}
+          >
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
         </div>
       </Section>
 
       <section className="mt-8">
         <header className="mb-5">
-          <h2 className="vb-title-lg">
-            Danger zone
-          </h2>
+          <h2 className="vb-title-lg">Danger zone</h2>
           <p className="text-sm text-muted-ink mt-1">
             Irreversible actions. Proceed with care.
           </p>
         </header>
-        <div className="rounded-lg border border-red-200 bg-red-50/40 p-5 flex items-center justify-between">
+        <div className="rounded-lg border border-error/20 bg-error/8 p-5 flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-ink">
               Delete this workspace
             </div>
             <p className="text-xs text-muted-ink mt-1">
-              This permanently removes all meetings, transcripts, and members.
+              {/* Honest about why this cannot be clicked. `users`,
+                  `categories` and `meetings` all reference the org with
+                  ON DELETE RESTRICT, so there is no delete to call — the
+                  button used to be wired to nothing at all. */}
+              Not available yet — every member, category and meeting references
+              this workspace, so it has to be emptied first.
             </p>
           </div>
-          <Button variant="destructive" size="sm">
+          <Button variant="destructive" size="sm" disabled>
             <Trash2 className="w-3.5 h-3.5" />
             Delete workspace
           </Button>

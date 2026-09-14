@@ -2929,6 +2929,186 @@ LOWER part. Not a layout bug - the collision algorithm.
 - `tsc -b --force` clean, `npm run build` 30.3 s. NOT visually verified - this
   one needs a real drag.
 
+### 2026-09-14 - the board's horizontal scrollbar is visible again
+
+- `BoardPage`'s column row carried `vb-no-scrollbar`, so a board wider than
+  the viewport scrolled fine but showed NOTHING to say there was more to the
+  right. Class removed; that is the whole change.
+- No new CSS needed. `index.css` already themes every scrollbar globally -
+  10px track, transparent 3px border, `--vb-surface-strong` thumb clipped to
+  the content box, so what shows is a 4px rounded rail. Verified it is in the
+  built stylesheet rather than assumed.
+- Scope kept tight: `BoardColumn`'s card list and `BoardSummaryPage` KEEP
+  `vb-no-scrollbar`. A scrollbar inside every column is noise; the ask was the
+  board rail at the bottom.
+- Costs ~10px of column height, since the row is `overflow-x-auto` and the
+  columns stretch to it. Acceptable for the affordance.
+- `tsc -b --force` clean, `npm run build` 29.4 s.
+
+### 2026-09-14 - Settings > Workspace is real (it was a mockup)
+
+The whole `WorkspaceSection` was static markup: `"Acme, Inc."` hardcoded as a
+fallback, slug hardcoded `"acme"` and readOnly, and **Save changes / Cancel /
+Delete workspace had no handlers at all**. Nothing it showed came from the
+server and nothing it did reached it.
+
+- **No org endpoint existed.** `routes.py` had only `/org/members`. Added
+  `GET /org` (any member - id, name, slug, created_at, member_count) and
+  `PATCH /org`. 222 -> 224 routes.
+- `PATCH` is **org admin only**, not `require_admin_role`: a category admin
+  runs their own categories, and the slug appears in shared links, so changing
+  it is closer to changing an address than editing a label. Name is trimmed
+  and may not be empty; slug is lowercased and must match
+  `^[a-z0-9]+(?:-[a-z0-9]+)*$`; a taken slug is **409**, not 400 - the value is
+  well-formed, someone else simply has it. Clearing it is allowed (the column
+  is nullable).
+- Verified by calling the handlers against the live DB and restoring after:
+  GET works for a member, name trims, slug lowercases, `has spaces` /
+  `Trailing-` / `under_score` / `--double` all 400, a MEMBER gets 403.
+  **Not reachable:** the duplicate-slug 409 - no other org has a slug set, so
+  that branch is untested.
+- **Two fields deleted rather than wired: Region and Default meeting
+  language.** Neither is modelled anywhere - one Postgres per install, and
+  transcription language is the global `TRANSCRIPTION_LANGUAGE` env var. They
+  were pickers that changed nothing. Replaced with read-only Members and
+  Created, which are real.
+- Delete workspace is now **disabled with the reason on screen**: `users`,
+  `categories` and `meetings` all reference the org `ON DELETE RESTRICT`, so
+  there is no delete to call. Previously it looked live and did nothing.
+- `tsc -b --force` clean, `npm run build` 19.4 s.
+
+### 2026-09-14 (cont.) - Appearance is its own settings section
+
+- `ThemePicker` and `BackgroundPicker` were both rendered at the bottom of
+  `ProfileSection`, so "what is my job title" and "what colour is this app"
+  shared a screen. They are now an **Appearance** entry in `SECTIONS`, placed
+  directly under Profile.
+- **Theme and Background are two `Section`s, not one.** They are different
+  kinds of setting - the theme is a light/dark switch the whole UI reads, the
+  background is decoration on one surface - so a rule separates them rather
+  than a shared heading.
+- Under Profile rather than Workspace on purpose: both are per-person AND
+  per-browser (stored locally, never on the account - see
+  `shared/background.ts`), which is exactly what distinguishes them from
+  everything below in the nav.
+- `ThemePicker` lost its own `Appearance` heading; the Section owns it now, so
+  the title was not printed twice.
+- `tsc -b --force` clean, `npm run build` 19.0 s.
+
+### 2026-09-14 (cont.) - Settings > Profile is real too
+
+Same shape as the Workspace fix: the section was static. Save and Cancel had
+no handlers, Role was the literal string "Org Admin" for everyone, and the
+name field seeded from a hook that resolves async, so it could render blank.
+
+- **`PATCH /auth/me` added** (there was only a GET). 224 -> 225 routes.
+  **Name only**, and the docstring says why: email is the login credential, so
+  changing it is a verification flow rather than a text field; and letting the
+  subject PATCH their own role would be a straight privilege escalation. No id
+  parameter, so it can only ever write the row `get_current_user` resolved.
+- Verified against the live DB and restored: trims to `'Probe Name'`, and an
+  all-whitespace name is a 400.
+- **Role now shows the real `access_role`** through a `ROLE_LABEL` map
+  (the column is stored UPPERCASE; this is presentation only).
+- **Timezone deleted, not wired.** No column for it, and it would have been
+  ignored anyway: every date in the app renders through `toLocaleDateString` /
+  `toLocaleString`, which already uses the viewer's own zone. Third fake
+  control removed this session, after Region and default meeting language.
+- The name field now seeds in a `useEffect` on `user?.name` - seeding
+  `useState` from the hook's first render left it permanently blank, because
+  `useCurrentUser` resolves after mount.
+- After a successful save it calls `clearCurrentUser()`. The hook caches
+  `/auth/me` at MODULE level, so without it the sidebar would show the old
+  name for the rest of the session; the Sidebar remounts on every route
+  change, so clearing the cache is enough.
+- Profile picture left alone, as asked - Change photo / Remove are still
+  inert.
+- `tsc -b --force` clean, `npm run build` 19.9 s.
+
+### 2026-09-14 (cont.) - the drawer's dropdowns follow the theme
+
+Reported: the "Assigned to" dropdown is white in dark mode.
+
+- Cause is the one measured on 2026-09-11 and not yet fixed anywhere: dark
+  mode flips CSS VARIABLES on `html.theme-dark`, and raw Tailwind palette
+  classes read none of them. The two selects were `bg-white` /
+  `border-slate-200`, so they stayed light on a dark drawer.
+- Fixed the "Assigned to" select, the Assignee select above it, the free-text
+  "Other..." input beside it, and the drawer's own `border-l`. Fixing only the
+  one reported would have left its neighbour white and looking broken.
+- Shared `CONTROL` constant in the file so the two pickers cannot drift apart
+  again: `bg-canvas text-ink border-hairline` plus a token focus ring. Chrome
+  and Firefox give `<option>` the select's background, so the open list
+  follows too.
+- `TaskDetailDrawer` still has ~60 other raw-palette classes; this fixed the
+  CONTROLS, not the file. The wider job is still the 68-file / 1819-occurrence
+  item noted on 2026-09-11.
+- `tsc -b --force` clean, `npm run build` OK.
+
+### 2026-09-14 (cont.) - SMTP is blocked by the NETWORK, not the code
+
+Log showed `ConnectionRefusedError: [WinError 10061]` on the shared SMTP
+connection, then `0 sent, 0 opted out, 0 considered`. Two unrelated things.
+
+**1. The network blocks Gmail's SMTP host.** Measured, not guessed:
+
+    smtp.gmail.com resolves to 192.178.158.109      (DNS is fine)
+    google.com:443        OPEN  in 0.0s            (internet is fine)
+    smtp.gmail.com:25/465/587  REFUSED in ~2.0s each
+    smtp.gmail.com:443         TIMES OUT
+
+Refused from the HOST **and** from inside `meeting-ai-worker`, so it is not a
+Docker networking issue. Traffic to that one host is being blocked - every
+SMTP port RST immediately, even 443 to the same IP dies - while the rest of
+the internet is reachable. It WORKED on 2026-09-08 (`Email sent:
+to=itsbhardwajansh@gmail.com`), so the network changed, not the code. Suspect
+an AV/endpoint "mail protection", the router, a VPN, or the ISP. Nothing to
+fix in this repo; port 587 egress has to be allowed.
+
+**2. A real flaw of mine, now fixed.** The sweep entered
+`mail_service.connection()` BEFORE checking whether anything was pending, so
+with `0 considered` it still dialled SMTP - every 30 seconds, stalling ~2s on
+the handshake and logging a warning each time. That is 2,880 identical
+warnings a day with nothing to send, which would bury the real failures. It
+now returns early on an empty queue.
+
+### 2026-09-14 (cont.) - MULTIPLE assignees per task
+
+Migration **`at20multiassign`** (local head). `task_assignees` (task_id,
+user_id) with the PAIR as the primary key - assigning someone twice is not a
+second assignment - plus `ix_task_assignees_user` leading with user_id, which
+is the direction both permission clauses and the My-cards filter ask in.
+Backfilled from `tasks.assignee_user_id`: 5 rows in, 5 tasks out.
+
+- **`tasks.assignee_user_id` KEPT, as a derived "primary".** Not laziness:
+  `permissions` compares it on every task query, and `get_board_detail`'s
+  eager load of `Task.assignee` is what took the board 7.1s -> 0.12s. The
+  `owner_name` disaster of 2026-09-02 is avoided by a hard rule -
+  **`assignees.set_assignees` is its ONLY writer** and it is never edited
+  alone.
+- **Both permission clauses now use `_assigned_to(user)`**, which ORs the
+  column against an EXISTS on the join table (with `.correlate(Task)` - the
+  same trap as `board_view_clause`, where a missing correlate matches every
+  row). Before this, a SECOND assignee was silently locked out of work they
+  had been given.
+- `set_assignees` validates every id against `organization_id` before storing
+  - a task id is guessable and assigning GRANTS the card, so an unchecked id
+  is a cross-tenant grant, not a typo. Returns only the NEWLY added, so
+  re-saving an unchanged list notifies nobody.
+- API: `TaskUpdateRequest.assignee_user_ids` (a list REPLACES the set, and
+  wins over the scalar when both are sent); `get_task_detail` returns
+  `assignees: [{id, name}]`.
+- UI: the drawer's Assignee control is a checkbox list. Someone assigned then
+  removed from the org is still listed rather than silently dropped on save.
+- **`tests/test_multi_assignee.py` 14/14**, including the one that matters:
+  a secondary assignee can view AND manage; a removed one loses access;
+  another org's user is a 404; duplicates collapse; `[]` unassigns; rows
+  cascade with the task.
+
+**NOT done** (ran out of context): `TaskCard` still shows one name, the
+board's My-cards filter and `assignee` filter still match only the primary
+column, and `tests/test_task_assignment.py` has not been re-run against this.
+
 ## 7. Open threads
 
 ~~prod behind on migrations~~ **CLEARED 2026-09-08** - Railway taken
@@ -3070,3 +3250,22 @@ not live there.
    30 seconds, and it tells you the tree is sane before you touch anything.
 3. Ask which thread — do NOT pick from §7 unilaterally; three of them are
    product decisions, not engineering ones.
+
+- **2026-09-14** — "Assigned to" multi-select was broken end-to-end: `kanban_service.get_task_detail`
+  built the `assignees` list but `kanban_router.get_task_detail` never passed it into
+  `TaskDetailResponse`, so the drawer fell back to the single `assignee_user_id` and every second
+  tick un-ticked itself on the refetch. Added `assignees` + `assigned_by` to the schema and the
+  route. `assigned_by` is derived from the newest `task_activity` row with
+  `event_type='assignee_changed'` (actor_name + created_at) — no column, no migration.
+  Drawer: "Assignee" is back as a READ-ONLY "Assigned by X · date" line (the user's meaning of the
+  word: who did the assigning), and `AssigneePicker` now also lists meeting participants who have
+  no login, greyed and disabled under a "From this meeting" divider — hiding them read as a broken
+  picker. Verified: `tests/test_multi_assignee.py` 16/16 (2 new checks assert on the ROUTE, which
+  is where the bug lived), `tests/test_task_assignment.py` 23/23, `tsc` clean, build exit 0.
+- **2026-09-14** — Task cards stack avatars for multi-assignee. `BoardTaskSummary.assignees`
+  added; the board path batches it via new `kanban/assignees.names_for_tasks()` (ONE query for
+  ~900 cards, same pattern as `comment_count` / `unread_task_ids`). `_serialize_task` takes an
+  optional `assignees=`; single-task paths pass nothing and fall back to the resolved primary, so
+  no path gained a per-card query. Card shows up to 3 overlapping `Avatar`s + "+N", label reads
+  "First +N", tooltip lists everyone. Verified: `tests/test_multi_assignee.py` 18/18 (new check
+  asserts on `get_board` output), build exit 0.

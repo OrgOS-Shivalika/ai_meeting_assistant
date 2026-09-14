@@ -586,7 +586,14 @@ export default function BoardPage() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="vb-no-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
+        {/* Scrollbar deliberately NOT hidden here. `vb-no-scrollbar` was on this
+            row, which left a board wider than the viewport with no sign that
+            there was more to the right. The global rule in index.css already
+            styles it to the theme — a 10px track with a 3px transparent border,
+            so the thumb reads as a 4px rounded rail along the bottom. The
+            column card-lists keep `vb-no-scrollbar`; a scrollbar inside every
+            column is noise. */}
+          <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 py-4">
           {/* No gap: columns sit flush and a single hairline between them is the
               only separation, like table columns. `items-stretch` (the flex
               default, and the reason `items-start` had to go) makes every

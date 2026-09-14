@@ -52,13 +52,27 @@ function TaskCard({ task, color, isOverlay = false, onOpen }: Props) {
     transition,
   };
 
-  // "Assigned to" wins. A card has room for ONE name and this is the field
-  // people set to say who is doing the work — showing the account instead
-  // meant the card contradicted the field they had just edited.
+  // The ASSIGNEE wins again — because "Assigned to" now IS the assignee.
+  // While they were two fields this read `owner || assignee_name`, so the card
+  // matched the label people edited. They are one control now, and the account
+  // is the one that means something.
   //
-  // Falls back to the account so a card assigned through the Assignee control
-  // alone still shows somebody rather than "Unassigned".
-  const displayName = task.owner || task.assignee_name;
+  // Falls back to `owner` for the many cards the analyzer labelled but never
+  // assigned to an account; those would otherwise all read "Unassigned".
+  const displayName = task.assignee_name || task.owner;
+  // Everyone assigned. Falls back to the primary so a card served by a path
+  // that doesn't batch the lookup (or fetched before this change) still shows
+  // its one person instead of going blank.
+  const people =
+    task.assignees?.length
+      ? task.assignees
+      : task.assignee_name
+        ? [{ id: task.assignee_user_id || "primary", name: task.assignee_name }]
+        : [];
+  // Three, then a count. Four 18px circles already crowd the footer against
+  // the due date, and the names are one click away in the drawer.
+  const shown = people.slice(0, 3);
+  const overflow = people.length - shown.length;
   const due = formatDateShort(task.due_date);
   const priorityKey = (task.priority || "medium").toLowerCase();
   const priorityClass = PRIORITY_STYLE[priorityKey] || PRIORITY_STYLE.medium;
@@ -136,7 +150,26 @@ function TaskCard({ task, color, isOverlay = false, onOpen }: Props) {
       {/* Footer: owner + due + comments + status icon */}
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          {displayName ? (
+          {shown.length > 0 ? (
+            <div className="flex shrink-0 -space-x-1.5">
+              {shown.map((p) => (
+                <Avatar
+                  key={p.id}
+                  size="xs"
+                  name={p.name}
+                  className="size-[18px] text-[8px] ring-1 ring-canvas"
+                />
+              ))}
+              {overflow > 0 && (
+                <span
+                  title={people.slice(3).map((p) => p.name).join(", ")}
+                  className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-[6px] bg-muted-soft/20 text-[8px] font-semibold text-muted-ink ring-1 ring-canvas"
+                >
+                  +{overflow}
+                </span>
+              )}
+            </div>
+          ) : displayName ? (
             <Avatar size="xs" name={displayName} className="size-[18px] text-[8px]" />
           ) : (
             <span className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-[6px] bg-warning/15 text-warning">
@@ -152,12 +185,14 @@ function TaskCard({ task, color, isOverlay = false, onOpen }: Props) {
             // different people. The card shows one; the tooltip says who the
             // other is rather than leaving the difference invisible.
             title={
-              task.assignee_name && task.owner && task.assignee_name !== task.owner
-                ? `Assigned to ${task.owner} · account: ${task.assignee_name}`
+              people.length > 1
+                ? people.map((p) => p.name).join(", ")
                 : displayName || "Unassigned"
             }
           >
-            {displayName || "Unassigned"}
+            {people.length > 1
+              ? `${people[0].name} +${people.length - 1}`
+              : displayName || "Unassigned"}
           </span>
         </div>
 

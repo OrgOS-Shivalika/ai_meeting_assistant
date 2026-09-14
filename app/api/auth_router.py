@@ -1,4 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from typing import Optional
+
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
@@ -65,6 +68,40 @@ def logout(response: Response):
         samesite=settings.AUTH_COOKIE_SAMESITE,
     )
     return {"message": "Logged out"}
+
+
+class ProfileUpdateRequest(BaseModel):
+    """What a person may change about THEMSELVES.
+
+    `name` only, deliberately. Email is an identity and the login credential,
+    so changing it is a verification flow rather than a text field. Roles are
+    granted by an admin — letting the subject PATCH their own would be a
+    straight privilege escalation.
+    """
+    name: Optional[str] = None
+
+
+@router.patch("/me")
+def update_me(
+    payload: ProfileUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the caller's own profile.
+
+    No id parameter, so there is no one else this can be aimed at — the row it
+    writes is whichever `get_current_user` resolved.
+    """
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Your name can't be empty.")
+        user.name = name
+    db.commit()
+    db.refresh(user)
+    logger.info("Profile updated for %s", user.id)
+    return {"id": str(user.id), "name": user.name, "email": user.email}
 
 
 @router.get("/me")

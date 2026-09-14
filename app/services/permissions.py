@@ -75,6 +75,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import (
     Category,
+    TaskAssignee,
     CategoryAdmin,
     KanbanBoard,
     Meeting,
@@ -144,6 +145,31 @@ def is_category_admin(user: User) -> bool:
 # --------------------------------------------------------------------------
 # Building blocks
 # --------------------------------------------------------------------------
+
+
+def _assigned_to(user: User):
+    """Clause: this task is assigned to `user`, by ANY of its assignees.
+
+    Checks the join table AND the denormalised column. Both, deliberately:
+    `task_assignees` is the source of truth and covers secondary assignees,
+    while `assignee_user_id` is an indexed column comparison that satisfies
+    the common single-assignee case without the subquery. `set_assignees` is
+    the only writer of the column, so they cannot disagree — but if they ever
+    did, OR-ing them fails OPEN for the assignee rather than locking somebody
+    out of their own card.
+    """
+    return or_(
+        Task.assignee_user_id == user.id,
+        exists(
+            select(TaskAssignee.task_id)
+            .where(TaskAssignee.task_id == Task.id)
+            .where(TaskAssignee.user_id == user.id)
+            # Correlate explicitly — the same trap as `board_view_clause`:
+            # without it SQLAlchemy emits an uncorrelated subquery and every
+            # task matches for anyone assigned to anything.
+            .correlate(Task)
+        ),
+    )
 
 
 def _attended_meeting_ids(user: User):
@@ -672,7 +698,7 @@ def task_view_clause(db: Session, user: User) -> Optional[ColumnElement]:
     )
 
     return or_(
-        Task.assignee_user_id == user.id,
+        _assigned_to(user),
         Task.meeting_id.in_(_attended_meeting_ids(user)),
         # Grants, for every role — same reasoning as
         # `meeting_view_clause`. A task is visible when its meeting is.
@@ -710,7 +736,7 @@ def task_manage_clause(db: Session, user: User) -> Optional[ColumnElement]:
             )
             .scalar_subquery()
         )
-    return Task.assignee_user_id == user.id
+    return _assigned_to(user)
 
 
 def get_viewable_task(db: Session, user: User, task_id: int) -> Task:
