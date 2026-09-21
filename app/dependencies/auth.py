@@ -265,3 +265,25 @@ def require_org_admin(
             detail=f"Requires role '{PromptRole.ORG_ADMIN}'.",
         )
     return user
+
+def require_access_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """ADMIN or ORG_ADMIN on ``users.access_role``.
+
+    NOT the same thing as :func:`require_org_admin` above, which reads
+    ``users.role`` (the prompt-surface rank). The two columns share the
+    name ``ORG_ADMIN`` and mean different things; using the wrong one
+    here would gate these pages on whether somebody may edit prompts.
+
+    This is the dependency that matches the frontend: the Sidebar's
+    ``NavItem.roles`` and ``RequireRole`` both read ``access_role``, so a
+    page hidden there is refused here for the same reason.
+    """
+    # Imported inside the function: `app.services.permissions` pulls in the
+    # ORM models, and importing it at module scope makes this module part of
+    # that cycle.
+    from app.services import permissions
+
+    permissions.require_admin_role(user)
+    return user

@@ -59,16 +59,36 @@ const NAV: NavSection[] = [
     label: "Intelligence",
     items: [
       { path: "/ask", label: "Ask AI", icon: Sparkles },
-      { path: "/knowledge-hub", label: "Knowledge", icon: BookOpen },
-      { path: "/knowledge-graph", label: "Graph", icon: Network },
-      { path: "/agent-control", label: "Control Panel", icon: Bot },
+      {
+        path: "/knowledge-hub",
+        label: "Knowledge",
+        icon: BookOpen,
+        roles: ["ADMIN", "ORG_ADMIN"],
+      },
+      {
+        path: "/knowledge-graph",
+        label: "Graph",
+        icon: Network,
+        roles: ["ADMIN", "ORG_ADMIN"],
+      },
+      {
+        path: "/agent-control",
+        label: "Control Panel",
+        icon: Bot,
+        roles: ["ADMIN", "ORG_ADMIN"],
+      },
     ],
   },
   {
     label: "Workspace",
     items: [
       { path: "/meeting-types", label: "Categories", icon: Layers },
-      { path: "/templates", label: "Templates", icon: Package },
+      {
+        path: "/templates",
+        label: "Templates",
+        icon: Package,
+        roles: ["ADMIN", "ORG_ADMIN"],
+      },
       { path: "/integrations", label: "Integrations", icon: Zap },
       {
         path: "/members",

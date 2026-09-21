@@ -3292,3 +3292,77 @@ not live there.
   NOT fixed, pre-existing on main, NOT deploy blockers: `GET /continuum/traces` is not org-scoped
   (identical code on main — a live cross-tenant read), Continuum Core board visible to all orgs,
   and My-cards/assignee filters still miss secondary assignees.
+- **2026-09-15** — Diagnosed "bot speaks with no trigger phrase". NOT a detection failure — a
+  false POSITIVE. `_WRAP_UP_PATTERNS` still carries ~20 loose natural-language fallbacks
+  alongside the explicit "iris ..." command; the worst is the Hindi
+  `(?:बस\s+)?इतना\s+ही` — `बस` optional reduces it to the everyday quantifier "इतना ही"
+  ("only this much"). Ran the REAL patterns over prod transcripts: it is the first match in
+  4 of the 5 most recently briefed meetings, on utterances like
+  "Sir इस पर capping नहीं लगाते आप भाई इतना ही जाए" (4983) and
+  "हो इस month में इतना ही कर सकता है" (4976) — plainly not wrap-ups.
+  Compounding: commit `0c6c549` ("iris", 2026-07-20) deleted the 2-minute grace period on the
+  stated premise that the trigger "is now an EXPLICIT command", while KEEPING the loose patterns
+  the grace existed to contain (its own comment says so). And `winding_down` is the SPEAK trigger
+  with `leave_after=True`, so a false positive interrupts AND disconnects the bot.
+  Second, phrase-free path to the same place: the participant detector (`≤1 active for ≥30s`)
+  also raises `winding_down`, though `meeting_lifecycle.py`'s docstring still claims it only
+  pre-renders. **Do not use match POSITION in the transcript as evidence** — the bot leaves on
+  trigger, so the transcript stops, and every trigger looks like it happened "near the end".
+  Distinguishing log lines: `[LIFECYCLE] ... briefing phrase detected: <pattern>` vs
+  `[LIFECYCLE] ... participant count dropped to N`.
+- **2026-09-15** — Made the spoken command the ONLY briefing trigger.
+  (a) `_WRAP_UP_PATTERNS` cut from ~20 patterns to 1 (the `iris …` command). The removed
+  fallbacks fired on ordinary speech; the Hindi `(?:बस\s+)?इतना\s+ही` was the first match in 4 of
+  the 5 most recently briefed meetings.
+  (b) The participant detector (`≤1 active for ≥30s`) no longer emits `winding_down` — it logs
+  and nothing else. It was written when `winding_down` only pre-rendered audio; after Phase 12E
+  repointed that event at `_speak_and_leave` an empty room made the bot brief nobody and
+  disconnect, with no phrase said. Module docstring corrected (it still described the old roles).
+  (c) **`tests/test_phase12a.py` had been half-dead since 0c6c549 (2026-07-20)**: 8 tests ERRORed
+  on `lm._LINGUISTIC_GRACE_S`, a constant that commit deleted, and a 9th asserted the grace window
+  still worked. That is why the false positives ran unnoticed for two months. Repaired and moved
+  onto the new contract; the 15 real-world farewells are kept as a MUST-NOT-FIRE list, and the two
+  production regressions (meetings 4983, 4976) are now fixtures. **23/23, was 14/9.**
+  Verified against prod: replaying the new trigger over all 260 transcripts fires on 7 meetings,
+  every one a deliberate "Iris, summarize this" — zero false positives.
+  Trade-off accepted: a meeting where nobody says the command gets no spoken brief. Notes and
+  tasks are unaffected (they come from the transcript), and `_record_post_facto_ended` already
+  writes status='skipped' for that case.
+- **2026-09-15** — Sidebar: Knowledge, Graph, Control Panel and Templates gated to
+  `roles: ["ADMIN","ORG_ADMIN"]` (the existing `NavItem.roles` filter — no new mechanism).
+  **Sidebar-only, and the Sidebar's own comment overstates the situation**: it claims "the routes
+  themselves are guarded by RequireRole", but `RequireRole` wraps ONLY `/members` in router.tsx.
+  `/knowledge-hub`, `/knowledge-graph`, `/agent-control` and `/templates` stay reachable by typing
+  the URL. Not fixed — the ask was the sidebar. Build exit 0.
+- **2026-09-15** — Route guard added for the four member-hidden sections. All NINE paths moved
+  under one `RequireRole allow={["ADMIN","ORG_ADMIN"]}` group in `router.tsx`: /knowledge-hub,
+  /knowledge-graph, /agent-control{,/runs,/metrics}, /templates{,/browse,/browse/:slug,/installed}.
+  Sub-routes are inside the guard with their parents deliberately — /templates/installed reachable
+  while /templates was not would have defeated it. Each path appears exactly once; build exit 0.
+  **This is navigation, NOT a security boundary** — verified, not assumed: `graph_router` has 0
+  admin checks, `agents_router` 0, `templates_router` 2. A member who edits past the guard still
+  gets real data, unlike /members where the API enforces. Closing that is a backend job nobody has
+  asked for yet.
+- **2026-09-15** — Backend gating for the four member-hidden sections. New
+  `app/dependencies/auth.py::require_access_admin` — **reads `users.access_role` via
+  `permissions.require_admin_role`, NOT `users.role`**. The neighbouring `require_org_admin` in
+  that same module gates on the PROMPT rank; the two columns share the value 'ORG_ADMIN' and mean
+  different things, so using it here would have gated these pages on who may edit prompts.
+  Whole-router: `templates_router`, `behavior_router`, `harness_observability_router`,
+  `search_router`. Per-route (`Depends(get_current_user)` → `Depends(require_access_admin)`, same
+  User object so bodies are untouched): graph 2, agents_v2 12, continuum 3.
+  **THREE routes deliberately left OPEN, each marked with a comment in-file** — gating them
+  wholesale breaks pages members keep: `GET /entities` (the Dashboard fetches it inside a
+  `Promise.all`, so a 403 takes the WHOLE page down, not one tile),
+  `GET /agents_v2/meetings/{id}/insights` (meeting page), and the Continuum board endpoints.
+  New `tests/test_member_gating.py` walks each route's real dependency tree: 19/19, and it asserts
+  the open routes stay open. Regression sweep clean (rbac 38, task-assignment 23, multi-assignee
+  21, phase12a 23, board-admin 16). Side effect: `/continuum/traces` is now admin-only, which
+  narrows but does NOT fix the cross-org hole (it is still not org-scoped).
+- **2026-09-15** — Wrote `explaination.md` (root, ~900 lines, 28 sections): full project
+  explanation built by querying the live system, NOT from `mdfiles/` or `TECHNICAL_REFERENCE.md`
+  (both drifted). Covers stack, repo layout with measured LOC, runtime topology, the meeting
+  lifecycle end-to-end, all 61 tables with local row counts, migrations, auth, the RBAC clause
+  system, all 223 routes by prefix, frontend map, 8 subsystems, Celery, config, deploy, testing
+  conventions, 18 landmines, 9 open issues. Numbers are local-DB and dated in the doc.
+  Filename uses the user's spelling ("explaination").

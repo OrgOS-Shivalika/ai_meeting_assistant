@@ -90,32 +90,12 @@ export const router = createBrowserRouter([
         element: <ActionItemsPage />,
       },
       {
-        path: "/agent-control",
-        element: <AgentControlPage />,
-      },
-      {
-        path: "/agent-control/runs",
-        element: <HarnessRunsPage />,
-      },
-      {
-        path: "/agent-control/metrics",
-        element: <HarnessMetricsPage />,
-      },
-      {
         path: "/agents",
         element: <AgentsListPage />,
       },
       {
         path: "/agents/:profileId",
         element: <AgentDetailPage />,
-      },
-      {
-        path: "/knowledge-hub",
-        element: <KnowledgeHubPage />,
-      },
-      {
-        path: "/knowledge-graph",
-        element: <KnowledgeGraphPage />,
       },
       {
         path: "/dashboard",
@@ -134,20 +114,30 @@ export const router = createBrowserRouter([
         element: <IntegrationsPage />,
       },
       {
-        path: "/templates",
-        element: <TemplatesLandingPage />,
-      },
-      {
-        path: "/templates/browse",
-        element: <TemplatesBrowsePage />,
-      },
-      {
-        path: "/templates/browse/:slug",
-        element: <BundlePreviewPage />,
-      },
-      {
-        path: "/templates/installed",
-        element: <TemplatesInstalledPage />,
+        // Knowledge, Graph, Control Panel and Templates — hidden from the
+        // Sidebar for members (see NavItem.roles), guarded here so typing
+        // the URL lands in the same place.
+        //
+        // Sub-routes are inside the guard with their parents on purpose:
+        // /templates/installed reachable while /templates is not would
+        // defeat the point.
+        //
+        // Read RequireRole's own docstring before treating this as a
+        // security boundary — it is a navigation convenience. It is only
+        // as strong as the APIs each page calls, and unlike /members those
+        // are NOT all admin-gated today.
+        element: <RequireRole allow={["ADMIN", "ORG_ADMIN"]} />,
+        children: [
+          { path: "/knowledge-hub", element: <KnowledgeHubPage /> },
+          { path: "/knowledge-graph", element: <KnowledgeGraphPage /> },
+          { path: "/agent-control", element: <AgentControlPage /> },
+          { path: "/agent-control/runs", element: <HarnessRunsPage /> },
+          { path: "/agent-control/metrics", element: <HarnessMetricsPage /> },
+          { path: "/templates", element: <TemplatesLandingPage /> },
+          { path: "/templates/browse", element: <TemplatesBrowsePage /> },
+          { path: "/templates/browse/:slug", element: <BundlePreviewPage /> },
+          { path: "/templates/installed", element: <TemplatesInstalledPage /> },
+        ],
       },
       {
         // Admins and org admins. A category admin gets the same page

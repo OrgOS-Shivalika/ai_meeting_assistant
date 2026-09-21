@@ -14,15 +14,15 @@ What this test covers:
      - `done` does NOT emit anything (cleanup-only)
      - Non-terminal codes (`joining_call`, `in_call_recording`) are no-ops
 
-  2. Participant detector
-     - Count drop to <=1 for >linger window emits `meeting.winding_down`
-     - A re-join inside the linger window cancels the trigger
-     - `winding_down` emits at most once
+  2. Participant detector (OBSERVATIONAL since 2026-09-15)
+     - Count drop to <=1 for >linger window emits NOTHING
+     - A re-join inside the linger window resets the timer
 
-  3. Linguistic detector
-     - "let's wrap up" emits `meeting.winding_down`
-     - "thanks everyone" emits `meeting.winding_down`
-     - Phrases in the grace period (first 120s) are ignored
+  3. Linguistic detector — the only trigger
+     - "iris summarize this" emits `meeting.winding_down`
+     - Ordinary farewells ("thanks everyone", "have a good day",
+       Hindi "इतना ही") emit NOTHING. They used to, and the bot spoke
+       over live meetings and then disconnected.
      - Multiple matches do not double-emit
 
   4. Webhook dispatcher
@@ -223,7 +223,7 @@ def test_status_missing_code_is_safe():
 # 12A.2 — Participant detector
 # ---------------------------------------------------------------------------
 
-def test_participant_drop_below_water_emits_winding_down():
+def test_participant_drop_below_water_no_longer_triggers():
     from app.services.live_stream import meeting_lifecycle as lm
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
@@ -249,11 +249,12 @@ def test_participant_drop_below_water_emits_winding_down():
         lm.meeting_lifecycle_monitor.on_participant_event(
             mid, "participant_events.leave", {"id": "bob"},
         )
-        # Count = 1 (<= low-water) and linger is 0s -> fires.
-        wd = _events_of(captured, "meeting.winding_down")
-        assert len(wd) == 1
-        assert wd[0].payload.get("source") == "participant_count"
-        assert wd[0].payload.get("participant_count") == 1
+        # Count = 1 (<= low-water) and linger is 0s. This used to fire
+        # winding_down, which after Phase 12E meant the bot delivered a
+        # briefing to an empty room and disconnected — with nobody having
+        # said anything. It observes and logs now; the spoken command is
+        # the only trigger.
+        assert _events_of(captured, "meeting.winding_down") == []
     finally:
         lm._PARTICIPANT_LINGER_S = original_linger
         restore()
@@ -309,8 +310,11 @@ def test_participant_winding_down_emits_once():
             lm.meeting_lifecycle_monitor.on_participant_event(
                 mid, "participant_events.leave", {"id": pid},
             )
-        # multiple leave events with count=0 should not stack winding_downs
-        assert len(_events_of(captured, "meeting.winding_down")) == 1
+        # An emptying room, repeatedly, emits nothing at all. This used to
+        # assert "exactly one" — the at-most-once guard on a trigger that
+        # should not have been a trigger. The linguistic path keeps that
+        # guarantee; see test_linguistic_emits_only_once_per_meeting.
+        assert _events_of(captured, "meeting.winding_down") == []
     finally:
         lm._PARTICIPANT_LINGER_S = original_linger
         restore()
@@ -337,41 +341,35 @@ def test_participant_with_no_id_or_name_is_ignored():
 # 12A.3 — Linguistic detector
 # ---------------------------------------------------------------------------
 
-def test_linguistic_wrap_up_phrase_emits():
+def test_linguistic_spoken_command_emits():
     from app.services.live_stream import meeting_lifecycle as lm
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    # Disable grace period so the test doesn't wait 2 minutes.
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
         lm.meeting_lifecycle_monitor.on_transcript_text(
-            mid, "Alright everyone, let's wrap up and reconvene tomorrow.",
+            mid, "Okay iris, summarize this meeting please.",
         )
         wd = _events_of(captured, "meeting.winding_down")
         assert len(wd) == 1
         assert wd[0].payload.get("source") == "linguistic"
-        assert "wrap" in wd[0].payload.get("matched_pattern", "")
+        assert "iris" in wd[0].payload.get("matched_pattern", "")
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
-def test_linguistic_thanks_everyone_emits():
+def test_linguistic_natural_farewell_does_NOT_emit():
+    """The change of 2026-09-15. "Thanks everyone" used to fire the
+    briefing; the bot then spoke over the meeting and disconnected. The
+    command is the only trigger now."""
     from app.services.live_stream import meeting_lifecycle as lm
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
         lm.meeting_lifecycle_monitor.on_transcript_text(mid, "Thanks everyone, see you next week.")
-        wd = _events_of(captured, "meeting.winding_down")
-        assert len(wd) == 1
-        assert wd[0].payload.get("source") == "linguistic"
+        assert _events_of(captured, "meeting.winding_down") == []
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
@@ -394,16 +392,13 @@ def test_linguistic_emits_only_once_per_meeting():
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
-        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "let's wrap up")
-        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "any final thoughts")
-        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "thanks everyone")
+        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "iris summarize this")
+        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "iris wrap up the meeting")
+        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "iris recap this call")
         wd = _events_of(captured, "meeting.winding_down")
         assert len(wd) == 1
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
@@ -412,26 +407,22 @@ def test_linguistic_irrelevant_text_no_emit():
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
         lm.meeting_lifecycle_monitor.on_transcript_text(
             mid, "The architecture migration plan should include rollback steps.",
         )
         assert _events_of(captured, "meeting.winding_down") == []
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
-def test_linguistic_handles_real_world_wrap_phrasings():
-    """Phase 12E revision: wrap-up patterns require EXPLICIT group
-    pronouns (everyone/all/guys/y'all/folks) for thanks/bye/take care.
-    Solo "thanks" and "bye" no longer trigger because they false-fired
-    on mid-meeting movie quotes ("I often say thank you little baby
-    Jesus..." from Talladega Nights)."""
+def test_linguistic_real_world_farewells_are_all_inert_now():
+    """These fifteen phrases USED to fire the briefing. Each one is a
+    thing people say without meaning "end the meeting", and firing
+    made the bot talk over the call and then leave it. Kept as a list
+    rather than deleted so that re-adding any of them fails here."""
     from app.services.live_stream import meeting_lifecycle as lm
-    phrases_must_match = [
+    phrases_must_NOT_match = [
         "Cool. Thanks. See you all later.",
         "Alright, see you guys next week.",
         "Bye everyone, take care folks.",
@@ -448,23 +439,17 @@ def test_linguistic_handles_real_world_wrap_phrasings():
         "We'll stop there for today.",
         "Take care everyone.",
     ]
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
-    try:
-        for i, phrase in enumerate(phrases_must_match):
-            mid = f"wrap-{i}-{uuid.uuid4()}"
-            lm.meeting_lifecycle_monitor.reset(mid)
-            captured, restore = _capture_bus()
-            try:
-                lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
-                wd = _events_of(captured, "meeting.winding_down")
-                assert len(wd) == 1, (
-                    f"phrase did NOT trigger wrap-up detection: {phrase!r}"
-                )
-            finally:
-                restore()
-    finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
+    for i, phrase in enumerate(phrases_must_NOT_match):
+        mid = f"wrap-{i}-{uuid.uuid4()}"
+        lm.meeting_lifecycle_monitor.reset(mid)
+        captured, restore = _capture_bus()
+        try:
+            lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
+            assert _events_of(captured, "meeting.winding_down") == [], (
+                f"ordinary speech fired the briefing: {phrase!r}"
+            )
+        finally:
+            restore()
 
 
 def test_linguistic_does_not_false_positive_on_normal_speech():
@@ -485,24 +470,26 @@ def test_linguistic_does_not_false_positive_on_normal_speech():
         "Say goodbye to the old API once we cut over.",
         # "any other thoughts" used to match — removed from patterns:
         "Are there any other thoughts on the design before we move on?",
+        # The two that actually fired in production (meetings 4983, 4976).
+        # "इतना ही" means "only this much" — a quantifier, not a farewell.
+        "Sir इस पर capping नहीं लगाते आप भाई इतना ही जाए.",
+        "हो इस month में इतना ही कर सकता है.",
+        # Near-misses on the command itself:
+        "The irises are blooming in the garden.",
+        "Iris joined the team last month.",
     ]
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
-    try:
-        for i, phrase in enumerate(must_not_match):
-            mid = f"safe-{i}-{uuid.uuid4()}"
-            lm.meeting_lifecycle_monitor.reset(mid)
-            captured, restore = _capture_bus()
-            try:
-                lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
-                wd = _events_of(captured, "meeting.winding_down")
-                assert wd == [], (
-                    f"phrase falsely triggered wrap-up: {phrase!r}"
-                )
-            finally:
-                restore()
-    finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
+    for i, phrase in enumerate(must_not_match):
+        mid = f"safe-{i}-{uuid.uuid4()}"
+        lm.meeting_lifecycle_monitor.reset(mid)
+        captured, restore = _capture_bus()
+        try:
+            lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
+            wd = _events_of(captured, "meeting.winding_down")
+            assert wd == [], (
+                f"phrase falsely triggered wrap-up: {phrase!r}"
+            )
+        finally:
+            restore()
 
 
 # ---------------------------------------------------------------------------
@@ -514,17 +501,14 @@ def test_winding_down_then_ended_emits_both():
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
-        # Advisory first…
-        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "let's wrap up")
+        # Command first…
+        lm.meeting_lifecycle_monitor.on_transcript_text(mid, "iris summarize this")
         # …then authoritative.
         lm.meeting_lifecycle_monitor.on_status_change(mid, {"code": "call_ended"})
         assert len(_events_of(captured, "meeting.winding_down")) == 1
         assert len(_events_of(captured, "meeting.ended")) == 1
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
@@ -535,15 +519,12 @@ def test_ended_blocks_subsequent_winding_down():
     mid = f"test-{uuid.uuid4()}"
     lm.meeting_lifecycle_monitor.reset(mid)
     captured, restore = _capture_bus()
-    original_grace = lm._LINGUISTIC_GRACE_S
-    lm._LINGUISTIC_GRACE_S = 0
     try:
         lm.meeting_lifecycle_monitor.on_status_change(mid, {"code": "call_ended"})
         # Now a late wrap-up phrase arrives (e.g. trailing transcript buffer)
         lm.meeting_lifecycle_monitor.on_transcript_text(mid, "thanks everyone")
         assert _events_of(captured, "meeting.winding_down") == []
     finally:
-        lm._LINGUISTIC_GRACE_S = original_grace
         restore()
 
 
@@ -657,9 +638,13 @@ def test_webhook_dispatcher_handles_participant_events():
             mid, "participant_events.leave",
             {"data": {"participant": {"id": "alice"}}},
         ))
-        # count=1, linger=0 -> expect winding_down
-        wd = _events_of(captured, "meeting.winding_down")
-        assert len(wd) == 1
+        # Routing is what this test is for — that the webhook reaches the
+        # monitor at all. The participant detector is observational since
+        # 2026-09-15, so arriving there must emit nothing.
+        assert _events_of(captured, "meeting.winding_down") == []
+        # Prove it really did route, rather than passing by doing nothing.
+        phase = lm.meeting_lifecycle_monitor._get_phase(str(mid))
+        assert phase.active_participants == {"bob"}, phase.active_participants
     finally:
         lm._PARTICIPANT_LINGER_S = original_linger
         restore()
@@ -681,18 +666,18 @@ def main():
             ("missing code is safe", test_status_missing_code_is_safe),
         ]),
         ("12A.2 participant detector", [
-            ("drop below water -> winding_down", test_participant_drop_below_water_emits_winding_down),
+            ("drop below water no longer triggers", test_participant_drop_below_water_no_longer_triggers),
             ("rejoin cancels trigger", test_participant_rejoin_within_linger_cancels_winding_down),
-            ("winding_down emits at most once", test_participant_winding_down_emits_once),
+            ("an emptying room emits nothing", test_participant_winding_down_emits_once),
             ("missing id/name is ignored", test_participant_with_no_id_or_name_is_ignored),
         ]),
         ("12A.3 linguistic detector", [
-            ("wrap up phrase emits", test_linguistic_wrap_up_phrase_emits),
-            ("thanks everyone emits", test_linguistic_thanks_everyone_emits),
+            ("spoken command emits", test_linguistic_spoken_command_emits),
+            ("natural farewell does NOT emit", test_linguistic_natural_farewell_does_NOT_emit),
             ("grace period suppresses", test_linguistic_within_grace_period_is_ignored),
             ("emits only once per meeting", test_linguistic_emits_only_once_per_meeting),
             ("irrelevant text no-op", test_linguistic_irrelevant_text_no_emit),
-            ("real-world wrap phrasings", test_linguistic_handles_real_world_wrap_phrasings),
+            ("real-world farewells are inert", test_linguistic_real_world_farewells_are_all_inert_now),
             ("does not false-positive", test_linguistic_does_not_false_positive_on_normal_speech),
         ]),
         ("12A.4 cross-detector", [

@@ -21,14 +21,19 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import User
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_user, require_access_admin
 from app.services import harness_observability_service
 from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 
-router = APIRouter(prefix="/harness", tags=["Harness Observability"])
+router = APIRouter(
+    prefix="/harness",
+    tags=["Harness Observability"],
+    # Reached only from the Control Panel, which members no longer see.
+    dependencies=[Depends(require_access_admin)],
+)
 
 
 @router.get("/runs")

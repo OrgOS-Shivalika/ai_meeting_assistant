@@ -37,7 +37,9 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import User
-from app.dependencies.auth import get_current_user, require_org_admin
+from app.dependencies.auth import (
+    get_current_user, require_access_admin, require_org_admin,
+)
 from app.services import templates_service
 from app.services.behavior.provisioning import (
     ProvisioningError, install_bundle, install_profile,
@@ -49,7 +51,13 @@ from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-router = APIRouter(prefix="/templates", tags=["Templates"])
+router = APIRouter(
+    prefix="/templates",
+    tags=["Templates"],
+    # Templates is an admin page (Sidebar NavItem.roles + RequireRole).
+    # Gated here so editing past the client guard reaches 403s, not data.
+    dependencies=[Depends(require_access_admin)],
+)
 
 
 # ---------------------------------------------------------------------------

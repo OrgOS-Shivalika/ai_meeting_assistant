@@ -40,7 +40,9 @@ from app.db.models import (
     Meeting,
     Team,
 )
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import (
+    get_current_user, require_access_admin,
+)
 from app.services import permissions
 from app.services.continuum import service
 from app.services.continuum.service import STAGES
@@ -398,7 +400,7 @@ def _config_out(db: Session, user) -> ConfigResponse:
 
 
 @router.get("/config", response_model=ConfigResponse)
-def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_config(db: Session = Depends(get_db), user=Depends(require_access_admin)):
     return _config_out(db, user)
 
 
@@ -406,7 +408,7 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
 def update_config(
     body: ConfigUpdateRequest,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     cfg = (
         db.query(ContinuumAgentConfig)
@@ -442,7 +444,7 @@ def update_config(
 
 
 @router.get("/traces")
-def get_traces(limit: int = 50, user=Depends(get_current_user)):
+def get_traces(limit: int = 50, user=Depends(require_access_admin)):
     """Langfuse traces for the Continuum agent (tag='continuum').
     Same shape as /agents_v2/{id}/traces so the Control Panel can reuse
     its report rendering. `enabled: false` when Langfuse isn't configured."""

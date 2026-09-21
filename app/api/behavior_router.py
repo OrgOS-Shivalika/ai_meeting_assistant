@@ -44,7 +44,9 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import User
-from app.dependencies.auth import get_current_user, require_org_admin
+from app.dependencies.auth import (
+    get_current_user, require_access_admin, require_org_admin,
+)
 from app.services.behavior.overrides import (
     BEHAVIOR_DIMENSIONS, OverrideError,
     delete_all_overrides_for_scope,
@@ -60,7 +62,12 @@ from app.schemas.intent_schema import IntentProfile
 
 logger = setup_logger(__name__)
 
-router = APIRouter(prefix="/behavior", tags=["Behavior"])
+router = APIRouter(
+    prefix="/behavior",
+    tags=["Behavior"],
+    # Reached only from the Control Panel, which members no longer see.
+    dependencies=[Depends(require_access_admin)],
+)
 
 
 # ---------------------------------------------------------------------------

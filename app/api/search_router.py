@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_user, require_access_admin
 from app.schemas.search_schema import (
     DocumentChunksResponse,
     MeetingChunksResponse,
@@ -35,7 +35,12 @@ from app.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-router = APIRouter(tags=["Search"])
+router = APIRouter(
+    tags=["Search"],
+    # All three routes here (/search, meeting chunks, document chunks)
+    # are reached only from Knowledge, now an admin page.
+    dependencies=[Depends(require_access_admin)],
+)
 
 _embedder: Embedder | None = None
 

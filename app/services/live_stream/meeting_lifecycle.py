@@ -12,18 +12,19 @@ Why three detectors and not one
   correct ("the meeting really ended"). But it arrives 0–5s AFTER the
   host clicks End — too late to do anything heavy. Drives `meeting.ended`.
 
-- Participant detector: ADVISORY early signal. When the active
-  participant count drops to ≤1 for >30s, the meeting is almost
-  certainly about to end. Drives `meeting.winding_down`. Lets Phase 12D
-  pre-compose + pre-TTS the briefing so audio is hot when the
-  authoritative trigger fires.
+- Participant detector: OBSERVATIONAL ONLY since 2026-09-15. It logs
+  "≤1 active for >30s" and does nothing else. It used to raise
+  `winding_down` back when that event merely told Phase 12D to
+  pre-render audio; once Phase 12E repointed `winding_down` at
+  `_speak_and_leave`, an empty room made the bot deliver a briefing to
+  nobody and then disconnect. See `on_participant_event`.
 
-- Linguistic detector: ADVISORY early signal. People say "let's wrap
-  up" / "any final thoughts" before the call actually ends. Same role
-  as the participant detector — get a few seconds of head start.
+- Linguistic detector: THE trigger. Fires on the spoken command
+  ("iris summarize this") and nothing else — see `_WRAP_UP_PATTERNS`
+  for why the natural-language fallbacks were removed.
 
-The three detectors are independent; either advisory signal raises
-`winding_down` exactly once per meeting; only `status` raises `ended`.
+`winding_down` is raised by the linguistic detector alone, at most once
+per meeting; only `status` raises `ended`.
 
 Idempotency
 -----------
@@ -53,13 +54,31 @@ _STATUS_ENDED = "call_ended"
 _STATUS_DONE = "done"  # arrives AFTER bot has left — purely cleanup
 _STATUS_FAILED = {"recording_permission_denied", "fatal"}
 
-# Briefing trigger phrases — any match fires the closing briefing.
+# Briefing trigger phrase — the EXPLICIT command, and nothing else.
 #
-# Explicit command (preferred):
-#   "iris summarize this" (punctuation-tolerant, sz spelling agnostic)
+# There used to be ~20 natural-language fallbacks here ("thanks everyone",
+# "have a good day", "see you tomorrow", Hindi/Hinglish farewells) so people
+# would not have to remember the command. They were removed on 2026-09-15
+# because they fired the briefing on ordinary conversation.
 #
-# Plus the previous natural-language phrases as fallbacks so users don't
-# have to remember the magic phrase.
+# What that cost, measured rather than assumed: the Hindi fallback
+# `(?:बस\s+)?इतना\s+ही` made `बस` optional, which reduced it to the everyday
+# quantifier "इतना ही" ("only this much"). It was the FIRST match in 4 of the
+# 5 most recently briefed meetings, on lines like
+#   "Sir इस पर capping नहीं लगाते आप भाई इतना ही जाए"   (meeting 4983)
+#   "हो इस month में इतना ही कर सकता है"                (meeting 4976)
+# Neither is a wrap-up. `winding_down` speaks AND disconnects the bot, so each
+# of those interrupted a live meeting and then dropped out of it.
+#
+# The 2-minute grace window that used to contain this was deleted in 0c6c549
+# ("iris", 2026-07-20) on the stated grounds that the trigger was "now an
+# EXPLICIT command" — while that same commit kept the loose patterns. This
+# makes that statement true.
+#
+# Cost asymmetry, stated so nobody re-adds a "convenience" pattern: a false
+# NEGATIVE means one meeting gets no spoken brief (the notes and tasks are
+# unaffected — they come from the transcript, not from this). A false POSITIVE
+# interrupts a live meeting and removes the bot from it. They are not close.
 _WRAP_UP_PATTERNS = [
     # Explicit assistant command — generous to transcription errors.
     # Matches:
@@ -81,80 +100,6 @@ _WRAP_UP_PATTERNS = [
         r"\b",
         re.IGNORECASE,
     ),
-
-    # Definitive end-of-meeting phrases
-    re.compile(r"\blet'?s\s+wrap\s+(?:\w+\s+){0,2}up\b", re.IGNORECASE),
-    re.compile(r"\bthat'?s\s+a\s+wrap\b", re.IGNORECASE),
-    re.compile(r"\b(?:end|close|finish|stop)\s+the\s+(?:meeting|call)\b", re.IGNORECASE),
-    re.compile(r"\bany\s+(?:final|last)\s+(?:thoughts|questions|comments)\b", re.IGNORECASE),
-    re.compile(
-        r"\bwe'?ll\s+(?:end|finish|wrap|stop)\s+(?:\w+\s+){0,2}(?:there|here|now|today)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bthat'?s\s+(?:all|it)\s+(?:for|from)\s+(?:me|us|today|now)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:i'?ll|we'?ll)\s+let\s+you(?:\s+all)?\s+go\b",
-        re.IGNORECASE,
-    ),
-
-    # Group-scoped farewells (require the pronoun to avoid mid-meeting fires)
-    re.compile(
-        r"\b(?:thanks|thank\s+you)[,.\-:\s]+(?:guys|y'?all|folks|all|everyone|everybody)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:bye|goodbye)[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\btake\s+care[,.\-:\s]+(?:everyone|all|guys|folks|y'?all|everybody)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bsee\s+you(?:\s+\w+){0,3}\s+"
-        r"(?:later|tomorrow|next|on|in|soon|monday|tuesday|wednesday|"
-        r"thursday|friday|saturday|sunday)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:catch|talk)\s+(?:(?:to|up|with)\s+)?"
-        r"(?:you|y'?all|yall)(?:\s+\w+){0,2}\s+later\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bhave\s+a\s+(?:good|great|nice)\s+(?:day|weekend|evening|night|one)\b",
-        re.IGNORECASE,
-    ),
-
-    # Hindi + Hinglish
-    re.compile(r"धन्यवाद\s+(?:सबको|सब|सभी|आप\s+सब)"),
-    re.compile(r"अलविदा\s+(?:सबको|सब|सभी|दोस्तों)"),
-    re.compile(r"फिर\s+मिलेंगे"),
-    re.compile(r"(?:मीटिंग|बैठक)\s+(?:खत्म|समाप्त|बंद)"),
-    re.compile(r"(?:बस\s+)?इतना\s+ही(?:\s+था|\s+के\s+लिए)?"),
-    re.compile(r"आज\s+के\s+लिए\s+(?:बस\s+)?इतना"),
-    re.compile(
-        r"\b(?:thik|theek)\s+hai[\s,.]*(?:chalo|chaliye|chalte\s+hain?|band\s+karte\s+hain?)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:chaliye|chalo)\s+(?:band|khatam|finish|wrap|end)\s+(?:karte\s+hain?|kar\s+lete\s+hain?)",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:phir|firr|fir)\s+milenge\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:shukriya|dhanyawad|dhanyavad|dhanyvad)[,.\-:\s]+"
-        r"(?:sab|sabko|sabhi|everyone|all|guys|folks|everybody)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\balvida[,.\-:\s]+(?:sab|sabko|sabhi|everyone|all|dosto|everybody)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\b(?:bas\s+)?itna\s+hi(?:\s+tha)?\b", re.IGNORECASE),
 ]
 
 # Participant-detector tunables.
@@ -289,10 +234,22 @@ class MeetingLifecycleMonitor:
                     )
                 elapsed = time.time() - phase.low_count_since
                 if elapsed >= _PARTICIPANT_LINGER_S:
-                    self._maybe_emit_winding_down(
-                        meeting_id,
-                        source="participant_count",
-                        participant_count=count,
+                    # DOES NOT TRIGGER THE BRIEFING ANY MORE (2026-09-15).
+                    #
+                    # This detector was written when `winding_down` only made
+                    # the orchestrator PRE-RENDER audio, so a wrong guess cost
+                    # a wasted TTS call. Phase 12E repointed `winding_down` at
+                    # `_speak_and_leave` and nobody revisited this: an empty
+                    # room then made the bot talk to itself and disconnect,
+                    # with no phrase said by anyone.
+                    #
+                    # Kept as a log line because it is genuinely useful for
+                    # reading what happened after the fact. The briefing is
+                    # now triggered by the spoken command and nothing else.
+                    logger.info(
+                        f"[LIFECYCLE] meeting={meeting_id} quiet for "
+                        f"{elapsed:.0f}s with {count} participant(s) — noted, "
+                        f"not triggering (briefing needs the spoken command)"
                     )
             else:
                 phase.low_count_since = None
