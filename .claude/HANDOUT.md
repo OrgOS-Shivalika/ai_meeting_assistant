@@ -130,7 +130,10 @@ docker exec meeting-ai-postgres psql -U postgres -d langfuse    -c "<sql>"
 5. **Empty memory query is a CONTRACT** ("recent facts"), not a bug. Don't "fix" callers.
 6. **Speaker identity is the participant ID, never the name.** Recall gives
    different ids to same-named people and sends `name: null`.
-7. **`diarize: False`** in `deepgram_provider` — right for online, wrong for in-room.
+7. ~~**`diarize: False`** in `deepgram_provider`~~ — STALE (verified 2026-09-30): it is only the
+   default; `recall_ai_service.py:171` passes `diarize=True` for `capture_mode=="in_room"`.
+   The real in-room gap is that the diarization label (separate `transcript.provider_data`
+   event) never reaches the LIVE path — `process_provider_data_event` only logs.
 8. **RBAC clause `None` means UNRESTRICTED.** Treating it as an empty filter fails open.
 9. **Deleting a user cascades into categories.** Never `db.delete(user)`.
 10. **`.correlate(KanbanBoard)`** is load-bearing — without it every board is
@@ -3639,3 +3642,34 @@ not live there.
   now and it was the only user. Verified against the live object (`beat_schedule` prints
   `crontab: 20 * * * *`), module imports clean, `tests/test_notifications.py` 17/17.
   **Beat must be restarted to pick this up** — and the user's celery processes are from 15-09.
+- **2026-09-30** — Full-codebase read (no code changed; only this file). Tree clean, everything
+  through 09-24 is committed as `ea1edf2 "new"`; alembic head in code is `au21completedat`
+  (single linear chain, 59 revs). Postgres container was DOWN, so no live row counts this pass.
+  Corrections to our own notes, each verified in source:
+  * **Landmine #7 was stale** — in-room already sends `diarize=True` (fixed in §5).
+  * **`set_assignees` is NOT the sole writer of `tasks.assignee_user_id`** (contradicts the
+    09-14 entry and models.py:256). Also written by: legacy scalar PATCH `meeting_service.py:~960`
+    (never touches `task_assignees`), `meeting_pipeline.py:377` and `live_tasks/persistence.py:120`
+    (insert with no `TaskAssignee` row), `admin_service._REPOINT_PRIMARY_ASSIGNEE`. Effect:
+    pipeline-assigned cards show `assignees: []` on the board (`names_for_tasks` reads only the
+    join table), and the scalar PATCH leaves the join table stale.
+  New bugs found, NOT fixed:
+  * `notifications.create` catches `IntegrityError` with `db.rollback()` (not a savepoint) — wipes
+    the CALLER's whole transaction (e.g. a comment edit re-adding a mention hits the dedupe and the
+    edit is silently lost). Fix: `with db.begin_nested():` around the flush.
+  * Mentions notify anyone in the org, not only people who can view the card
+    (`mentions.validate_and_normalize` checks org only; the docstring claims `task_view_clause`).
+  * Due-soon reminders + workflow `require_assignee` read only the primary column.
+  * `settings.py:307` `RAG_RERANK_W_ACCESS` reads env `RAG_RERANK_W_ACCESS_RERANK` (typo).
+  * `/agents_v2/{id}/traces` has the same tag-only (cross-org) Langfuse fetch as `/continuum/traces`.
+  * `/rag/observability/*` is member-reachable (org-scoped, but role-ungated).
+  * Memory distill (`meeting_pipeline.py:634`) runs BEFORE compliance redaction; embeddings/graph
+    read `transcript_raw`, which is never redacted.
+  * `importance_runs` grows ≥96 rows/org/day (4 kinds × hourly, written even at 0 scored, all
+    orgs) with no retention — and scores are unused by default (`RAG_RERANK_STRATEGY=legacy_weighted`).
+  * Live-fallback transcript path leaves `transcript_raw` NULL → embed + graph silently skipped
+    (docstring at `meeting_pipeline.py:470` claims otherwise).
+  Stale docstrings: `board_view_clause` "Arm 0" (members do NOT see org boards by scope),
+  `recall_webhook.py:634` + `meeting_lifecycle.py:195` (participant detector), `notification_tasks.py:122`
+  ("every 30s"), `templates/__init__.py` module list. Dead: `_prerender`, `compute_centrality_stub`,
+  `google_calendar_worker.py`, `calendar_tasks.run_pipeline_async`, `ui/separator.tsx`, `ui/tabs.tsx`.
