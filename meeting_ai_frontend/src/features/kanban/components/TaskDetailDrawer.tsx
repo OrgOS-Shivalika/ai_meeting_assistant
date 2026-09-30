@@ -404,6 +404,25 @@ export default function TaskDetailDrawer({ taskId, onClose, onChange }: Props) {
                       <CheckCircle2 className="w-3 h-3 text-emerald-500" />
                     )}
                   </div>
+                  {/* The completion date, from `tasks.completed_at`. Only
+                      rendered when we actually have one: it is NULL on cards
+                      finished before the audit feed the backfill read, and
+                      guessing a date there is how the old `updated_at` proxy
+                      overstated every cycle time. Reopening a card clears it,
+                      so this line cannot contradict the status above. */}
+                  {task.is_completed && task.completed_at && (
+                    <p
+                      className="text-[11px] text-muted-ink"
+                      title={new Date(task.completed_at).toLocaleString()}
+                    >
+                      Done{" "}
+                      {new Date(task.completed_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </p>
+                  )}
                   <button
                     onClick={handleToggleComplete}
                     disabled={savingField === "is_completed"}

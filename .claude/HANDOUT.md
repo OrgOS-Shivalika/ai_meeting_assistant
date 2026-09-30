@@ -3366,3 +3366,276 @@ not live there.
   system, all 223 routes by prefix, frontend map, 8 subsystems, Celery, config, deploy, testing
   conventions, 18 landmines, 9 open issues. Numbers are local-DB and dated in the doc.
   Filename uses the user's spelling ("explaination").
+- **2026-09-21** — Per-member board scorecard. `GET /api/boards/{id}/scorecard` (route 224),
+  new `app/services/kanban/scorecard.py`, panel at the bottom of the existing Board **Summary**
+  tab (no new route). Visible to anyone who can open the board — `get_viewable_board` is the whole
+  gate, per the user's choice.
+  **The finding that shaped it:** assignment is barely used — board 52 has 928 tasks / **0**
+  assignees, board 60 has 244 / 0. A pure assignment scorecard would render empty everywhere. So
+  it counts THREE sources: `task_assignees`, `tasks.assignee_user_id`, and `owner_name` matched
+  exactly (case-folded) against a member name, reusing `assignees.is_person_label` for the
+  sentinel filter. Label credit applies ONLY when nobody holds the card for real, so a card
+  assigned to A and labelled B counts once. Reported separately as `assigned_by_label` and shown
+  as "N by label" so a label is never read as an assignment. On board 52 this turns 0 rows into
+  a real one (22 held, all by label).
+  Plus activity from `task_activity` (created / moved / status_changes / comments) so the panel is
+  populated regardless of assignment adoption.
+  Score = `100*done/held − 30*overdue/held`, clamped 0..100, **None** (not 0) when nobody holds
+  anything. A flat −5/overdue was tried first and pinned most real people to 0, destroying the
+  only thing a score is for — comparing two of them. Formula is in the docstring and in the panel
+  subtitle.
+  **FIVE queries regardless of team size or card count** — asserted by the test, which counts
+  cursor executions. Done-ness reads three signals (`is_completed`, `status='done'`, done column);
+  note `ck_tasks_status_completed_match` forces the first two to agree, so only the column can
+  disagree. `tests/test_board_scorecard.py` 14/14. Regressions clean (gating 19, multi-assignee 21,
+  task-assignment 23, board-admin 16, rbac 38). tsc + build exit 0.
+  Two traps hit: the route registered fine and 500'd on a missing `permissions` import (app import
+  + route count proves nothing — exercise the route); and a crashed earlier run left a
+  `__scorecard_probe__` board behind, which made the NEXT run's cleanup check report False.
+  Known weakness: cycle time uses `updated_at` as the completion date, so cards touched long after
+  finishing read high (one shows 61.8d). Fixing it needs a real completion timestamp.
+- **2026-09-21** — Scorecard moved out of the Summary tab into its own **Progress** tab.
+  New `BoardScorecardPage.tsx` + route child `/board/:id/progress`; `BoardTabs` is now three tabs
+  (Board | Summary | Progress, `TrendingUp` icon) and derives the active one from the pathname by
+  suffix, so `isBoard = !isSummary && !isProgress` — no controlled prop, same as before.
+  `BoardSummaryPage` is back to what it was: panel, helpers, and the `useState`/`useEffect` imports
+  all removed (`noUnusedLocals` would have failed the build otherwise). Backend unchanged.
+  Stale comments in `BoardTabs` and `BoardLayout` that said "two tabs" / "the Summary tab" were
+  corrected — they were load-bearing explanations of the toolbar-slot layout.
+  tsc + build exit 0; `tests/test_board_scorecard.py` still 14/14.
+- **2026-09-21** — Progress tab rebuilt with charts instead of a bare table. 4 team tiles, two
+  `DonutChart`s (workload done/open/overdue; activity mix by event kind), then one card per member
+  with a 0-100 score meter, a stacked workload bar and an activity bar. **Bars are scaled to the
+  busiest member on the board, not to each row**, so lengths are comparable between people.
+  Overdue is carved OUT of open in both the donut and the bars — `open` from the API includes
+  overdue, and adding them raw double-counts every late card; the test asserts the slices sum to
+  cards held. No chart library added: a stacked bar is a flex row of percentage widths, and
+  `DonutChart` already existed for the Summary tab.
+  **Landmine hit and worth remembering: `bg-surface` DOES NOT EXIST.** The scale is
+  `bg-surface-{soft,card,dark,strong}`. A bare `bg-surface` passes tsc, passes the build, and
+  renders no background — I had it on the member row (and in the previous version of this page).
+  Caught by grepping `dist/assets/*.css` for the emitted class, which is the only reliable check
+  since Tailwind v4 `@theme` tokens never appear in `index.css`. Now `bg-surface-soft`; verified
+  all six classes used here resolve in the built CSS. tsc + build exit 0, scorecard test 14/14.
+- **2026-09-21** — Progress tab reverted from charts to a LIST (user: "more like list but better
+  list"). Tiles and both donuts removed — they summarised the board, which is the Summary tab's
+  job, not the people. Now: a column header + one row per member, ranked, with aligned numeric
+  columns (Done/%, Open, Late, Cycle, Score) and a single hairline between rows — no cell rules or
+  card chrome. What keeps it better than a plain table: each row carries a stacked workload bar
+  (done/open/overdue) and a 0-100 score meter, both scaled to the busiest member so lengths compare
+  ACROSS rows. Numeric columns collapse below sm/md and the footnote restates them in prose, so
+  nothing is lost on a phone. `DonutChart`/`IconChip`/`Tile`/`TINT_HEX` imports all dropped
+  (`noUnusedLocals`). Overdue still carved out of `open`. Every one of the 18 non-standard classes
+  on the page verified present in `dist/assets/*.css` — the `bg-surface` lesson from the previous
+  entry made into a habit. tsc + build exit 0, scorecard test 14/14.
+- **2026-09-21** — Progress list UI pass. Still a list; what changed:
+  `Avatar size="sm"` per row (colour keyed off the name, so faces match every other screen);
+  **column widths moved into one `COLS` const** shared by the header and the rows — they are
+  separate flex rows that must align to the pixel and the widths were hand-matched in both places,
+  which drifts on the first edit; the score is now a number OVER its own full-width meter instead
+  of a cramped 16px bar beside it; the intro paragraph collapsed into a one-line hint plus a
+  `HelpCircle` tooltip on the Score header carrying the formula (`SCORE_HELP`); "N by label" is a
+  proper chip rather than loose grey text; the activity run-on moved into a `title` with only
+  "N events" + a micro bar inline; dates became relative (`ago()` — "3d ago" scans faster than a
+  date in a top-to-bottom list); skeleton rows while loading instead of the word "Loading";
+  header row tinted `bg-surface-soft` to separate it from the body.
+  All 19 non-standard classes verified present in `dist/assets/*.css`. tsc + build exit 0,
+  scorecard test 14/14.
+- **2026-09-21** — `tasks.completed_at` added. Migration **`au21completedat`** (new local head,
+  59 revisions). **Maintained by a DB TRIGGER (`trg_tasks_completed_at` +
+  `set_task_completed_at()`), not by app code** — seven call sites already write `is_completed`
+  (kanban/service.py ×3, meeting_service.py ×2, live_tasks/persistence.py, agents tool
+  update_task) across five modules, and the eighth would have left the column stale silently.
+  Fires on any INSERT or UPDATE (no `OF is_completed` clause — the optimisation is not worth a
+  write path it might miss). Stamps on the transition to done, CLEARS on reopen, and keeps an
+  explicitly supplied value on INSERT so imports/backfills can set their own date.
+  Backfill took the LATEST `status_changed`→done activity row per task: predicted 11 of 25 done
+  tasks, got exactly 11, and every stamp matches its source row (asserted in the test). The ~900
+  analyzer-created cards are left **NULL** rather than back-dated to `updated_at` — an honest NULL
+  beats a precise-looking guess in a column called `completed_at`.
+  `scorecard.py` now prefers `completed_at` and falls back to `updated_at`, and reports
+  `cycle_exact` / `cycle_approx` so the UI can print `~2.7d` when part of the average is
+  estimated. Board 61's 61.8d is now confirmed MEASURED (exact=2, approx=0) — those cards really
+  did take two months.
+  New `tests/test_completed_at.py` 10/10, deliberately writing raw SQL rather than going through
+  a service, since the point of a trigger is that no caller can bypass it.
+  **Test bug worth remembering: Postgres `now()` is the TRANSACTION start time.** Completing,
+  reopening and re-completing inside one `engine.begin()` produced the same timestamp twice and
+  looked like a trigger bug; the trigger was right and the test now runs each step in its own
+  transaction (which is also the honest simulation).
+  Everything green: scorecard 14/14, rbac 38, task-assignment 23, multi-assignee 21, board-admin
+  16, gating 19, kanban_k2 23. tsc + build exit 0.
+  **Railway is now one revision behind again (`at20multiassign`).**
+- **2026-09-21** — The done date is now VISIBLE, which it was not. `au21completedat` added the
+  column and the trigger and wired it into the scorecard's Cycle average, but `completed_at`
+  reached no API response at all, so there was nowhere it could show — user asked "where did u
+  added the done date i dont see it?" and was right. Added `TaskDetailResponse.completed_at`,
+  passed it through `get_task_detail`, added it to the frontend `TaskDetail` type, and the drawer
+  now prints "Done 11 Sep 2026" under Status (full timestamp on hover). Rendered ONLY when
+  `is_completed && completed_at` — NULL on pre-audit-feed cards and guessing there is exactly the
+  `updated_at` mistake this column replaced; reopening clears the stamp so the line cannot
+  contradict the status above it. Verified per card state against real rows: stamped -> date,
+  open -> no line. Deliberately NOT on the board card (a Done column plus a tick already says it;
+  a date on every card is noise). Tests: completed_at 10/10, scorecard 14/14, multi-assignee 21/21,
+  task-assignment 23/23. tsc + build exit 0.
+- **2026-09-21** — **BUG: a card finished after its deadline counted as a clean completion.**
+  `scorecard.py` had one lateness concept, guarded by `not done`:
+  `overdue = not done and due_date < now`. So ticking a three-weeks-late card made the miss vanish.
+  User caught it: two done cards on board 62 (2238, 2239) with past due dates showed Late = 0.
+  Now TWO separate counts, because they are different facts:
+    `overdue` — still open, past due. A live problem.
+    `late`    — finished, but `finished_at > due_date`. History.
+  Plus `on_time`. A past due date is NOT the test on its own — task 651 is due 25 Jun and was
+  completed 17 Jun, i.e. the date has passed but the work was early; the comparison has to be
+  completion against deadline. `finished_at = completed_at or updated_at`, the same fallback as
+  cycle time, so pre-audit-feed cards still get an answer.
+  UI: **Late** and **Overdue** are now separate columns (amber vs red, each with a tooltip saying
+  which is which), and the workload bar splits into FOUR slices — done-on-time (green), done-late
+  (amber), open (blue), overdue (red). Late deliveries used to sit inside the green "done" block,
+  which is exactly how they went unseen. Narrow-screen footnote carries both too.
+  `Num` gained a `title` prop (tsc caught the omission).
+  Test extended: 14/14 -> **18/18**, incl. "a done card with no due date is in neither bucket" and
+  a guard that the four bar slices still sum to cards held.
+  **Score still ignores finished-late** — it only penalises currently-overdue. Someone who
+  delivers everything late scores 100. Flagged, NOT changed: the formula is people-facing and
+  changing it twice unasked is not my call.
+- **2026-09-21** — Late penalty added to the score, on request. Formula is now
+  `100*done/held − 30*overdue/held − 15*late/held`. Half weight for late because the two are not
+  equally bad: an overdue card is work still being waited on, a late one is work that arrived.
+  They are mutually exclusive per card (late needs done, overdue needs not-done), so the combined
+  penalty is bounded by the larger weight and cannot stack past 30 — asserted across all 11
+  splits. Effect on real data: board 62's top member 67 -> 62 (4 done, 2 of them late).
+  `_score` gained a fourth arg (`late: int = 0`). `SCORE_HELP` tooltip and the header hint rewritten
+  to match; the per-row score tooltip now reads "4 of 6 done, 2 of them late".
+  Test 18/18 -> **21/21**, with three new score assertions.
+  **My own test bug, worth the note:** I first asserted the weight ratio with
+  `_score(10, 10, 10, 0)` — impossible input, since a card cannot be done AND overdue — and the
+  0..100 clamp swallowed it. Now compared on a valid case (`10 held, 6 done, 4 in one bucket`),
+  chosen so neither penalty lands on .5, because Python rounds half to EVEN and a .5 fixture
+  would be asserting the rounding rule rather than the weights.
+  Everything green: scorecard 21, completed_at 10, multi-assignee 21, task-assignment 23,
+  board-admin 16, gating 19. tsc + build exit 0.
+- **2026-09-22** — **BUG: the Progress report hid every unattributable card, so Late/Overdue read
+  as "—" on a board full of missed deadlines.** User reported not seeing them. Not a stale build —
+  the API was returning the fields correctly. Board 61 carries **101 cards with 2 real assignees**
+  and 11 overdue ones whose `owner_name` is NULL (6), 'Conversation Group' (2, a sentinel),
+  'Divyansh Bhardwaj' (the account is 'Divyansh Bhardwaj og' — no exact match), 'Participant 101'
+  and "Sarah O'Donnell". `board_scorecard` dropped all of them with `if not who: continue`, so a
+  per-member view honestly reported overdue = 0 and the board looked healthy.
+  Fix: a synthetic **"Unassigned"** row. `is_unassigned: True`, never scored (a number beside
+  "Unassigned" would read as somebody's performance), no label credit, no activity (the feed is
+  keyed by actor and those actors are already on their own rows), always sorted last, excluded
+  from the member count, rendered with an `Inbox` chip instead of an avatar and a top rule.
+  Board 61 now shows **Unassigned: 99 held, 11 overdue**.
+  Test 21/21 -> **28/28**, incl. "it always sorts last" and "it is NOT scored".
+  Note `bg-surface-soft/60` DOES resolve — opacity modifiers work on these tokens; my first grep
+  escaping was wrong, not the class.
+- **2026-09-22** — Progress screen design pass (user: "improve more than 50% of the UI"). Still a
+  list, no charts. What changed:
+  * **Accent rail** on every row — red when anything is overdue, amber when anything shipped late,
+    transparent otherwise. 11 overdue and 0 overdue used to look identical until you read digits.
+  * **Board totals strip** under the title (members · held · done · late · overdue), colour-coded,
+    as one inline line rather than the tile row that got rejected earlier for summarising the
+    board instead of the people.
+  * **Sort control** — Score / Workload / Problems / Activity. The orphan row is pinned last under
+    every sort, and unscored people sort BELOW scored ones (a bare `?? 0` would put them above).
+  * **Activity collapsed behind a disclosure** (chevron, click the row). It was four grey clauses
+    under every row and it buried the numbers that matter; expanded it is now labelled stats, not
+    a run-on sentence.
+  * Score bumped to 17px semibold with a full-width meter and a persistent track, so rows line up
+    whether or not somebody is scored. `tabular-nums` on every numeric column so digits don't
+    jitter between rows.
+  * Avatar 28px -> 32px; bar 5px -> 6px and full width; zeros render as a dimmed `—` instead of
+    "0"; skeleton loader now mimics the real row shape.
+  Backend untouched. All 23 classes verified in `dist/assets/*.css`, including the `/40` and `/60`
+  opacity variants — note my grep escaping for those was wrong TWICE; the working pattern is
+  `grep -o "bg-surface-soft[^{;,\" ]*"`. tsc + build exit 0; scorecard 28/28, completed_at 10/10,
+  multi-assignee 21/21, board-admin 16/16.
+- **2026-09-22** — Progress screen rebuilt on the project's OWN primitives (user: "match the
+  entire project design / colour scheme"). The mismatch was not the palette — it was that the page
+  hand-rolled everything the design system already ships, so paddings, type sizes, hover and
+  radii all drifted from the rest of the app.
+  Replaced: raw `rounded-lg border border-hairline bg-canvas` -> `<Card>`; a bespoke flex list ->
+  `<Table>` (its `px-[22px] py-3.5`, `text-[13px]`, uppercase `tracking-[1px]` heads and
+  `hover:bg-surface-soft/60` rows ARE the house list style, same as TemplatesInstalledPage);
+  the 4-slice div bar -> `<Progress segments>` (the component board cards and Reports already
+  use); hand-built sort buttons -> `<Segmented size="sm">` (same control as the Meetings filter
+  bar); the "by label" chip and the Late/Overdue emphasis -> `<Badge>` variants
+  secondary/warning/error, which carry the tinted `/12`-`/14` backgrounds the system defines;
+  the totals line -> Badges; empty `<p>` -> `<EmptyState>`; hand-rolled `animate-pulse` spans ->
+  `<Skeleton>`; the Unassigned chip -> `<IconChip>`.
+  Colours now come from tokens only (`var(--vb-success|warning|info|error|lavender)`) via a `HUE`
+  map instead of literal Tailwind classes on the bars.
+  Kept: bars scaled to the busiest member, left accent rail (now `border-l-error` /
+  `border-l-warning` on the TableRow — both verified present in the built CSS), collapsed activity
+  disclosure, orphan row pinned last, unscored sorting below scored.
+  Zero hand-rolled equivalents left (grepped). tsc + build exit 0; scorecard 28/28,
+  completed_at 10/10, multi-assignee 21/21.
+- **2026-09-22** — **BUG I introduced: every member's workload bar looked identical.** `maxHeld`
+  (the bar scale) was `max(assigned)` over ALL rows — including the **Unassigned** pile I added
+  two entries ago. On board 61 the busiest PERSON holds 3 cards and the pile holds 98, so every
+  human row rendered at ~3% of the track: visually identical slivers. A bar that compares people
+  must not be scaled by a bucket that is not a person.
+  Fix: `maxHeld` and `maxActivity` now filter out `is_unassigned`, and the orphan row scales to
+  ITSELF (always fills the track) because it is not in the comparison — what matters there is the
+  mix inside the pile, not its length beside a person's.
+  Board 61 now reads 100% / 0% / 100%(own scale) instead of 3% / 0% / 100%.
+  Note board 62's three identical bars (50% each) are CORRECT — those members genuinely hold
+  3 cards with 1 done and 2 open apiece. Worth checking the data before calling equal bars a bug;
+  here it was one on 61 and not one on 62.
+  tsc + build exit 0, scorecard 28/28.
+- **2026-09-22** — **THE BAR IS THE SCORE.** It was drawing WORKLOAD (cards held, scaled to the
+  busiest member), so two people with different scores could render identical bars — on board 62
+  three members hold the same three cards, so their workload bars matched exactly while their
+  scores were 62 / 50 / 33. A bar sitting beside a number should BE that number. Now: width =
+  score, colour = band (>=70 success, >=40 warning, else error). The duplicate mini-meter in the
+  Score column is gone. Unscored rows (nobody holds cards, and the Unassigned pile) draw no bar.
+  Board 62 now: 62% amber / 50% amber / 33% red / 33% red / 33% red.
+  Dead code removed with it: `maxHeld`, `scale`, `share`. `maxActivity` stays (the activity bar in
+  the disclosure is still relative). `HUE` renamed to good/fair/poor + activity, since it is score
+  bands now, not workload states.
+  **The three equal 33% bars are correct** — those members are assigned the SAME three cards
+  (t1362 done, t1363 open, t2036 open), so identical score, identical bar.
+  tsc + build exit 0, scorecard 28/28.
+- **2026-09-22** — **THREE uvicorn instances were bound to 127.0.0.1:8000 at once** (started
+  15-09 14:12, 21-09 19:35, 22-09 15:41). Windows allows the duplicate bind and picks a listener
+  per connection arbitrarily, so requests were being served NON-DETERMINISTICALLY by week-old
+  code — which is why the Progress screen showed stale scores intermittently rather than
+  consistently. My earlier diagnosis ("the server is stale") was right in spirit, wrong in detail.
+  **If numbers look old, check for more than one listener before blaming --reload:**
+  `netstat -ano | grep ":8000 .*LISTENING"` — more than one row is the bug.
+  Killed all three (plus their reloader children) and started a single instance; port now has
+  exactly one listener (PID 23908), `/health` returns healthy.
+  **The celery workers are still from 15-09** (PIDs 20456, 6364) — left running, NOT restarted,
+  because the user asked for the backend only. They are running week-old code for notification
+  email delivery and assignee notifications; worth restarting separately.
+- **2026-09-22** — Board tab order is now **Board | Progress | Summary** (Progress moved ahead of
+  Summary in `BoardTabs.tsx`). Link order only — routes, paths and the pathname-derived active-tab
+  logic are untouched. tsc + build exit 0.
+- **2026-09-22** — Removed the "Problems" sort from the Progress screen. Sorts are now Score /
+  Workload / Activity. The `SortKey` union, the `SORTS` option and its comparator all went
+  together — tsc would have failed on any leftover. Late/Overdue columns and the accent rail are
+  untouched; only the sort option is gone. tsc + build exit 0.
+- **2026-09-22** — The backgrounded `uvicorn` task was KILLED by the host for low memory, but the
+  backend survived: PID **23772** (started 17:34) still holds 127.0.0.1:8000 alone, `/health` is
+  healthy and `/openapi.json` carries the scorecard route, so it is serving current code. The
+  reloader PARENT is gone though, so `--reload` no longer picks up edits on this process — it must
+  be restarted by hand after any backend change.
+  **Machine is at 0.5 GB free of 7.8 GB.** Two week-old celery workers (20456, 6364 from 15-09)
+  are still resident and are the obvious thing to stop if memory is needed.
+- **2026-09-24** — Notification email sending moved from **every 30 seconds** to **hourly**, on
+  request, to match the due-soon cadence. `notification-emails` is now `crontab(minute=20)`.
+  **This reverses the 2026-09-08 requirement** ("the notification mail should be sent within 30
+  seconds") — an assignment email can now sit up to ~60 minutes. Recorded in the schedule comment
+  so it is not re-diagnosed as a bug later.
+  **:20, not :15, deliberately.** `tasks-due-soon` CREATES the reminders at :15 and this sweep
+  SENDS what is pending; firing both on the same minute is a race, and if the send won, every
+  reminder made at :15 would wait a full hour. Five minutes later keeps the frequency identical
+  (hourly) and clears the ordering.
+  The 30s-overlap ceiling noted in that comment is now moot (an hourly sweep has an hour to
+  finish). `MAX_EMAIL_AGE_HOURS = 24` is unchanged but now means 24 sweeps of headroom instead of
+  2880 — the first number to revisit if mail goes missing.
+  `from datetime import timedelta` removed from `app/celery_app.py`: the schedule is all crontab
+  now and it was the only user. Verified against the live object (`beat_schedule` prints
+  `crontab: 20 * * * *`), module imports clean, `tests/test_notifications.py` 17/17.
+  **Beat must be restarted to pick this up** — and the user's celery processes are from 15-09.

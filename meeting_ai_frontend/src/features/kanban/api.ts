@@ -354,3 +354,62 @@ export const saveBoardWorkflow = (
         : { transitions, column_permissions: columnPermissions },
     ),
   });
+
+// --- Scorecard -------------------------------------------------------------
+
+export interface MemberScore {
+  user_id: string;
+  name: string;
+  /** True for the single synthetic "Unassigned" row: cards on this board that
+   *  no member holds and no owner label resolves to. It exists so overdue and
+   *  late work cannot vanish from the report just because nobody's name is on
+   *  it — board 61 has 99 such cards, 11 of them overdue. Never scored, never
+   *  carries activity, always sorted last. */
+  is_unassigned: boolean;
+  /** Cards this person holds, including ones credited by owner_name label. */
+  assigned: number;
+  /** Of `assigned`, how many came from the analyzer's text label rather than
+   *  a real assignment. Shown separately so a label is never mistaken for one. */
+  assigned_by_label: number;
+  completed: number;
+  open: number;
+  /** Still open and past its due date — needs attention now. */
+  overdue: number;
+  /** Finished, but finished AFTER the due date. A different fact from
+   *  `overdue`: this one is history, not a live problem. */
+  late: number;
+  /** Finished on or before the due date. Cards with no due date are in
+   *  neither bucket, which is why on_time + late != completed. */
+  on_time: number;
+  /** null when they hold nothing — distinct from 0%. */
+  completion_rate: number | null;
+  /** Average days from creation to completion, over completed cards only. */
+  avg_cycle_days: number | null;
+  /** How many of those used the real `completed_at` timestamp... */
+  cycle_exact: number;
+  /** ...and how many fell back to `updated_at` (last touch) because the card
+   *  predates the audit feed the backfill read. A non-zero count means the
+   *  average is part estimate, and the UI marks it with a tilde. */
+  cycle_approx: number;
+  /** completion rate minus up to 30 pts scaled by the overdue share.
+   *  null when they hold no cards: nothing to score != scoring zero. */
+  score: number | null;
+  activity: {
+    created: number;
+    moved: number;
+    status_changes: number;
+    comments: number;
+    assignments_made: number;
+    total: number;
+  };
+  last_active: string | null;
+}
+
+export interface BoardScorecard {
+  board_id: number;
+  board_name: string;
+  members: MemberScore[];
+}
+
+export const fetchBoardScorecard = (boardId: number): Promise<BoardScorecard> =>
+  apiClient(`/boards/${boardId}/scorecard`);

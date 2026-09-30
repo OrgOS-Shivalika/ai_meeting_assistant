@@ -64,8 +64,9 @@ from app.schemas.kanban_schema import (
     TaskDetailResponse,
     TaskMoveRequest,
 )
-from app.services import notifications
+from app.services import notifications, permissions
 from app.services.kanban import service as kanban_service
+from app.services.kanban import scorecard
 from app.services.kanban import workflow
 
 kanban_router = APIRouter(tags=["kanban"])
@@ -490,6 +491,7 @@ def get_task_detail(
         position=task.position,
         is_completed=bool(task.is_completed),
         is_unassigned=is_unassigned,
+        completed_at=task.completed_at,
         board_id=task.board_id,
         column_id=task.column_id,
         column_name=detail["column_name"],
@@ -755,6 +757,35 @@ def update_notification_prefs(
     user.notification_prefs = prefs
     db.commit()
     return {kind: notifications.wants_email(user, kind) for kind in known}
+
+
+# ---------------------------------------------------------------------------
+# Scorecard — per-member progress on one board
+# ---------------------------------------------------------------------------
+
+
+@kanban_router.get("/boards/{board_id}/scorecard")
+def get_board_scorecard(
+    board_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Per-member progress on this board: assignment metrics, activity
+    counts, and a score.
+
+    Visible to anyone who can open the board — `get_viewable_board` is the
+    whole gate, and it 404s rather than 403s for a board outside the caller's
+    reach, so this endpoint cannot be used to probe which boards exist.
+
+    Read `kanban/scorecard.py` before changing the numbers; the label-credit
+    rule and the score formula are both deliberate and both explained there.
+    """
+    board = permissions.get_viewable_board(db, user, board_id)
+    return {
+        "board_id": board.id,
+        "board_name": board.name,
+        "members": scorecard.board_scorecard(db, board.id, user.organization_id),
+    }
 
 
 # ---------------------------------------------------------------------------

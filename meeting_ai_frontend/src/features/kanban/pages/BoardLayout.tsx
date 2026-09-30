@@ -132,7 +132,7 @@ export default function BoardLayout() {
               controls belong to the board view, which renders inside the
               `<Outlet>` below this, so they cannot be passed down. Filling a
               slot keeps `BoardTabs` mounted across tab switches (it would
-              otherwise flicker) and lets the Summary tab contribute nothing
+              otherwise flicker) and lets the Summary and Progress tabs contribute nothing
               without the row collapsing — the tabs set its height. */}
           <div className="mt-2.5 flex items-end justify-between gap-4">
             {/* Active tab is derived from the URL inside BoardTabs. */}

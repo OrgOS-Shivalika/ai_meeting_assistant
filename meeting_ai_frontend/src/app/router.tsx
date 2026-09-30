@@ -32,6 +32,7 @@ import BoardListPage from "../features/kanban/pages/BoardListPage";
 import BoardLayout from "../features/kanban/pages/BoardLayout";
 import BoardPage from "../features/kanban/pages/BoardPage";
 import BoardSummaryPage from "../features/kanban/pages/BoardSummaryPage";
+import BoardScorecardPage from "../features/kanban/pages/BoardScorecardPage";
 import SettingsPage from "../features/settings/pages/SettingsPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import ContinuumBoardPage from "../features/continuum/pages/ContinuumBoardPage";
@@ -181,6 +182,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <BoardPage /> },
           { path: "summary", element: <BoardSummaryPage /> },
+          { path: "progress", element: <BoardScorecardPage /> },
         ],
       },
     ],

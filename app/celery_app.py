@@ -12,7 +12,6 @@ The beat scheduler (Phase 6E) runs as a separate process:
 default `prefork` pool is used.
 """
 
-from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab
@@ -72,14 +71,22 @@ celery.conf.update(
 # past every hour, consolidation Sundays at 03:30 UTC.
 # ---------------------------------------------------------------------------
 celery.conf.beat_schedule = {
-    # Every 30 seconds. `timedelta`, not `crontab` — crontab's finest grain is
-    # a minute, so it cannot express this at all.
+    # HOURLY, at :20. Requested 2026-09-24 to match the due-soon cadence.
     #
-    # It used to be 5 minutes, on the reasoning that notification email is a
-    # courtesy rather than a race. In use it read as broken: you assign someone
-    # a card while talking to them and they have nothing for several minutes.
-    # The cost of the tighter loop is one indexed-ish query against a small
-    # table, 2880 times a day.
+    # History, so the trade-off is not silently re-litigated: this was 5
+    # minutes, then 30 SECONDS from 2026-09-08 on an explicit request that
+    # "the notification mail should be sent within 30 seconds" — because
+    # assigning somebody a card while talking to them and having nothing
+    # arrive read as broken. Hourly reinstates that delay: an assignment
+    # email can now sit up to ~60 minutes before it goes out. That is the
+    # cost of this setting, not a bug to be diagnosed later.
+    #
+    # :20 rather than :15 ON PURPOSE. `tasks-due-soon` CREATES due-soon
+    # notifications at :15 and this sweep SENDS whatever is pending. Firing
+    # both on the same minute is a race — if the send ran first, every
+    # reminder created at :15 would wait a full hour for the next sweep. Five
+    # minutes later is comfortably clear of it while keeping the frequency
+    # identical (once an hour).
     #
     # ponytail: polling, not push. Enqueueing a send from `notifications.create`
     # would be near-instant, but that function deliberately only FLUSHES — the
@@ -88,17 +95,20 @@ celery.conf.beat_schedule = {
     # send for a row that was never committed. Move to push only with an
     # after-commit hook.
     #
-    # Known ceiling: Celery does not prevent a periodic task from overlapping
-    # itself. At 30s with slow SMTP and a large backlog two sweeps could run
-    # together and race for the same rows. Harmless today (the sweep marks
-    # `emailed_at` as it goes and the table is tiny); add a Redis lock if the
-    # backlog ever gets big enough to outlast the interval.
+    # Overlap is no longer a concern at this interval (it was a noted ceiling
+    # at 30s): an hourly sweep has an hour to finish before the next one.
+    #
+    # `MAX_EMAIL_AGE_HOURS = 24` still applies — a pending row older than a
+    # day is abandoned unsent. That is 24 sweeps of headroom now rather than
+    # 2880, which is still ample, but it is the number to revisit first if
+    # mail starts going missing.
     "notification-emails": {
         "task": "meeting_ai.send_pending_notification_emails",
-        "schedule": timedelta(seconds=30),
+        "schedule": crontab(minute=20),
     },
-    # Hourly. Cheap and idempotent (`notify_due_soon` dedupes on task + due
-    # date), so the only cost of running it often is one indexed query.
+    # Hourly at :15. Cheap and idempotent (`notify_due_soon` dedupes on task +
+    # due date), so the only cost of running it often is one indexed query.
+    # Kept five minutes AHEAD of the send sweep above — see that comment.
     "tasks-due-soon": {
         "task": "meeting_ai.notify_tasks_due_soon",
         "schedule": crontab(minute=15),
