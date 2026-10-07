@@ -3673,3 +3673,60 @@ not live there.
   `recall_webhook.py:634` + `meeting_lifecycle.py:195` (participant detector), `notification_tasks.py:122`
   ("every 30s"), `templates/__init__.py` module list. Dead: `_prerender`, `compute_centrality_stub`,
   `google_calendar_worker.py`, `calendar_tasks.run_pipeline_async`, `ui/separator.tsx`, `ui/tabs.tsx`.
+- **2026-10-06** — Audited "does the bot speak mid-meeting?" (no code changed). Only two paths
+  reach `_speak_and_leave`: (1) `meeting.winding_down` from the linguistic detector — the ONE
+  `iris …` regex, once per meeting; participant detector only logs (`meeting_lifecycle.py:236-253`);
+  (2) `POST /meetings/{id}/closing-briefing/speak-now` (manual, API-only — no frontend caller).
+  `play_audio` is called only from `briefing/audio_player.py`. **But the regex over-matches**: it
+  allows 0-3 ANY words between the wake word and generic verbs (end/close/finish/summary), and
+  `aris/eris/isis` are real names. Offline probe: 9/9 ordinary sentences fire, e.g. "Aris, can you
+  close the Jira ticket", "Iris will finish the deck by Friday", "Eris is going to end up owning
+  this", "Isis said the summary is ready". Each would speak AND leave mid-meeting. Prod replay of
+  post-09-15 transcripts was NOT run (prod read not permitted this session) — unverified whether it
+  has actually happened. Fix proposal: require the command to START the utterance, and drop
+  end/close/finish + the 3-filler slot (or restrict fillers to please/can you/could you).
+- **2026-10-06** — Briefing trigger tightened to a DIRECT command (`meeting_lifecycle.py`
+  `_WRAP_UP_PATTERNS`). Wake word (iris/irish/eris/aris/isis) + only politeness fillers
+  (please/kindly/now/just/can|could|would|will you) + summarize|summarise|summary|recap|wrap up
+  + optional this/the/our + meeting noun + optional please/now/thanks, and it must END the
+  utterance. Dropped end/close/finish/finalize and the any-3-words slot. Trade-off: a command
+  followed by more speech in the same utterance ("iris summarize this and send it") no longer
+  fires. `tests/test_phase12a.py` **24/24** (new: 7 command variants must fire; 9 name-mention
+  sentences added to must-not-match). Prod replay still not run (no prod read permission).
+- **2026-10-06** — Bot no longer leaves after the closing briefing. `_speak_and_leave(leave_after=)`
+  default flipped True→False (`closing_briefing_orchestrator.py`); the event path passes no kwarg,
+  so the default decides. Departure is now Recall's own `automatic_leave.everyone_left_timeout`
+  (Recall default; `create_bot` sets NO `automatic_leave` override) — leaves when the bot is alone,
+  not when the count merely drops. A later `call_ended` is safe: webhook only flips
+  pending→ended, and `_record_post_facto_ended` no-ops on a terminal ('spoken') row. Module
+  docstring rewritten (it had the routing backwards — the long-standing "worst offender").
+  Tests: 12E new offline check `spoken command stays in call` + happy-path asserts
+  `deliver(leave_after=False)`; 9/9 offline PASS, the 12 DB-backed 12E tests ERROR only because
+  Postgres was down — RE-RUN when docker is up. 12D 24/25: `play_audio posts correctly` is
+  PRE-EXISTING (identical on stash: test mocks `requests.post`, code calls `requests.request`).
+  12A 24/24. Caveat: another bot (Otter/Fireflies) in the call counts as a participant for Recall
+  unless bot detection is configured, so our bot would stay with it. Not live until the web
+  process restarts.
+- **2026-10-06** — Full retest of the trigger + stay-in-call changes, Postgres UP (`au21completedat`).
+  12A 24/24, 12E **21/21** (the 12 DB-backed tests that errored earlier all pass), 12D 24/25 (the
+  pre-existing `play_audio posts correctly` mock bug only). Offline regex probe 40/40 (15 must-fire
+  incl. Hinglish lead-in + mishearings, 25 must-not incl. "Iris, end the meeting", "Iris summarize
+  this for the client…"). E2E against live DB (scratchpad `e2e_briefing.py`, Recall mocked):
+  3 name-mentions → 0 plays, status stays pending; direct command → 1 play with
+  `leave_after=False`, status+row 'spoken'; repeat command → still 1; `call_ended` → stays 'spoken'.
+  `import main` OK, 226 entries in `app.routes` (incl. mounts/catchall). Still uncommitted; web process needs restart.
+- **2026-10-07** — Pre-deploy audit of `continum` (3 commits + 5 uncommitted files vs `neworigin/main`
+  `4c1c759`). Ships: member gating (backend+frontend), Progress/scorecard tab, `completed_at` (migration
+  `au21completedat`), hourly notification emails, briefing trigger + stay-in-call. GREEN: gating 19,
+  scorecard 28, completed_at 10, rbac 38, multi-assignee 21, task-assignment 23, board-admin 16,
+  notifications 17, 12A 24, 12E 21, speaker 28, participant 8, memory 4, profile-binding 4,
+  kanban_k2 (pytest) 23; 12D 24/25 = pre-existing mock bug. `npm run build` exit 0; reviewer ran tsc clean.
+  **BLOCKER = ORDER**: `models.py:211` maps `Task.completed_at` → every Task query 500s until
+  `au21completedat` is on Railway (last recorded prod head `at20multiassign`, 09-21; prod not readable
+  this session). Dockerfile does not migrate.
+  Fixed in-session (reviewer finding on MY regex): courtesy tails after the command
+  ("…this meeting. Thank you.", "for me", ", okay?") now fire; up to 2 tails, still `$`-anchored.
+  NOT fixed, user's call: members opening Categories → "Workspace/Category/Team controls" now get
+  "Requires an admin role" (behavior GETs gated at router level, `MeetingTypesPage.tsx:533/623` still
+  shows the button); scorecard docstrings claim 404 where `get_viewable_board` gives 403 in-org;
+  `celerybeat-schedule{,-shm,-wal}` are TRACKED in git and not in .gitignore/.dockerignore.

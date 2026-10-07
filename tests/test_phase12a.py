@@ -358,6 +358,32 @@ def test_linguistic_spoken_command_emits():
         restore()
 
 
+def test_linguistic_direct_command_variants_emit():
+    from app.services.live_stream import meeting_lifecycle as lm
+    for i, phrase in enumerate([
+        "iris summarize this",
+        "Iris, summarise this meeting.",
+        "Hey Irish can you recap this call",
+        "eris could you please summarize the meeting",
+        "Iris wrap up the meeting please",
+        "Okay thanks everyone. Iris, summarize this.",
+        "iris summary please",
+        # Courtesy tails (2026-10-07 review): a trailing thanks must not block it.
+        "Iris, summarize this meeting. Thank you.",
+        "iris summarize this meeting thank you so much",
+        "Iris summarize this for me",
+        "Iris, summarize this meeting, okay?",
+    ]):
+        mid = f"cmd-{i}-{uuid.uuid4()}"
+        lm.meeting_lifecycle_monitor.reset(mid)
+        captured, restore = _capture_bus()
+        try:
+            lm.meeting_lifecycle_monitor.on_transcript_text(mid, phrase)
+            assert len(_events_of(captured, "meeting.winding_down")) == 1, phrase
+        finally:
+            restore()
+
+
 def test_linguistic_natural_farewell_does_NOT_emit():
     """The change of 2026-09-15. "Thanks everyone" used to fire the
     briefing; the bot then spoke over the meeting and disconnected. The
@@ -477,6 +503,16 @@ def test_linguistic_does_not_false_positive_on_normal_speech():
         # Near-misses on the command itself:
         "The irises are blooming in the garden.",
         "Iris joined the team last month.",
+        # Mention, not command (2026-10-06): the name near a verb used to fire.
+        "Aris, can you close the Jira ticket",
+        "Iris will finish the deck by Friday",
+        "Eris is going to end up owning this",
+        "Isis said the summary is ready",
+        "ask Iris to close the loop with finance",
+        "Iris and I will wrap up the report",
+        "the Irish team will close the deal",
+        "Iris, will you end the call at five?",
+        "Iris summarize this for the client and send it by Monday",
     ]
     for i, phrase in enumerate(must_not_match):
         mid = f"safe-{i}-{uuid.uuid4()}"
@@ -673,6 +709,7 @@ def main():
         ]),
         ("12A.3 linguistic detector", [
             ("spoken command emits", test_linguistic_spoken_command_emits),
+            ("direct command variants emit", test_linguistic_direct_command_variants_emit),
             ("natural farewell does NOT emit", test_linguistic_natural_farewell_does_NOT_emit),
             ("grace period suppresses", test_linguistic_within_grace_period_is_ignored),
             ("emits only once per meeting", test_linguistic_emits_only_once_per_meeting),

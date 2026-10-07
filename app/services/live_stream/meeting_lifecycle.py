@@ -79,25 +79,33 @@ _STATUS_FAILED = {"recording_permission_denied", "fatal"}
 # NEGATIVE means one meeting gets no spoken brief (the notes and tasks are
 # unaffected — they come from the transcript, not from this). A false POSITIVE
 # interrupts a live meeting and removes the bot from it. They are not close.
+#
+# 2026-10-06: tightened to a DIRECT command. The previous version allowed ANY
+# 0-3 words between the wake word and generic verbs (end/close/finish), so
+# "Aris, can you close the Jira ticket", "Iris will finish the deck" and
+# "Eris is going to end up owning this" all fired — and aris/eris/isis are
+# real names. Now: only politeness fillers in between, only summary verbs,
+# and the command must END the utterance (anything after it means the
+# speaker is talking about something, not commanding the bot).
 _WRAP_UP_PATTERNS = [
-    # Explicit assistant command — generous to transcription errors.
     # Matches:
-    #   iris summarize this
-    #   iris summarize this meeting / call / session / conversation / discussion
-    #   iris summarise this (British spelling)
-    #   iris wrap up / end / finish / finalize / close (this) (meeting/…)
-    #   hey iris, summarize this
-    # Mishearings of "iris" that Deepgram/AssemblyAI frequently produce:
-    #   irish, eris, aris, isis  (all sound-alikes)
-    # Trailing noun ("meeting", "call", etc.) is optional so "iris summarize this" alone still fires.
+    #   iris summarize this               iris, summarise this meeting please.
+    #   okay iris, summarize this meeting  hey iris can you recap this call
+    #   iris wrap up the meeting           iris summary please
+    # Mishearings of "iris" that Deepgram/AssemblyAI produce: irish, eris, aris, isis.
     re.compile(
         r"\b(?:iris|irish|eris|aris|isis)[\s,.\-:]+"
-        # 0-3 filler words (please / can you / could you please / kindly / now / just / etc.)
-        r"(?:\S+\s+){0,3}"
-        r"(?:summari[sz]e|summary|wrap\s+(?:up)?|end|finish|finalize|finalise|close|recap)"
-        r"(?:\s+this)?"
-        r"(?:\s+(?:meeting|call|session|conversation|discussion|one|thing))?"
-        r"\b",
+        r"(?:(?:please|kindly|now|just|go\s+ahead\s+and|"
+        r"(?:can|could|would|will)\s+you(?:\s+please)?)[\s,]+){0,2}"
+        r"(?:summari[sz]e|summary|recap|wrap\s+up)"
+        r"(?:\s+(?:this|the|our))?"
+        r"(?:\s+(?:meeting|call|session|conversation|discussion))?"
+        # Up to two courtesy tails, even as their own sentence:
+        # "Iris, summarize this meeting. Thank you so much."
+        r"(?:[\s,.!?]+(?:please|now|for\s+(?:us|me)|okay|ok|"
+        r"thanks(?:\s+a\s+lot)?|thank\s+you(?:\s+so\s+much)?))"
+        r"{0,2}"
+        r"[\s.!?,]*$",
         re.IGNORECASE,
     ),
 ]

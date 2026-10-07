@@ -4,14 +4,19 @@ The runtime that ties Phases 12A→12D together. Subscribes to the
 `LiveEventBus` and reacts to lifecycle events emitted by the Phase 12A
 detectors:
 
-    meeting.winding_down  ->  _prerender(meeting_id)
-                              compose + TTS into the cache.
-                              No playback. Idempotent — first one wins.
+    meeting.winding_down  ->  _speak_and_leave(meeting_id)
+                              (raised only by the spoken "iris summarize
+                              this" command) compose, TTS, upload, play
+                              through Recall, persist a `closing_briefings`
+                              row. The bot STAYS in the call afterwards;
+                              Recall's automatic_leave removes it once
+                              everyone else has left.
 
-    meeting.ended         ->  _speak_and_leave(meeting_id)
-                              compose if not yet, TTS (cache-warm),
-                              upload, play through Recall, persist a
-                              `closing_briefings` row, leave the call.
+    meeting.ended         ->  _record_post_facto_ended(meeting_id)
+                              audit only — writes status='skipped' if we
+                              never spoke. Too late to play audio here.
+
+    (_prerender is dead code — nothing routes to it.)
 
     meeting.failed        ->  _mark_failed(meeting_id)
                               persist a row with status='skipped' so
@@ -445,14 +450,16 @@ class ClosingBriefingOrchestrator:
         self,
         event: LiveCognitiveEvent,
         *,
-        leave_after: bool = True,
+        leave_after: bool = False,
     ) -> None:
         """Compose -> TTS -> upload -> Recall play -> (optionally) leave.
 
-        `leave_after`: when True (default, used by the natural
-        winding_down flow), the bot disconnects after speaking. When
-        False (used by the manual /speak-now endpoint), the bot stays
-        in the call so the meeting can continue.
+        `leave_after` defaults to False (2026-10-06): after the briefing
+        the bot STAYS in the call, for both the spoken command and
+        /speak-now. It leaves through Recall's own automatic_leave
+        (`everyone_left_timeout` — Recall's default, `create_bot` sets no
+        override), i.e. only once every other participant has gone, not
+        when the count merely drops. Pass True to disconnect after speaking.
         """
         meeting_id = self._parse_meeting_id(event)
         if meeting_id is None:
