@@ -158,6 +158,10 @@ export interface TaskDetail {
   assignees?: { id: string; name: string }[];
   /** Who assigned it, from the activity feed. Read-only. */
   assigned_by?: { name: string; at: string | null } | null;
+  /** When the card was finished. Maintained by a DB trigger and cleared if
+   *  the card is reopened, so it never disagrees with `is_completed`.
+   *  null on cards finished before the audit feed existed. */
+  completed_at?: string | null;
   id: number;
   task: string;
   description: string | null;

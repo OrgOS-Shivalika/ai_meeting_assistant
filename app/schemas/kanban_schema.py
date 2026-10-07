@@ -285,6 +285,11 @@ class TaskDetailResponse(BaseModel):
     position: Optional[float]
     is_completed: bool
     is_unassigned: bool
+    # When the card was finished. Written by the `trg_tasks_completed_at`
+    # trigger (migration au21completedat), cleared if the card is reopened.
+    # NULL on the ~900 analyzer-created cards that predate the audit feed the
+    # backfill read, so the drawer omits the line rather than inventing a date.
+    completed_at: Optional[datetime] = None
 
     board_id: Optional[int]
     column_id: Optional[int]

@@ -199,6 +199,17 @@ class Task(Base):
     due_date = Column(DateTime(timezone=True), nullable=True)
     is_completed = Column(Integer, default=0) # Using Integer as boolean for SQLite/generic compat if needed, but standard is Column(Boolean)
 
+    # Migration au21completedat. WRITTEN BY A DATABASE TRIGGER
+    # (`trg_tasks_completed_at`), never by application code — seven call sites
+    # already set `is_completed` and the eighth would have left this stale.
+    # Set on the transition to done, CLEARED when a card is reopened.
+    #
+    # Do not assign it in Python: the trigger overwrites an assignment on
+    # UPDATE anyway, so a hand-set value is silently ignored. NULL on the
+    # ~900 analyzer-created cards that predate the activity feed, which is why
+    # `kanban/scorecard.py` still falls back to `updated_at`.
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Phase 14 — Kanban surface. `status` is the authoritative source of
     # truth for completion state; `is_completed` is kept for backward
     # compat and constrained to equal `(status = 'done')` via a CHECK

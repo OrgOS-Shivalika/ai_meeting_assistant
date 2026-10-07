@@ -29,7 +29,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import (
+    get_current_user, require_access_admin,
+)
 from app.schemas.graph_schema import (
     EntityDetail,
     EntityListResponse,
@@ -56,6 +58,7 @@ def list_entities(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    # Deliberately NOT admin-gated: GET /entities feeds the member Dashboard (Promise.all: a 403 there breaks the whole page).
     user=Depends(get_current_user),
 ):
     return graph_query_service.list_entities(
@@ -74,7 +77,7 @@ def get_entity(
     entity_id: str,
     mentions_limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     return graph_query_service.get_entity(
         db, user, entity_id=entity_id, mentions_limit=mentions_limit,
@@ -89,6 +92,6 @@ def get_entity(
 def get_meeting_graph(
     meeting_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     return graph_query_service.get_meeting_graph(db, user, meeting_id=meeting_id)

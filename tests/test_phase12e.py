@@ -269,6 +269,22 @@ def test_winding_down_routes_to_speak_and_leave():
         m.assert_called_once()
 
 
+def test_spoken_command_does_not_leave_the_call():
+    """2026-10-06: after the briefing the bot stays; Recall's
+    automatic_leave removes it once everyone else has gone. The event
+    path passes no leave_after, so the DEFAULT is what decides."""
+    import inspect
+    from app.services.briefing.closing_briefing_orchestrator import ClosingBriefingOrchestrator
+    sig = inspect.signature(ClosingBriefingOrchestrator._speak_and_leave)
+    assert sig.parameters["leave_after"].default is False
+    orch = _make_orchestrator()
+    with patch.object(orch, "_speak_and_leave") as m:
+        orch._on_event(_make_event(42, "meeting.winding_down"))
+        time.sleep(0.1)
+        orch.stop()
+        assert "leave_after" not in m.call_args.kwargs
+
+
 def test_ended_routes_to_post_facto_audit():
     """Phase 12E revision: meeting.ended is now audit-only. The bot
     cannot speak after it's already been wound down by Recall, so
@@ -420,8 +436,9 @@ def test_speak_happy_path_reuses_prerender():
             # Composer + TTS should NOT have been called — cache was hot
             assert composer.compose.call_count == composer_calls_before
             assert tts.synthesize.call_count == tts_calls_before
-            # Player WAS called
+            # Player WAS called — and told to STAY in the call (2026-10-06)
             player.deliver.assert_called_once()
+            assert player.deliver.call_args.kwargs["leave_after"] is False
             # DB reflects terminal state
             assert _get_meeting_status(seed["meeting_id"]) == "spoken"
             row = _get_briefing_row(seed["meeting_id"])
@@ -636,6 +653,7 @@ def main():
     suites = [
         ("12E.1 event dispatch", [
             ("winding_down -> speak_and_leave", test_winding_down_routes_to_speak_and_leave),
+            ("spoken command stays in call", test_spoken_command_does_not_leave_the_call),
             ("ended -> post-facto audit", test_ended_routes_to_post_facto_audit),
             ("failed -> mark_failed", test_failed_routes_to_mark_failed),
             ("unrelated event ignored", test_unrelated_event_ignored),

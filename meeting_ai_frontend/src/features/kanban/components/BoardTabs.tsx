@@ -1,11 +1,11 @@
-// Phase 14 — two-tab switcher shown above the board.
+// Three-tab switcher shown above the board.
 //
-// Renders a "Board" tab linking to /board/:id and a "Summary" tab
-// linking to /board/:id/summary. The active tab is derived from the
-// current pathname, NOT from a controlled prop, so both pages can
-// drop the component in without coordinating state.
+// Board -> /board/:id, Progress -> /board/:id/progress, Summary ->
+// /board/:id/summary. The active tab is derived from the current
+// pathname, NOT from a controlled prop, so every page can drop the
+// component in without coordinating state.
 import { Link, useLocation } from "react-router-dom";
-import { LayoutGrid, BarChart3 } from "lucide-react";
+import { LayoutGrid, BarChart3, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -14,7 +14,10 @@ interface Props {
 
 export default function BoardTabs({ boardId }: Props) {
   const location = useLocation();
+  // Suffix match, so a future nested route under a tab keeps it active.
   const isSummary = location.pathname.endsWith("/summary");
+  const isProgress = location.pathname.endsWith("/progress");
+  const isBoard = !isSummary && !isProgress;
 
   // Underline tabs — same treatment as the shadcn Tabs primitive, but
   // driven by the router rather than local state.
@@ -29,12 +32,19 @@ export default function BoardTabs({ boardId }: Props) {
   return (
     // No bottom rule of its own: the tabs now sit on the title row and the
     // HEADER owns the full-width hairline, so a second one here would only
-    // underline the two tabs. `-mb-px` on the links still lifts the active
+    // underline the tabs themselves. `-mb-px` on the links still lifts the active
     // border over it.
     <div className="flex shrink-0 items-center gap-5">
-      <Link to={`/board/${boardId}`} className={tabClasses(!isSummary)}>
+      <Link to={`/board/${boardId}`} className={tabClasses(isBoard)}>
         <LayoutGrid className="size-4" />
         Board
+      </Link>
+      <Link
+        to={`/board/${boardId}/progress`}
+        className={tabClasses(isProgress)}
+      >
+        <TrendingUp className="size-4" />
+        Progress
       </Link>
       <Link to={`/board/${boardId}/summary`} className={tabClasses(isSummary)}>
         <BarChart3 className="size-4" />

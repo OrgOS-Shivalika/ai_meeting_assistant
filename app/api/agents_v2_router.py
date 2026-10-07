@@ -37,7 +37,9 @@ from app.agents_v2.shared.prompt_store import (
 )
 from app.db.database import get_db
 from app.db.models import AgentInsight, AgentPrompt, AgentV2, Category, Meeting, Team
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import (
+    get_current_user, require_access_admin,
+)
 from app.services import permissions
 
 router = APIRouter(prefix="/agents_v2", tags=["Agents v2"])
@@ -142,7 +144,7 @@ class SkillDescriptor(BaseModel):
 
 
 @router.get("/skills", response_model=list[SkillDescriptor])
-def list_skills(user=Depends(get_current_user)):
+def list_skills(user=Depends(require_access_admin)):
     """All skills registered at boot. Not org-scoped — skill code is
     shared across all orgs. The `allowed_skills` field on each agent
     row picks which of these the agent actually runs.
@@ -171,7 +173,7 @@ class ToolDescriptor(BaseModel):
 
 
 @router.get("/tools", response_model=list[ToolDescriptor])
-def list_tools(user=Depends(get_current_user)):
+def list_tools(user=Depends(require_access_admin)):
     """All tools registered at boot."""
     from app.agents_v2.registry import _ensure_bootstrapped
     from app.agents_v2.tools.base import all_tools
@@ -201,7 +203,7 @@ class AgentListItem(BaseModel):
 @router.get("", response_model=list[AgentListItem])
 def list_agents(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     """All agents_v2 rows in the caller's org, with category + team names
     joined so the frontend can group without a second round-trip."""
@@ -228,7 +230,7 @@ def list_agents(
 def get_agent(
     agent_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     return _serialize_agent(_get_agent_or_404(db, agent_id, user))
 
@@ -238,7 +240,7 @@ def update_agent(
     agent_id: int,
     payload: AgentUpdateRequest,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     data = payload.model_dump(exclude_unset=True)
@@ -298,6 +300,7 @@ class MeetingInsightItem(BaseModel):
 def get_meeting_insights(
     meeting_id: int,
     db: Session = Depends(get_db),
+    # Deliberately NOT admin-gated: GET /agents_v2/meetings/{id}/insights renders on the meeting page, which members keep.
     user=Depends(get_current_user),
 ):
     """All insight payloads produced by agents_v2 agents for this meeting.
@@ -354,7 +357,7 @@ def get_agent_traces(
     agent_id: int,
     limit: int = 50,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     """Recent Langfuse traces for this agent (filtered by tag=slug).
     Fails-safe to an empty list if Langfuse isn't configured or the
@@ -368,7 +371,7 @@ def get_agent_traces(
 def list_prompt_keys(
     agent_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     """Union of prompt_keys available for this agent — both from the DB
     (any keys ever created) and from disk (the agent's prompts/*.md
@@ -400,7 +403,7 @@ def get_active_prompt(
     agent_id: int,
     prompt_key: str = "master.md",
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     try:
@@ -432,7 +435,7 @@ def list_prompt_versions(
     prompt_key: str = "master.md",
     limit: int = 50,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     versions = list_versions(
@@ -458,7 +461,7 @@ def get_prompt_version(
     agent_id: int,
     version_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     v = (
@@ -490,7 +493,7 @@ def create_prompt_version(
     agent_id: int,
     payload: PromptCreateRequest,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     try:
@@ -524,7 +527,7 @@ def rollback_prompt(
     agent_id: int,
     version_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_access_admin),
 ):
     row = _get_agent_or_404(db, agent_id, user)
     try:
