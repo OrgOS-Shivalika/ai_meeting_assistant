@@ -101,6 +101,7 @@ class Meeting(Base):
 
     google_event_id = Column(String, unique=True)
     google_event_data = Column(JSON)      # Full event details including attendees
+    drive_files = Column(JSONB, nullable=True)  # {user_id: drive_file_id} — Drive export, one Doc per recipient
 
     # Phase 12A — closing-briefing lifecycle.
     # State machine for the AI's end-of-meeting verbal recap:
@@ -889,6 +890,9 @@ class User(Base):
     google_token_expires_at = Column(DateTime(timezone=True))
     google_profile_name = Column(String)
     google_profile_picture = Column(String)
+    # Drive export (migration av22driveexport): the app-created transcripts
+    # folder. Non-NULL = Drive connected; see services/drive_export_service.
+    drive_folder_id = Column(String, nullable=True)
 
     # Per-kind email opt-outs, migration ao15notifications. A JSONB column
     # rather than a table: it is a handful of booleans read on every send, and

@@ -8,6 +8,8 @@ import {
   RefreshCw,
   Loader2,
   MapPin,
+  FolderOpen,
+  History,
 } from "lucide-react";
 import Layout from "../../../shared/components/Layout";
 import { apiClient } from "../../../services/apiClient";
@@ -53,6 +55,80 @@ export default function IntegrationsPage() {
   }, []);
 
   useEffect(() => { refreshGoogle(); }, [refreshGoogle]);
+
+  // Google Drive — optional, its own consent. Each meeting's transcript is
+  // written as a Doc into a "Meeting Transcripts" folder in the user's Drive.
+  const [driveState, setDriveState] = useState<ConnectionState>("loading");
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string | null>(null);
+  const [driveError, setDriveError] = useState<string | undefined>();
+  const [driveNote, setDriveNote] = useState<string | undefined>();
+  const [driveBusy, setDriveBusy] = useState(false);
+
+  const refreshDrive = useCallback(async () => {
+    try {
+      const d = await apiClient("/auth/google/drive/status");
+      setDriveState(d?.connected ? "connected" : "disconnected");
+      setDriveFolderUrl(d?.folder_url ?? null);
+    } catch (e) {
+      setDriveState("error");
+      setDriveError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => { refreshDrive(); }, [refreshDrive]);
+
+  const connectDrive = async () => {
+    setDriveBusy(true);
+    setDriveError(undefined);
+    try {
+      const data = await authService.getGoogleAuthUrl(true);
+      if (data?.auth_url) {
+        window.location.href = data.auth_url;
+        return;
+      }
+      setDriveError("No auth URL returned by the server.");
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
+  const disconnectDrive = async () => {
+    if (
+      !window.confirm(
+        "Stop saving transcripts to Google Drive? Docs already saved stay in your Drive."
+      )
+    ) return;
+    setDriveBusy(true);
+    try {
+      await apiClient("/auth/google/drive/disconnect", { method: "POST" });
+      setDriveState("disconnected");
+      setDriveFolderUrl(null);
+      setDriveNote(undefined);
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
+  const exportPast = async () => {
+    setDriveBusy(true);
+    setDriveNote(undefined);
+    try {
+      const d = await apiClient("/auth/google/drive/export-past", { method: "POST" });
+      setDriveNote(
+        d?.queued
+          ? `${d.queued} past meeting${d.queued === 1 ? "" : "s"} queued — they'll appear in the folder over the next few minutes.`
+          : "All your past meetings are already in Drive.",
+      );
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setDriveBusy(false);
+    }
+  };
 
   const connectGoogle = async () => {
     setBusy(true);
@@ -114,6 +190,41 @@ export default function IntegrationsPage() {
             onConnect={connectGoogle}
             onDisconnect={disconnectGoogle}
           />
+          <IntegrationCard
+            name="Google Drive"
+            category="Storage"
+            description="Optional. Saves every meeting's transcript, attendees and notes as a Google Doc in a “Meeting Transcripts” folder in your Drive. You can rename or move the folder."
+            brandIcon={<FolderOpen />}
+            brandColor="var(--vb-success)"
+            state={driveState}
+            errorMessage={driveError}
+            busy={driveBusy}
+            onConnect={connectDrive}
+            onDisconnect={disconnectDrive}
+          >
+            {driveState === "connected" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {driveFolderUrl && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={driveFolderUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink />
+                      Open folder
+                    </a>
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={exportPast} disabled={driveBusy}>
+                  <History />
+                  Export past meetings
+                </Button>
+              </div>
+            )}
+            {driveNote && (
+              <p className="mt-2.5 text-xs text-muted-ink">{driveNote}</p>
+            )}
+            {driveState !== "connected" && driveError && driveState !== "error" && (
+              <p className="mt-2.5 text-xs text-error">{driveError}</p>
+            )}
+          </IntegrationCard>
         </section>
 
         {googleState === "connected" && <UpcomingGoogleEvents />}

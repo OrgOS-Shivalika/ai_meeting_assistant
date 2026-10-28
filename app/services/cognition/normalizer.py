@@ -134,6 +134,7 @@ class CognitionNormalizer:
                     type="action_item",
                     content={
                         "task": t.task,
+                        "context": getattr(t, "description", None),
                         "owner": t.owner,
                         "deadline": t.deadline,
                         "status": t.status

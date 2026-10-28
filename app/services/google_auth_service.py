@@ -44,6 +44,23 @@ def persist_google_tokens(db: Session, user, *, access_token, refresh_token, exp
     db.refresh(user)
 
 
+def sync_drive_folder(db: Session, user, drive_granted: bool) -> bool:
+    """After a Google connect: if Drive was granted, make sure the transcripts
+    folder exists; if it wasn't (Calendar-only connect, or the user unticked
+    Drive on Google's consent screen), Drive export is off. Returns whether
+    Drive is connected. A folder failure never fails the Google connect."""
+    folder_id = None
+    if drive_granted:
+        from app.services.drive_export_service import ensure_folder
+        try:
+            folder_id = ensure_folder(user)
+        except Exception as exc:
+            logger.error(f"Drive folder setup failed for {user.email}: {exc}")
+    user.drive_folder_id = folder_id
+    db.commit()
+    return folder_id is not None
+
+
 def disconnect_google(db: Session, user) -> dict:
     try:
         db.query(User).filter(User.id == user.id).update({
@@ -51,7 +68,8 @@ def disconnect_google(db: Session, user) -> dict:
             "google_refresh_token": None,
             "google_token_expires_at": None,
             "google_profile_name": None,
-            "google_profile_picture": None
+            "google_profile_picture": None,
+            "drive_folder_id": None,
         })
         db.commit()
         return {"message": "Google Calendar disconnected successfully"}

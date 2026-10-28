@@ -35,14 +35,15 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 |---|---|
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
-| Local DB | `localhost:5433/meeting_ai`, alembic head **`aq17wfblock`** (queried 2026-09-07). 55 revisions, ONE linear chain, no branches. |
-| Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 48 of `.env` (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Local DB | `localhost:5433/meeting_ai`, alembic head **`av22driveexport`** (2026-10-28). ONE linear chain, no branches. Railway is at `au21completedat` (2026-10-07) — one behind. |
+| Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 50 of `.env` (line 47 is local) (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
 | Prod app | **`https://aimeetingassistant-production.up.railway.app`** — HTTPS only, plain http 301-redirects. Verified 2026-09-02, so `AUTH_COOKIE_SECURE=true` is safe there. |
-| Outbound email | Google Workspace relay, `SMTP_USER` and `SMTP_FROM` both `@smoothops.info` (aligned). **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
+| Outbound email | Google Workspace relay. Local `.env` `SMTP_USER`/`SMTP_FROM` now `@imagine.bo` (2026-10-28; smoothops.info Google account was REMOVED). The SPF/DKIM/DMARC note below was measured on smoothops.info — re-check for imagine.bo. **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
 | mem0 | OSS self-hosted, table `mem0_facts`, 112 rows |
 | Langfuse | self-hosted v2. **Local `.env` now points at RAILWAY** (`https://langfuse-production-d9d4.up.railway.app`), not `localhost:3000`. The docker-compose `langfuse` service still runs but nothing traces to it — stop it or repoint `LANGFUSE_BASE_URL` to use it again. |
 | Celery in dev | host worker via `make celery` (`--pool=solo`), NOT the container |
-| `.env` | gitignored, untracked — safe for secrets, never quote them in docs |
+| Google OAuth | **New client in GCP project `809725623284` (imagine.bo)**, local `.env` since 2026-10-28. Old project `788745413984` (smoothops.info) is gone — any token minted by it can't refresh. Redirects registered: `localhost:5173`, `localhost:8000`, prod `/auth/google/callback`. Calendar, Drive and Meet APIs enabled (verified live). Railway env NOT yet updated. Probe a redirect: GET the auth URL; an unregistered one 302s to `/signin/oauth/error`. |
+| `.env` | gitignored, untracked — safe for secrets, never quote them in docs. **Grep it with values masked on EVERY line** — commented-out old keys live in it too (lines 10-13). |
 
 ---
 
@@ -61,6 +62,9 @@ python tests/test_rbac_scopes.py            # 28
 python tests/test_speaker_attribution.py    # 17
 python tests/test_participant_saving.py     # 8
 python tests/test_memory_empty_query.py     # 4
+# need local Postgres
+python tests/test_task_context.py           # 19
+python tests/test_drive_export.py           # 29 (Drive + LLM faked)
 
 # smoke — live, costs a few cents
 python -m scripts.smoke_langfuse         # note the -m
@@ -3112,6 +3116,12 @@ Backfilled from `tasks.assignee_user_id`: 5 rows in, 5 tasks out.
 board's My-cards filter and `assignee` filter still match only the primary
 column, and `tests/test_task_assignment.py` has not been re-run against this.
 
+- 2026-10-28 Google Drive transcript export BUILT (uncommitted). Migration av22driveexport (users.drive_folder_id, meetings.drive_files JSONB) APPLIED LOCALLY ONLY. Optional "Connect Google Drive" (drive.file, login?drive=true; kept on later reconnects) → app creates "Meeting Transcripts" folder. Pipeline enqueues `meeting_ai.export_meeting_to_drive` after compliance redaction; service `app/services/drive_export_service.py` names Docs `YYYY-MM-DD <Company> - <Topic>` (IST, gpt-4o-mini naming) with attendees/notes/transcript; recipients = owner + calendar-invited org members with Drive; PATCH-in-place idempotent. Endpoints /auth/google/drive/{status,disconnect,export-past,meeting/{id}}. UI: Drive card on Integrations + "Open in Drive" on transcript header. tests/test_drive_export.py 26/26, test_task_context 19/19, tsc -b clean. NOT verified against real Drive yet.
+
+- 2026-10-28 New Google OAuth client (project 809725623284, imagine.bo) in local .env; redirects localhost:5173/8000 + prod registered. Drive verified LIVE locally: divyansh@imagine.bo granted drive.file, folder created, real Doc export OK. Naming fixed: naming call now sees first 8k transcript chars, no "Internal" fallback (no buyer → `YYYY-MM-DD <Topic>`), topic capitalised; re-ran 32 Docs in place (same file ids). test_drive_export 29/29. Side effect: a token check cleared ganji.vamshi@smoothops.info's dead Google tokens (account deleted) — LOCAL DB only.
+
+- 2026-10-28 Meeting title = Google Calendar event title (google_event_data.summary), AI title only when no calendar title: meeting_pipeline.py title step + calendar_tasks.py no longer stores "Untitled Meeting". Backfill `python -m app.scripts.backfill_calendar_titles [--apply]` APPLIED LOCALLY (22 fixed, re-run 0). Prod backfill NOT run.
+
 ## 7. Open threads
 
 ~~prod behind on migrations~~ **CLEARED 2026-09-08** - Railway taken
@@ -3730,3 +3740,61 @@ not live there.
   "Requires an admin role" (behavior GETs gated at router level, `MeetingTypesPage.tsx:533/623` still
   shows the button); scorecard docstrings claim 404 where `get_viewable_board` gives 403 in-org;
   `celerybeat-schedule{,-shm,-wal}` are TRACKED in git and not in .gitignore/.dockerignore.
+- **2026-10-07** — **PROD INCIDENT + FIX.** Code with `Task.completed_at` was deployed to Railway BEFORE
+  the migration → `UndefinedColumn tasks.completed_at` → 500 on every Task query (e.g. GET /api/boards/62).
+  On the user's explicit instruction ran `alembic upgrade head` on Railway: `at20multiassign` →
+  `au21completedat (head)`. Verified on prod: column + `trg_tasks_completed_at` present; tasks 3737,
+  done 33, stamped 19 (backfill from status_changed→done activity; the rest stay NULL by design),
+  stamped-but-not-done 0; a board-62 tasks query now runs; /health 200.
+  **The Railway URL is now `.env` LINE 50** (line 47 = local; §2's "line 48" is stale).
+  Lesson stands from 09-21: Dockerfile does not migrate — migrate BEFORE the code deploy, every time.
+- **2026-10-07** — **Task descriptions from meeting context.** Found 0/1306 local tasks with a
+  description. Someone had started it (uncommitted, 14:55: analyzer prompt + live extractor prompt,
+  stabilizer, live persistence, `save_tasks` all read/write `context`→`description`) but it could
+  never work: **`ExtractionActionItem` had no `context` field, so pydantic silently dropped it** on
+  every post-meeting path (World A AND agents_v2 share the contract). Completed:
+  `cognition/contracts.py` (+`context`), `normalizer.normalize_live_tasks` (carries LiveTask.description),
+  `deduplicator._semantic_merge` (kept duplicate inherits a merged sibling's context),
+  `skills/meetings/action_items.py` prompt, `create_task` tool (`context` param → description, trimmed,
+  null→NULL), agents_v2 `master.md`. All prompts now say ALWAYS provide context (describe the
+  discussion it came from; never invent) — user wants every task described.
+  Write rules: fill-only on existing rows (never clobbers a user-edited description). Manual board
+  cards (`kanban/service.py:671`) unchanged — user types those. No migration (`tasks.description`
+  already exists). New `tests/test_task_context.py` **14/14** (contract, merger+dedup, live→DB,
+  save_tasks fill/no-clobber, create_task). Real gpt-4o-mini run on meeting 4929: 3/3 items with
+  grounded context. Regressions: 12a 24, 12b 21, 3b 23, dateless 22 (pytest), multi-assignee 21,
+  task-assignment 23, completed_at 10. NOT done: backfilling the 1306 existing tasks (LLM cost).
+- **2026-10-07** — Task descriptions made DETAILED (user: "as much as the transcript provides").
+  Inline `context` from the extraction call stayed ~140 chars even with "detailed" prompts and a
+  forced markdown shape (that shape also made it invent "Done when" — reverted). Cause: it is one
+  field in a single call that also emits summary/decisions/risks/cleaned transcript. Fix: new
+  `app/services/cognition/task_briefs.py::enrich_meeting_task_descriptions`, a SECOND focused pass
+  called in `meeting_pipeline` right after `save_tasks` (non-fatal, logs with traceback): full
+  transcript + this meeting's tasks → one markdown brief per task, 15 tasks/call, JSON mode.
+  Runs on saved ROWS so it covers analyzer, live and harness tasks alike. Skips any task with a
+  `description_changed` activity (= a human edited it); a missing brief keeps the earlier context.
+  **Model gpt-4o, not mini** — side-by-side on meeting 4929: mini padded and silently skipped the
+  ETD task; 4o pulled BL/ETD/booking-date/delay specifics out of the Hinglish (≈$0.02-0.05/meeting).
+  `tests/test_task_context.py` **19/19** (+5: batching 15+2, human-edited untouched, briefs written,
+  missing brief keeps old, empty transcript no-op). `import main` OK.
+- **2026-10-08** — Investigated "how do we know a participant is an org member?" (no code changed).
+  Measured locally: participants 182, **0 linked to a user**, 2 with email. Recall sends an `email` key
+  on every participant but it is **null in 4218/4218 sightings** (all Google Meet). Google Meet's
+  `extra_data.google_meet.static_participant_id` is **NOT a stable person id** — 157 ids for 41 names,
+  one person has ≥5; it only repeats when the same meeting link is reused. Only trusted path today
+  is calendar attendees (`google_event_data`), present on 28/263 meetings, with attendees on just 6.
+  Exact display-name == users.name hits 2/42 names (account names differ, e.g. "… og"). Display
+  names are user-controlled → a name match must never grant access (current design is right).
+  Options offered: Meet REST API conferenceRecords.participants (signed-in Google user id — needs
+  verifying), a claim/confirm flow + per-org name alias, Zoom/Teams attendance APIs, calendar-first.
+- **2026-10-28 — DEPLOY CHECKLIST for the uncommitted work on `continum`** (task descriptions + brief
+  pass, Drive export, calendar titles; all tested locally, nothing committed):
+  1. Railway web + worker + beat: set the NEW `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (project 809725623284).
+  2. Run migration `av22driveexport` on Railway BEFORE the code deploys (repeat of the 2026-10-07 incident otherwise).
+  3. Deploy. Then, only on the user's explicit go: `python -m app.scripts.backfill_calendar_titles --apply` against prod.
+  4. Every user reconnects Google once (old-project tokens are dead); Raahull clicks "Connect Google Drive",
+     then optionally "Export past meetings". Consider clearing dead google_* tokens on prod (ask first).
+- Drive export follow-ups, not started: show the real reason on the Drive card when folder setup fails
+  (today it silently reads "Not connected"); calendar renames AFTER processing don't update meeting titles.
+- Participant ⇄ org-member linking: options given 2026-10-08 (Meet REST API participants by Google id is the
+  automatic one; needs `meetings.space.readonly` + a spike on one real meeting). User has not picked.

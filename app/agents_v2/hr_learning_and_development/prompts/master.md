@@ -70,6 +70,7 @@ Return valid JSON ONLY, matching this exact shape:
   "action_items": [
     {
       "task": "string",
+      "context": "DETAILED English brief, markdown allowed, so someone who missed the meeting can do it: why it is needed, who asked, and EVERY specific the transcript gives (requirements, numbers, dates, names, systems, constraints, dependencies, what done looks like, open questions). Length follows the transcript; never pad or invent. ALWAYS provide it.",
       "owner": "string",
       "due_date": "YYYY-MM-DD or null",
       "priority": "low|medium|high",

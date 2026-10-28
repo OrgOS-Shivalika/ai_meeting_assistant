@@ -102,6 +102,15 @@ Response Format:
                         sources.add(fragments[int(orig_id_str)].source_skill)
                 
                 base_fragment.metadata["merged_from_skills"] = list(sources)
+                # The kept version may be the one without a `context`; take
+                # it from a merged sibling so the task keeps its description.
+                content = base_fragment.content
+                if isinstance(content, dict) and not content.get("context"):
+                    for orig_id_str, kept_id_str in merges.items():
+                        sib = fragments[int(orig_id_str)].content
+                        if int(kept_id_str) == idx and isinstance(sib, dict) and sib.get("context"):
+                            content["context"] = sib["context"]
+                            break
                 final_fragments.append(base_fragment)
                 
             return final_fragments

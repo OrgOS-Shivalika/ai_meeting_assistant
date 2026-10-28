@@ -65,6 +65,8 @@ class LiveTaskPersistence:
                     # Update
                     existing.owner_name = payload.get("owner")
                     existing.due_date = resolved_due_date
+                    if not existing.description:
+                        existing.description = payload.get("description")
                     # Keep status + is_completed in lockstep — the K1
                     # CHECK constraint enforces this; bypassing it
                     # raises IntegrityError. `status='done'` is the
@@ -116,6 +118,7 @@ class LiveTaskPersistence:
                     new_task = Task(
                         meeting_id=meeting_id,
                         task=task_text,
+                        description=payload.get("description"),
                         owner_name=payload.get("owner"),
                         assignee_user_id=assignee.id if assignee else None,
                         due_date=resolved_due_date,

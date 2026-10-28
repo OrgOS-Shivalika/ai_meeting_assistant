@@ -9,6 +9,7 @@ import TaskAssignmentEditor from "../components/TaskAssignmentEditor";
 import AskAssistantPanel from "../components/AskAssistantPanel";
 import AttendeeAccessModal from "../components/AttendeeAccessModal";
 import MeetingBoardLink from "../../kanban/components/MeetingBoardLink";
+import DriveDocLink from "../components/DriveDocLink";
 import {
   Calendar,
   Clock,
@@ -767,6 +768,7 @@ export default function MeetingDetailPage() {
               >
                 {meeting.status === "completed" ? "Transcript" : "Live transcript"}
               </h3>
+              {meeting.status === "completed" && <DriveDocLink meetingId={meeting.id} />}
               {/* <button
                 onClick={() => setAiHighlightsOn(!aiHighlightsOn)}
                 className={cn(

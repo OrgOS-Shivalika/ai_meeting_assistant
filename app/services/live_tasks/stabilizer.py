@@ -76,6 +76,7 @@ class TaskStabilizer:
         task = LiveTask(
             id=task_id,
             task=raw["task"],
+            description=raw.get("context"),
             fingerprint=fingerprint,
             owner=raw.get("owner"),
             ownership_type=cls._resolve_ownership_type(raw),
@@ -135,6 +136,8 @@ class TaskStabilizer:
         new_deadline = raw.get("deadline")
         if new_deadline:
             task.deadline = new_deadline
+        if not task.description and raw.get("context"):
+            task.description = raw["context"]
             
         # 3. State Machine Progression
         if task.confidence > 0.85 and task.owner and task.status in ["detected", "inferred"]:

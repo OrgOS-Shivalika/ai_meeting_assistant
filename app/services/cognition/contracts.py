@@ -26,6 +26,9 @@ class ExtractionDecision(BaseModel):
 
 class ExtractionActionItem(BaseModel):
     task: str
+    # Why the task exists, from the transcript. Becomes Task.description.
+    # Without this field pydantic silently drops the key the prompts ask for.
+    context: Optional[str] = None
     owner: Optional[str] = None
     due_date: Optional[str] = None # ISO 8601
     priority: str = "medium" # low|medium|high

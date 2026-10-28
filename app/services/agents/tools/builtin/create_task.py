@@ -53,6 +53,7 @@ def handler(args: dict, ctx: ToolContext) -> dict:
     task = Task(
         meeting_id=mid,
         task=text,
+        description=(args.get("context") or "").strip() or None,
         owner_name=(args.get("owner_name") or "").strip() or None,
         priority=(args.get("priority") or "medium").lower(),
         due_date=due_dt,
@@ -98,6 +99,7 @@ register(Tool(
             # correct `null` failed validation and the harness looped
             # (retry storm). Allowing null AND string lets the model do
             # the right thing on the first try.
+            "context": {"type": ["string", "null"], "description": "DETAILED brief stored as the card's description (markdown allowed): why the task is needed, who asked, and every specific the transcript gives — requirements, numbers, dates, names, systems, constraints, dependencies, what done looks like, open questions. Length follows the transcript; never pad or invent. Always provide it."},
             "owner_name": {"type": ["string", "null"], "description": "Owner name. Use null if not stated in the transcript."},
             "due_date": {"type": ["string", "null"], "description": "ISO 8601 date (YYYY-MM-DD). Use null if no date was stated."},
             "priority": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},

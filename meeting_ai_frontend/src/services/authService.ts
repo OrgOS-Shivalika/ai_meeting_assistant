@@ -50,7 +50,7 @@ export const authService = {
     return hasAuthFlag();
   },
 
-  async getGoogleAuthUrl() {
-    return apiClient("/auth/google/login");
+  async getGoogleAuthUrl(drive = false) {
+    return apiClient(`/auth/google/login${drive ? "?drive=true" : ""}`);
   }
 };
