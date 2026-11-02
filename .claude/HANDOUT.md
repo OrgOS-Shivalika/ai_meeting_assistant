@@ -35,8 +35,8 @@ PILOT with exactly one agent. Don't "fix" one thinking it's the other.
 |---|---|
 | Shell | Git Bash on Windows. `MSYS_NO_PATHCONV=1` for in-container paths. |
 | Python | run everything with `export PYTHONIOENCODING=utf-8` — the codebase has em-dashes and emoji in docstrings/logs and cp1252 will crash on them |
-| Local DB | `localhost:5433/meeting_ai`, alembic head **`av22driveexport`** (2026-10-28). ONE linear chain, no branches. Railway is at `au21completedat` (2026-10-07) — one behind. |
-| Prod DB (Railway) | PG 18.6, **at head `am13invitetoken`** as of 2026-09-02. URL is the commented line 50 of `.env` (line 47 is local) (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
+| Local DB | `localhost:5433/meeting_ai`, alembic head **`av22driveexport`** (2026-10-28). ONE linear chain, no branches. Railway also at `av22driveexport` (2026-11-02). |
+| Prod DB (Railway) | PG 18.6, at `av22driveexport` (2026-11-02). URL is the commented line 50 of `.env` (line 47 is local) (TCP proxy `hayabusa.proxy.rlwy.net`). Alembic targets it via `export DATABASE_URL=<prod>` — `env.py` prefers `settings.DATABASE_URL` over the ini, and `load_dotenv(override=False)` lets the exported var win. |
 | Prod app | **`https://aimeetingassistant-production.up.railway.app`** — HTTPS only, plain http 301-redirects. Verified 2026-09-02, so `AUTH_COOKIE_SECURE=true` is safe there. |
 | Outbound email | Google Workspace relay. Local `.env` `SMTP_USER`/`SMTP_FROM` now `@imagine.bo` (2026-10-28; smoothops.info Google account was REMOVED). The SPF/DKIM/DMARC note below was measured on smoothops.info — re-check for imagine.bo. **The domain publishes NO SPF, NO DKIM, NO DMARC** — so everything it sends is unauthenticated and Gmail files it as spam. See §7. |
 | mem0 | OSS self-hosted, table `mem0_facts`, 112 rows |
@@ -3121,6 +3121,10 @@ column, and `tests/test_task_assignment.py` has not been re-run against this.
 - 2026-10-28 New Google OAuth client (project 809725623284, imagine.bo) in local .env; redirects localhost:5173/8000 + prod registered. Drive verified LIVE locally: divyansh@imagine.bo granted drive.file, folder created, real Doc export OK. Naming fixed: naming call now sees first 8k transcript chars, no "Internal" fallback (no buyer → `YYYY-MM-DD <Topic>`), topic capitalised; re-ran 32 Docs in place (same file ids). test_drive_export 29/29. Side effect: a token check cleared ganji.vamshi@smoothops.info's dead Google tokens (account deleted) — LOCAL DB only.
 
 - 2026-10-28 Meeting title = Google Calendar event title (google_event_data.summary), AI title only when no calendar title: meeting_pipeline.py title step + calendar_tasks.py no longer stores "Untitled Meeting". Backfill `python -m app.scripts.backfill_calendar_titles [--apply]` APPLIED LOCALLY (22 fixed, re-run 0). Prod backfill NOT run.
+
+- 2026-11-02 Pre-deploy check of c737da7 (committed, NOT pushed — origin/continum 2 behind): test_drive_export 29/29, test_task_context 19/19, tsc -b clean, `import main` OK, single alembic head av22driveexport (local at head). Started local postgres+redis via docker compose.
+- 2026-11-02 PROD av22driveexport attempt STALLED: ALTER TABLE (pid 156489) waited on a leaked app session 'idle in transaction' 20+ min (pid 156453, SELECT meetings), and in turn blocked prod SELECTs on users/meetings. Stopping the local alembic client did NOT end the server backend; cancel was denied by auto mode — handed to user. Nothing committed: prod still au21completedat, no new columns. LESSON: before any prod DDL check pg_stat_activity for 'idle in transaction' and run with `SET lock_timeout='5s'`.
+- 2026-11-02 PROD migrated to av22driveexport (retry, PGOPTIONS lock_timeout=5s, no open txns beforehand). Verified: alembic_version=av22driveexport, users.drive_folder_id + meetings.drive_files present, no lock waits after.
 
 ## 7. Open threads
 
