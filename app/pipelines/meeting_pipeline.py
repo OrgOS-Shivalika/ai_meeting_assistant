@@ -329,6 +329,9 @@ class MeetingPipeline:
                 existing.owner_name = t.get("owner")
                 existing.priority = t.get("priority", "medium")
                 existing.due_date = self.parse_iso_date(t.get("due_date"))
+                # Fill only — never clobber a description a user edited.
+                if not existing.description:
+                    existing.description = t.get("context")
                 logger.debug(f"Harmonized final task {existing.id} with live version")
             else:
                 # Phase 14 — new analyzer-extracted tasks (which happen
@@ -373,6 +376,7 @@ class MeetingPipeline:
                 task = Task(
                     meeting_id=meeting_id,
                     task=task_text,
+                    description=t.get("context"),
                     owner_name=t.get("owner"),
                     assignee_user_id=assignee.id if assignee else None,
                     priority=t.get("priority", "medium"),
@@ -607,9 +611,12 @@ class MeetingPipeline:
             # result_obj is a typed ExtractionSummary instance
             result_json = result_obj.model_dump()
 
-            # save title
-            title = result_obj.title or f"Meeting {meeting.id}"
-            meeting.title = title
+            # Title: the Google Calendar event's own title when there is one
+            # (read from the latest synced event, so a rename before the
+            # meeting is honoured); the AI's title only for untitled events
+            # and meetings that never came from a calendar.
+            calendar_title = ((meeting.google_event_data or {}).get("summary") or "").strip()
+            meeting.title = calendar_title or result_obj.title or f"Meeting {meeting.id}"
 
             # Save summary
             summary = result_obj.summary
@@ -623,6 +630,17 @@ class MeetingPipeline:
             # complete picture (transcript_raw, summary, tasks) on the first
             # round-trip instead of needing a manual page refresh.
             self.save_tasks(db, meeting.id, result_json.get("action_items", []))
+
+            # Detailed task descriptions from the full transcript — one focused
+            # gpt-4o call per 15 tasks. Non-fatal: on failure the shorter
+            # extraction `context` already saved above stays as the description.
+            try:
+                from app.services.cognition.task_briefs import enrich_meeting_task_descriptions
+                n = enrich_meeting_task_descriptions(db, meeting.id, formatted)
+                logger.info("📝 Task briefs: %d task description(s) written for meeting %s", n, meeting.id)
+            except Exception as exc:
+                db.rollback()
+                logger.error("Task brief enrichment failed for meeting %s: %s", meeting.id, exc, exc_info=True)
 
             # Memory Phase 1 — distill durable facts from this meeting.
             # Best-effort, wrapped non-fatal: a distiller failure must NEVER
@@ -677,6 +695,18 @@ class MeetingPipeline:
 
             except Exception as comp_err:
                 logger.error("Compliance or Automation gating failed: %s", comp_err)
+
+            # Google Drive export — after redaction so the Doc carries the
+            # redacted transcript. Queued: Drive retries never hold the pipeline.
+            try:
+                from app.celery_tasks.meeting_tasks import export_meeting_to_drive
+                decisions = [
+                    d.get("decision") if isinstance(d, dict) else str(d)
+                    for d in (result_json.get("decisions") or [])
+                ]
+                export_meeting_to_drive.delay(meeting.id, decisions=[d for d in decisions if d])
+            except Exception as drive_err:
+                logger.error("Drive export enqueue failed for meeting %s: %s", meeting.id, drive_err)
 
             # Broadcast status update via WebSocket
             try:

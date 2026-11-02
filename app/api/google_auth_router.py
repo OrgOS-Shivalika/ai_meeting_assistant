@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.services.google_service import SCOPES
+from app.services.drive_export_service import DRIVE_SCOPE
 from app.services import google_auth_service
 from app.dependencies.auth import get_current_user
 from app.utils.logger import setup_logger
@@ -68,7 +69,7 @@ def _pick_redirect_uri(request: Request) -> str:
 
 
 @router.get("/login")
-def login(request: Request):
+def login(request: Request, drive: bool = False, user=Depends(get_current_user)):
     redirect_uri = _pick_redirect_uri(request)
     logger.info(
         "Google /login origin=%r host=%r x-fwd-host=%r x-fwd-proto=%r allowed=%s -> redirect_uri=%s",
@@ -86,7 +87,9 @@ def login(request: Request):
         "access_type":"offline",   # 🔥 ensures refresh_token
         "include_granted_scopes":"false",  # 🔥 VERY IMPORTANT
         "response_type":"code",
-        "scope":" ".join(SCOPES),
+        # Drive is optional: asked for only from "Connect Google Drive", and
+        # kept on every later reconnect so a Calendar reconnect can't drop it.
+        "scope":" ".join(SCOPES + ([DRIVE_SCOPE] if drive or user.drive_folder_id else [])),
         "state": secrets.token_urlsafe(24),
     }
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
@@ -156,7 +159,10 @@ def exchange_code(
 
         logger.info(f"Post-commit check - User: {user.email}, AT set: {bool(user.google_access_token)}")
 
-        return {"message": "Google connected", "is_connected": True}
+        drive_connected = google_auth_service.sync_drive_folder(
+            db, user, DRIVE_SCOPE in (tokens.get("scope") or "").split()
+        )
+        return {"message": "Google connected", "is_connected": True, "drive_connected": drive_connected}
 
     except HTTPException:
         raise
@@ -189,3 +195,55 @@ def get_events(user=Depends(get_current_user)):
     from app.services.google_calendar_service import get_calendar_events
     events = get_calendar_events(user)
     return events
+
+# ─── Google Drive transcript export ─────────────────────────────────────────
+
+@router.get("/drive/status")
+def drive_status(user=Depends(get_current_user)):
+    from app.services.drive_export_service import folder_url
+    connected = bool(user.drive_folder_id and user.google_access_token)
+    return {
+        "connected": connected,
+        "folder_url": folder_url(user.drive_folder_id) if connected else None,
+    }
+
+
+@router.post("/drive/disconnect")
+def drive_disconnect(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Stop exporting. Calendar stays connected; the folder and its Docs stay in Drive."""
+    user.drive_folder_id = None
+    db.commit()
+    return {"connected": False}
+
+
+@router.post("/drive/export-past")
+def drive_export_past(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Queue an export of every completed meeting of this user that isn't in
+    their Drive yet — the same meetings new exports cover (owner or invited)."""
+    from app.db.models import Meeting
+    from app.celery_tasks.meeting_tasks import export_meeting_to_drive
+    if not user.drive_folder_id:
+        raise HTTPException(status_code=400, detail="Connect Google Drive first")
+    email = (user.email or "").lower()
+    rows = db.query(Meeting).filter(
+        Meeting.organization_id == user.organization_id,
+        Meeting.status == "completed",
+    ).all()
+    queued = 0
+    for m in rows:
+        invited = any((a.get("email") or "").lower() == email
+                      for a in ((m.google_event_data or {}).get("attendees") or []))
+        if (m.user_id == user.id or invited) and str(user.id) not in (m.drive_files or {}):
+            export_meeting_to_drive.delay(m.id, only_user_id=str(user.id))
+            queued += 1
+    return {"queued": queued}
+
+
+@router.get("/drive/meeting/{meeting_id}")
+def drive_meeting_link(meeting_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The current user's own Doc for this meeting, if one was exported."""
+    from app.db.models import Meeting
+    from app.services.drive_export_service import doc_url
+    m = db.get(Meeting, meeting_id)
+    file_id = ((m.drive_files or {}) if m and m.organization_id == user.organization_id else {}).get(str(user.id))
+    return {"url": doc_url(file_id) if file_id else None}

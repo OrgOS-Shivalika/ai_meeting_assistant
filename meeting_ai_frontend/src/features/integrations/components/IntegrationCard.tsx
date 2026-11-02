@@ -25,6 +25,7 @@ export default function IntegrationCard({
   busy = false,
   onConnect,
   onDisconnect,
+  children,
 }: {
   name: string;
   description: string;
@@ -39,6 +40,8 @@ export default function IntegrationCard({
   busy?: boolean;
   onConnect?: () => void;
   onDisconnect?: () => void;
+  /** Extra actions shown under the description (e.g. "Open folder"). */
+  children?: React.ReactNode;
 }) {
   return (
     <Card variant="default" className="flex flex-col gap-4 rounded-xl p-[22px]">
@@ -70,6 +73,7 @@ export default function IntegrationCard({
         {state === "error" && errorMessage && (
           <p className="mt-2.5 text-xs text-error">{errorMessage}</p>
         )}
+        {children}
       </div>
 
       <div className="flex items-center gap-2.5">

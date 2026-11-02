@@ -163,7 +163,12 @@ Rules:
    - 0.7-0.9: clear commitment with owner OR date (not both)
    - 0.5-0.7: implied need, ambiguous owner/date
    - Below 0.5: DO NOT EMIT.
-7. If the chunk is small talk, filler, repetition, or topic exploration
+7. `context`: a DETAILED English brief drawn from CURRENT CHUNK + ROLLING
+   CONTEXT — why the task is needed, who asked, and every specific said
+   about it (requirements, numbers, dates, names, systems, constraints,
+   what "done" means). As long as the discussion supports; never pad,
+   never invent. ALWAYS provide it.
+8. If the chunk is small talk, filler, repetition, or topic exploration
    without a commitment, return {{"tasks": []}}.
 
 Response Format:
@@ -171,6 +176,7 @@ Response Format:
   "tasks": [
     {{
       "task": "Send the load test report",
+      "context": "Checkout latency spiked to 2s under load last week; the team needs the numbers before deciding on scaling the API.",
       "owner": "Sarah",
       "type": "assigned_task",
       "deadline": "by Friday",

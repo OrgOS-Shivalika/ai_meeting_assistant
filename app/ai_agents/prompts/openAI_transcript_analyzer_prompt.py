@@ -161,6 +161,20 @@ prompt = """
               - When no time was mentioned at all -> due_date = null.
               - DO NOT INVENT dates. Better null than wrong.
 
+            CONTEXT (English, markdown allowed): a DETAILED brief so someone
+            who missed the meeting can do the task without asking anyone.
+            Include EVERYTHING the transcript says that bears on it:
+              - why it is needed — the problem or goal discussed
+              - who asked for it, who agreed, and what was said
+              - every specific mentioned: requirements, fields, numbers,
+                dates, names, systems, files, examples given
+              - constraints, dependencies, deadlines and their reasons
+              - what "done" looks like, if stated; open questions left
+            Length follows the transcript: several sentences or bullets when
+            it was discussed at length, one or two only for a passing mention.
+            Use only what the transcript says — never pad, never invent.
+            ALWAYS provide it. (A later pass expands it from the full transcript.)
+
             If the transcript has no clear action items, return an empty array.</description>
         </section>
         <section id="risks">
@@ -196,6 +210,7 @@ prompt = """
   "action_items": [
     {
       "task": "string",
+      "context": "detailed markdown brief (see CONTEXT rules)",
       "owner": "string",
       "due_date": "string",
       "priority": "low|medium|high",

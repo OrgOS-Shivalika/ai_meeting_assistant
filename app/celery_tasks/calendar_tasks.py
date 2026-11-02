@@ -44,7 +44,9 @@ def sync_google_calendar(self):
                 for event in events:
                     meet_link = event.get("hangoutLink")
                     event_id = event.get("id")
-                    summary = event.get("summary", "Untitled Meeting")
+                    # No calendar title → leave it empty; the pipeline fills
+                    # in the AI title. "Untitled Meeting" would stick forever.
+                    summary = (event.get("summary") or "").strip()
 
                     if not event_id or not meet_link:
                         continue
@@ -123,7 +125,7 @@ def sync_google_calendar(self):
                         organization_id=user.organization_id,
                         google_event_id=event_id,
                         google_event_data=event,
-                        title=summary,
+                        title=summary or None,
                     )
                     db.add(meeting)
                     db.commit()

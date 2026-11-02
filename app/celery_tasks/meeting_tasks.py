@@ -47,3 +47,22 @@ def process_meeting(self, meeting_id: int) -> dict:
 
     finally:
         db.close()
+
+
+@celery.task(
+    name="meeting_ai.export_meeting_to_drive",
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    max_retries=3,
+)
+def export_meeting_to_drive(self, meeting_id: int, decisions=None, only_user_id=None) -> dict:
+    """Write the meeting's transcript Doc to each recipient's Google Drive
+    folder. Retries on transient Drive failures; the export is idempotent."""
+    from app.services.drive_export_service import export_meeting
+
+    db = SessionLocal()
+    try:
+        return export_meeting(db, meeting_id, decisions=decisions, only_user_id=only_user_id)
+    finally:
+        db.close()
