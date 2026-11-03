@@ -36,8 +36,13 @@ import BoardScorecardPage from "../features/kanban/pages/BoardScorecardPage";
 import SettingsPage from "../features/settings/pages/SettingsPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import ContinuumBoardPage from "../features/continuum/pages/ContinuumBoardPage";
+import { HomePage, PrivacyPage, TermsPage } from "../features/legal/pages/LegalPages";
 
 export const router = createBrowserRouter([
+  // Public, linked from the Google OAuth consent screen.
+  { path: "/home", element: <HomePage /> },
+  { path: "/privacy", element: <PrivacyPage /> },
+  { path: "/terms", element: <TermsPage /> },
   {
     path: "/login",
     element: <LoginPage />,
