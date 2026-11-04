@@ -126,6 +126,17 @@ def health_check():
 frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meeting_ai_frontend", "dist")
 
 
+def _frontend_file(rel: str) -> str | None:
+    """Resolve `rel` to a file inside dist/, or None. Blocks `..%2F` traversal."""
+    root = os.path.realpath(frontend_path)
+    path = os.path.realpath(os.path.join(root, rel.lstrip("/\\")))
+    try:
+        inside = os.path.commonpath([root, path]) == root
+    except ValueError:  # different drive on Windows
+        return None
+    return path if inside and os.path.isfile(path) else None
+
+
 # Registered BEFORE the catchall below, so it wins the route match.
 #
 # Browsers request /favicon.ico on their own, regardless of the
@@ -157,8 +168,8 @@ async def spa_shell_on_html_navigation(request: Request, call_next):
         and request.url.path not in _API_HTML_PASSTHROUGH
         and os.path.exists(frontend_path)
     ):
-        candidate = os.path.join(frontend_path, request.url.path.lstrip("/"))
-        if os.path.isfile(candidate):
+        candidate = _frontend_file(request.url.path)
+        if candidate:
             return FileResponse(candidate)
         index_file = os.path.join(frontend_path, "index.html")
         if os.path.isfile(index_file):
@@ -180,8 +191,8 @@ if os.path.exists(frontend_path):
 
     @app.get("/{catchall:path}")
     async def serve_frontend(catchall: str):
-        file_path = os.path.join(frontend_path, catchall)
-        if os.path.isfile(file_path):
+        file_path = _frontend_file(catchall)
+        if file_path:
             return FileResponse(file_path)
         index_file = os.path.join(frontend_path, "index.html")
         if os.path.isfile(index_file):
